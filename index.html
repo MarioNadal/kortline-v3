@@ -2128,25 +2128,36 @@ function _persistLocalCacheOnly(){
   // acabamos de recibir de otro entrenador.
   _lastSyncedSnapshot=_snapshotState();
 }
+// v3 · Firestore reenvía a nuestro propio listener cada escritura que
+// hacemos (eco local), y en un partido en vivo save() se llama cada
+// segundo mientras corre el reloj — sin este filtro, eso repintaba toda
+// la pantalla del partido en vivo una vez por segundo (el "parón" que vio
+// Mario). Por eso cada listener compara antes de tocar S/render(): si los
+// datos que llegan son idénticos a los que ya tenemos, es nuestro propio
+// eco y no hay nada que hacer.
 function _attachClubListeners(){
   _teardown(_clubUnsubs);
   _clubUnsubs.push(_clubDocRef().onSnapshot(snap=>{
     if(!snap.exists)return;
-    const d=snap.data()||{};
+    const rd=_fsRestore(snap.data()||{});
+    const fresh={
+      clubLogo:("clubLogo" in rd)?rd.clubLogo:S.clubLogo,
+      clubName:("clubName" in rd)?rd.clubName:S.clubName,
+      clubAbrev:("clubAbrev" in rd)?rd.clubAbrev:S.clubAbrev,
+      clubLema:("clubLema" in rd)?rd.clubLema:S.clubLema,
+      cfg: rd.cfg? {...DEFAULT_CFG,...rd.cfg,features:{...DEFAULT_CFG.features,...(rd.cfg.features||{})}} : S.cfg
+    };
+    const cur={clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg};
+    if(JSON.stringify(fresh)===JSON.stringify(cur))return; // eco de nuestro propio guardado
     _applyingRemote=true;
-    const rd=_fsRestore(d);
-    if("clubLogo" in rd)S.clubLogo=rd.clubLogo;
-    if("clubName" in rd)S.clubName=rd.clubName;
-    if("clubAbrev" in rd)S.clubAbrev=rd.clubAbrev;
-    if("clubLema" in rd)S.clubLema=rd.clubLema;
-    if(rd.cfg)S.cfg={...DEFAULT_CFG,...rd.cfg,features:{...DEFAULT_CFG.features,...(rd.cfg.features||{})}};
+    S.clubLogo=fresh.clubLogo;S.clubName=fresh.clubName;S.clubAbrev=fresh.clubAbrev;S.clubLema=fresh.clubLema;S.cfg=fresh.cfg;
     _applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _clubUnsubs.push(_clubDocRef().collection("teams").onSnapshot(snap=>{
-    _applyingRemote=true;
-    S.teams=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
-    _applyingRemote=false;
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.teams))return;
+    _applyingRemote=true;S.teams=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
 }
@@ -2155,24 +2166,35 @@ function _attachTeamListeners(tid){
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
   _teamUnsubs.push(teamRef.collection("players").onSnapshot(snap=>{
-    _applyingRemote=true;S.players[tid]=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));_applyingRemote=false;
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
+    _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
-    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));_applyingRemote=false;
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
+    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("events").onSnapshot(snap=>{
-    _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));_applyingRemote=false;
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.events[tid]||[]))return;
+    _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
+    let changed=false;
     _applyingRemote=true;
     snap.docChanges().forEach(ch=>{
       const key=sk(tid, ch.doc.id);
-      if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=_fsRestore(ch.doc.data());
+      const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
+      if(JSON.stringify(fresh)===JSON.stringify(S.sessions[key]))return; // eco de nuestro propio guardado
+      changed=true;
+      if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=fresh;
     });
     _applyingRemote=false;
+    if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
 }
@@ -2463,6 +2485,13 @@ function restoreAutoBackup(){
   });
 }
 function checkBackupReminder(){
+  // v3: con la base de datos compartida activa, los datos ya se guardan
+  // de forma continua en Firestore (con historial y redundancia propios de
+  // Google Cloud) — el aviso de "exporta un backup manual" que tenía v2
+  // dejaría de tener sentido y solo generaría confusión, así que se omite
+  // mientras haya sesión de club activa. La exportación manual sigue
+  // disponible en Ajustes por si alguien quiere un archivo aparte.
+  if(_cloudEnabled)return; // basta con que la app tenga Firebase configurado (aunque el login tarde unos segundos)
   const lastExport=lsGet("cbj:lastexport");
   if(sessionStorage.getItem("cbj:backup-dismiss"))return;
   const sevenDays=7*24*60*60*1000;

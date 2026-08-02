@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix: parón cada segundo en partido en vivo (2026-08-02)
+
+### Corregido
+
+- 🔴 **Parón visible cada segundo al arrancar el reloj de un partido** (reportado por Mario: "se ven como cada segundo parones... como si fuese a cargar la aplicación todo el rato"). Causa raíz: mientras el reloj corre, cada tick (una vez por segundo) llama a `save()`, que ahora también sincroniza con Firestore — y Firestore reenvía a nuestro propio listener cada escritura que hacemos (eco local), lo que disparaba un `render()` completo de la pantalla del partido en vivo una vez por segundo, aunque los datos no hubieran cambiado realmente desde nuestro punto de vista.
+- **Arreglo**: los listeners de club/equipos/jugadores/partidos/eventos/sesiones ahora comparan los datos que llegan contra lo que ya hay en `S` antes de tocar nada — si son idénticos (nuestro propio eco), no hacen nada. Solo se repinta la pantalla cuando el cambio viene de verdad de otro entrenador.
+- **Aviso de "sin backup reciente" desactivado cuando hay sesión de club activa**: con la base de datos compartida, los datos ya se guardan de forma continua en Firestore, así que ese aviso (pensado para el modo 100% local de v2) dejaba de tener sentido y solo generaba confusión. Sigue disponible la exportación manual en Ajustes para quien quiera un archivo aparte. En modo local puro (sin Firebase configurado) el aviso se sigue mostrando igual que en v2.
+- CACHE_VERSION → dev.4
+
+### Probado
+
+- Test que reproduce exactamente el escenario reportado: reloj "corriendo" sin que nadie toque nada (solo `save()` repetido, igual que el tick real) — antes del arreglo esto habría disparado un `render()` completo por cada tick; con el arreglo, 0 repintados fantasma.
+- Confirmado que el aviso de backup manual sigue funcionando igual en modo local puro, y que se omite correctamente con sesión de club activa.
+
 ## [Sin publicar] · kortline-v3 · Fix crítico: partidos en vivo no sincronizaban (2026-08-02)
 
 ### Corregido
