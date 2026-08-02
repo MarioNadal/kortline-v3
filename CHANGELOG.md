@@ -3,6 +3,25 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix: acordeón del Historial, stats de equipo a 0 y alineación de PTS (2026-08-02)
+
+### Corregido
+
+- 🔴 **El botón de cada cuarto (▶/▼) en el panel Historial cambiaba de icono pero no desplegaba nada** (reportado por Mario). Causa raíz: desde que el Historial también vive dentro del modal 📊 (cambio anterior), hay dos copias del mismo panel en la página con los mismos `id="log-q-N"` a la vez (una dentro de `#root`, oculta en vertical, y otra dentro del modal). El botón buscaba el bloque a desplegar con `document.getElementById(...)`, que siempre encuentra la PRIMERA copia del id en la página — normalmente la oculta — así que el clic movía la copia equivocada mientras el icono (que sí usa una referencia directa al botón pulsado) cambiaba con normalidad. Arreglo: el botón ya no busca por id, usa directamente su elemento hermano en el DOM, así que siempre despliega la copia correcta la clicada.
+- 🔴 **Las estadísticas de equipo en modo "solo equipo" seguían saliendo a 0** pese al arreglo anterior (reportado de nuevo por Mario). El arreglo anterior hizo que `computeTeamKPIs` leyera `live.teamAgg`, pero nunca llegaba a usarlo: tanto la pestaña 📈 Equipo como 🏀 Partidos (y sus exportaciones PDF/Excel) filtraban antes la lista de partidos exigiendo que `live.stats` (por jugador) tuviera datos — y en modo "solo equipo" ese objeto está siempre vacío a propósito, así que esos partidos quedaban descartados antes de llegar al cálculo. Además, la propia tabla de estadísticas del partido en vivo (la que se ve en el modal 📊 y en horizontal) mostraba la tabla vacía de jugadores en vez de un resumen de equipo. Arreglo:
+  - Nueva función `_hasMatchStats(mm)` (sustituye al filtro repetido en 7 sitios) que también cuenta un partido si tiene `live.teamAgg`, no solo `live.stats`.
+  - La tabla de estadísticas del partido en vivo ahora muestra, en modo "solo equipo", una fila-resumen de EQUIPO (y de RIVAL si tampoco hay jugadores rivales registrados) con PTS/T2/T3/TL/RO/RD/AST/F/ROB/TAP/PER, en vez de la tabla de jugadores vacía.
+  - Nuevo `live.rivalTeamAgg`, espejo de `live.teamAgg` para el lado del rival, para que su desglose (no solo el marcador y las faltas) también se pueda ver cuando no hay jugadores del rival registrados individualmente.
+- 🔴 **El PTS de la fila de totales (EQUIPO/RIVAL) salía en naranja pero pegado a la izquierda**, en vez de centrado como el resto de la columna. Causa: esa celda usa `colspan="2"` en la celda anterior (la etiqueta "EQUIPO"), lo que la convierte en la 2ª celda del DOM de esa fila — y la hoja de estilos fuerza alineación a la izquierda para toda 2ª celda de cualquier fila (pensado para la columna "Jugador"), sin tener en cuenta que aquí el colspan la desplaza. Arreglo: alineación centrada explícita en esa celda concreta, en las 4 tablas donde aparecía (equipo e individual, inline y en el modal 📊).
+- CACHE_VERSION → dev.10
+
+### Probado
+
+- jsdom: acciones de equipo (nuestro y rival) en modo "solo equipo" rellenan `teamAgg`/`rivalTeamAgg` y el marcador correctamente.
+- jsdom: el modal 📊 en modo "solo equipo" muestra el resumen de EQUIPO (no la tabla vacía de jugadores).
+- jsdom: `_hasMatchStats` reconoce un partido "solo equipo" con datos, y `computeTeamKPIs` ya calcula KPIs reales (antes 0) a partir de él.
+- jsdom: con las dos copias del Historial presentes a la vez en la página (inline + modal, el escenario real en vertical), pulsar el desplegable de un cuarto en el modal expande la copia correcta del modal, no la oculta.
+
 ## [Sin publicar] · kortline-v3 · Fix: el Historial editable no se veía en modo vertical (2026-08-02)
 
 ### Corregido
