@@ -2173,9 +2173,9 @@ async function _runCloudSync(){
 let _clubUnsubs=[],_teamUnsubs=[],_lastListenedTeamId=undefined;
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
-  lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
-  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:logo",S.clubLogo);
-  lsSet("cbj:name",S.clubName);lsSet("cbj:cabrev",S.clubAbrev);lsSet("cbj:clema",S.clubLema);lsSet("cbj:cfg",S.cfg);
+  lsSet("cbjtest:t",S.teams);lsSet("cbjtest:p",S.players);lsSet("cbjtest:s",S.sessions);
+  lsSet("cbjtest:m",S.matches);lsSet("cbjtest:ev",S.events);lsSet("cbjtest:logo",S.clubLogo);
+  lsSet("cbjtest:name",S.clubName);lsSet("cbjtest:cabrev",S.clubAbrev);lsSet("cbjtest:clema",S.clubLema);lsSet("cbjtest:cfg",S.cfg);
   // Referencia al día para que el próximo sync saliente no reenvíe lo que
   // acabamos de recibir de otro entrenador.
   _lastSyncedSnapshot=_snapshotState();
@@ -2295,10 +2295,10 @@ function toggleTeamsReorder(){
   render();
 }
 function load(){
-  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};
+  S.teams=lsGet("cbjtest:t")||[];S.players=lsGet("cbjtest:p")||{};S.sessions=lsGet("cbjtest:s")||{};S.matches=lsGet("cbjtest:m")||{};S.events=lsGet("cbjtest:ev")||{};
   _sortTeams();
-  S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
-  const sc=lsGet("cbj:cfg");
+  S.clubLogo=lsGet("cbjtest:logo")||null;S.clubName=lsGet("cbjtest:name")||"Kortline";S.clubAbrev=lsGet("cbjtest:cabrev")||"";S.clubLema=lsGet("cbjtest:clema")||"";
+  const sc=lsGet("cbjtest:cfg");
   S.cfg=sc?{...DEFAULT_CFG,...sc,features:{...DEFAULT_CFG.features,...(sc.features||{})}}:{...DEFAULT_CFG};
   // Asegurar que riskThreshold sea numérico (fix: a veces se guardaba como string)
   S.cfg.riskThreshold=parseInt(S.cfg.riskThreshold)||75;
@@ -2310,16 +2310,16 @@ function save(){
   // seguridad real (vive en el mismo localStorage que los datos primarios).
   // El sistema honesto es export/import manual desde Ajustes.
   let ok=true;
-  if(!lsSet("cbj:t",S.teams))ok=false;
-  if(!lsSet("cbj:p",S.players))ok=false;
-  if(!lsSet("cbj:s",S.sessions))ok=false;
-  if(!lsSet("cbj:m",S.matches))ok=false;
-  if(!lsSet("cbj:ev",S.events))ok=false;
-  if(!lsSet("cbj:logo",S.clubLogo))ok=false;
-  if(!lsSet("cbj:name",S.clubName))ok=false;
-  if(!lsSet("cbj:cabrev",S.clubAbrev))ok=false;
-  if(!lsSet("cbj:clema",S.clubLema))ok=false;
-  if(!lsSet("cbj:cfg",S.cfg))ok=false;
+  if(!lsSet("cbjtest:t",S.teams))ok=false;
+  if(!lsSet("cbjtest:p",S.players))ok=false;
+  if(!lsSet("cbjtest:s",S.sessions))ok=false;
+  if(!lsSet("cbjtest:m",S.matches))ok=false;
+  if(!lsSet("cbjtest:ev",S.events))ok=false;
+  if(!lsSet("cbjtest:logo",S.clubLogo))ok=false;
+  if(!lsSet("cbjtest:name",S.clubName))ok=false;
+  if(!lsSet("cbjtest:cabrev",S.clubAbrev))ok=false;
+  if(!lsSet("cbjtest:clema",S.clubLema))ok=false;
+  if(!lsSet("cbjtest:cfg",S.cfg))ok=false;
   _scheduleCloudSync();
   return ok;
 }
@@ -2505,13 +2505,13 @@ function autoBackup(){
   // ejecuta manualmente si alguien la invoca. Usa silent=true para no spamear.
   try{
     const data={ts:Date.now(),teams:S.teams,players:S.players,sessions:S.sessions,matches:S.matches,events:S.events,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg};
-    lsSet("cbj:autobackup",data,true);
+    lsSet("cbjtest:autobackup",data,true);
   }catch(e){}
 }
 // v1.8.3: borrar el autobackup viejo desde Ajustes para liberar espacio
 function _clearAutoBackup(){
   _confirm("¿Borrar el autobackup automático?<br><span style='font-size:12px;color:var(--td)'>Solo elimina la copia interna. Tus datos reales no se tocan. Si tienes el backup exportado a JSON, no pierdes nada.</span>","🗑 Borrar autobackup",()=>{
-    localStorage.removeItem("cbj:autobackup");
+    localStorage.removeItem("cbjtest:autobackup");
     toast("✅ Autobackup borrado · espacio liberado");
     const m=document.getElementById("m-club-settings");if(m){m.remove();openClubSettings();}
   });
@@ -2526,7 +2526,7 @@ function exportBackup(){
   const a=document.createElement("a");a.href=url;a.download=filename;
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  lsSet("cbj:lastexport",Date.now());
+  lsSet("cbjtest:lastexport",Date.now());
   document.getElementById("backup-banner")?.remove();
   const m=document.getElementById("m-club-settings");if(m){m.remove();openClubSettings();}
   // Modal post-export con opción de compartir
@@ -2567,7 +2567,7 @@ function importBackup(input){
   r.readAsText(file);
 }
 function restoreAutoBackup(){
-  const ab=lsGet("cbj:autobackup");
+  const ab=lsGet("cbjtest:autobackup");
   if(!ab){toast("⚠️ No hay autobackup disponible");return;}
   const fecha=new Date(ab.ts).toLocaleString("es-ES");
   _confirm(`¿Restaurar el autobackup del ${fecha}? Se sobreescribirán los datos actuales.`,"Restaurar",()=>{
@@ -2585,8 +2585,8 @@ function checkBackupReminder(){
   // mientras haya sesión de club activa. La exportación manual sigue
   // disponible en Ajustes por si alguien quiere un archivo aparte.
   if(_cloudEnabled)return; // basta con que la app tenga Firebase configurado (aunque el login tarde unos segundos)
-  const lastExport=lsGet("cbj:lastexport");
-  if(sessionStorage.getItem("cbj:backup-dismiss"))return;
+  const lastExport=lsGet("cbjtest:lastexport");
+  if(sessionStorage.getItem("cbjtest:backup-dismiss"))return;
   const sevenDays=7*24*60*60*1000;
   if(!lastExport||Date.now()-lastExport>sevenDays){
     setTimeout(()=>{
@@ -4770,14 +4770,14 @@ function openClubSettings(){
     <div class="stg-sec">
       <div class="stg-sec-title">💾 Copia de seguridad</div>
       <div style="font-size:12px;color:var(--tm);margin-bottom:12px;line-height:1.6">Protege tus datos ante cambios de dispositivo o limpieza del navegador.</div>
-      ${(()=>{const le=lsGet("cbj:lastexport");const ab=lsGet("cbj:autobackup");return(le?`<div style="font-size:12px;color:var(--td);margin-bottom:6px">📤 Último export: <b>${new Date(le).toLocaleString("es-ES")}</b></div>`:`<div style="font-size:12px;color:#ef4444;margin-bottom:6px">⚠️ Nunca has exportado tus datos</div>`)+(ab?`<div style="font-size:12px;color:var(--td);margin-bottom:10px">🔄 Autobackup: <b>${new Date(ab.ts).toLocaleString("es-ES")}</b></div>`:"");})()}
+      ${(()=>{const le=lsGet("cbjtest:lastexport");const ab=lsGet("cbjtest:autobackup");return(le?`<div style="font-size:12px;color:var(--td);margin-bottom:6px">📤 Último export: <b>${new Date(le).toLocaleString("es-ES")}</b></div>`:`<div style="font-size:12px;color:#ef4444;margin-bottom:6px">⚠️ Nunca has exportado tus datos</div>`)+(ab?`<div style="font-size:12px;color:var(--td);margin-bottom:10px">🔄 Autobackup: <b>${new Date(ab.ts).toLocaleString("es-ES")}</b></div>`:"");})()}
       <div style="display:flex;gap:8px;margin-top:4px">
         <button class="btn-p" style="flex:1;margin:0" onclick="exportBackup()">⬇️ Exportar</button>
         <button class="btn-s" style="flex:1;margin:0" onclick="document.getElementById('import-input').click()">⬆️ Importar</button>
         <input type="file" id="import-input" accept=".json" style="display:none" onchange="importBackup(this)"/>
       </div>
       ${(()=>{
-        const ab=localStorage.getItem("cbj:autobackup");
+        const ab=localStorage.getItem("cbjtest:autobackup");
         if(!ab)return "";
         const kb=Math.round(ab.length*2/1024);
         return `<div style="margin-top:10px;padding:10px;background:rgba(245,158,11,.08);border:1px dashed rgba(245,158,11,.35);border-radius:9px;font-size:12px;color:var(--td);line-height:1.5">
@@ -10132,7 +10132,7 @@ try{
 (function(){
   try{
     let dirty=false;
-    if(localStorage.getItem("cbj:test2_loaded")){localStorage.removeItem("cbj:test2_loaded");dirty=true;}
+    if(localStorage.getItem("cbjtest:test2_loaded")){localStorage.removeItem("cbjtest:test2_loaded");dirty=true;}
     if(S.teams && S.teams.some(t=>t.id==="test_t2"||/TEST$/i.test(t.name||""))){
       const before=S.teams.length;
       S.teams=S.teams.filter(t=>t.id!=="test_t2"&&!/TEST$/i.test(t.name||""));
