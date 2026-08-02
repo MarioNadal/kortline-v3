@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix: estadísticas a 0 y tiros libres bloqueados en modo "solo equipo" (2026-08-02)
+
+### Corregido
+
+- 🔴 **Partidos en modo "solo equipo" (`teamOnlyStats`) mostraban todas las estadísticas a 0** en la pestaña Estadísticas (reportado por Mario). Causa raíz: `computeTeamKPIs` (el panel 📈 Equipo) solo sumaba `live.stats[pid]` por jugador — y en modo "solo equipo" ese objeto se queda vacío a propósito (no se registra nada por jugador), toda la acción va a `live.qScores`/`live.log` a nivel de equipo. Arreglo: nuevo acumulador `live.teamAgg` (sin capar, a diferencia de `live.log` que solo guarda las últimas 80 entradas) que `liveTeamAction` rellena en paralelo a cada acción de equipo, y que `computeTeamKPIs` ahora también suma. Como las estadísticas del plan anual (§7) son de por sí métricas de equipo, el modo "solo equipo" encaja con ellas de forma natural.
+- 🔴 **Falta del rival en modo "solo equipo" abría el diálogo de tiros libres pero no dejaba marcarlos** (reportado por Mario). Causa raíz: `openOurFoulTLModal` exigía elegir un jugador propio antes de poder continuar, y en modo "solo equipo" no hay jugadores individuales que elegir — el botón de continuar se quedaba deshabilitado para siempre. Arreglo: en modo "solo equipo" se salta el selector de jugador (igual que ya existía para el caso simétrico "sin jugadores del rival registrados") y va directo a "cuántos tiros libres → cuántos entran", acreditando al equipo.
+- CACHE_VERSION → dev.7
+
+### Probado
+
+- Partido en modo "solo equipo": canastas y fallos de equipo, rebote, pérdida → `live.teamAgg` correcto, marcador correcto, `computeTeamKPIs` ya no muestra 0. Falta del rival → se abre el modal de equipo (sin pedir jugador), se puede marcar 1/2 tiros libres entrados, se acredita al marcador y a `teamAgg`.
+- Regresión de partidos normales (con seguimiento individual): siguen usando el flujo de siempre (si piden jugador), sin cambios de comportamiento.
+
 ## [Sin publicar] · kortline-v3 · Fix definitivo: dejar de sincronizar solo por el reloj (2026-08-02)
 
 ### Corregido
