@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Pausar tiros libres para gestionar el partido (2026-08-02)
+
+### Añadido
+
+- **Los 8 modales de "tiros libres" (elegir tirador/destinatario, cuántos TL, marcar aciertos — tanto para nuestro equipo como para el rival, con o sin jugadores rivales registrados) ahora tienen un botón "⏸ Pausar".** Responde a la limitación documentada ayer: hasta hoy, si el entrenador necesitaba pedir un tiempo muerto (u otra acción) justo después de una falta, tenía que cancelar el registro de tiros libres con "Saltar sin asignar" y anotarlos luego a mano. Ahora, pausar oculta el modal sin perder nada de lo ya marcado (tirador elegido, número de TL, aciertos ya tocados) y dentro aparece un banner "🎯 Tiros libres pendientes — toca para continuar". Mientras está pausado, el entrenador tiene la pantalla de partido en vivo completamente libre para lo que necesite en ese momento — pedir tiempo muerto, hacer un cambio desde el banquillo, lo que toque — igual que ya podía hacer durante un tiempo muerto. Al tocar el banner se retoma el modal exactamente donde se dejó.
+- Mientras un modal de tiros libres está pausado, sigue contando como "bloqueante" para el sistema de sustitución forzada por descalificación (no se fuerza un cambio a medio anotar un TL).
+- De paso, se añadieron a esa misma lista de bloqueantes dos modales de tiros libres en modo "solo equipo" que faltaban (`m-ourtl-team`, `m-ourtlshoot-team`).
+- CACHE_VERSION → dev.16
+
+### Probado (jsdom)
+
+- Pausar y reanudar en medio de: elegir a qué jugador rival le tiran + nº de TL, marcar aciertos/fallos a medio marcar, elegir tirador propio + nº de TL, marcar aciertos propios a medio marcar — en todos los casos el estado se conserva exacto y el flujo se completa y guarda correctamente después de reanudar.
+- El modal pausado sigue siendo detectado como "bloqueante" por el sistema de sustitución forzada tras descalificación.
+- Pausar/reanudar sin ningún modal abierto no lanza error.
+- Render inicial de la pantalla de partido en vivo sin errores tras el cambio.
+
 ## [Sin publicar] · kortline-v3 · Descalificado colándose por el tiempo muerto (2026-08-02)
 
 ### Corregido

@@ -1018,7 +1018,7 @@ function _enqueueDQSub(pid,isRival){
 function _tryProcessDQSubs(){
   if(!window._pendingDQSubs||!window._pendingDQSubs.length)return;
   // Esperar a que no haya modales bloqueantes (TL, shot chart, picker, cadenas)
-  const blockers=['m-foultl','m-teamtl','m-tlshoot','m-teamtlshoot','m-ourtl','m-ourtlshoot','m-shotchart','m-shotchange','m-actpicker','m-chainast','m-chainreb'];
+  const blockers=['m-foultl','m-teamtl','m-tlshoot','m-teamtlshoot','m-ourtl','m-ourtlshoot','m-ourtl-team','m-ourtlshoot-team','m-shotchart','m-shotchange','m-actpicker','m-chainast','m-chainreb'];
   const hasBlocker=blockers.some(id=>document.getElementById(id));
   if(hasBlocker){
     setTimeout(_tryProcessDQSubs,500);
@@ -8783,6 +8783,44 @@ function liveAction(pid,action,pts){
   }
   _syncLiveQ(m);save();render();
 }
+/* ═══════════════════════════════════════
+   PAUSAR TIROS LIBRES PENDIENTES (v1.8.26)
+   El usuario pidió poder "hacer las acciones que toque en ese momento,
+   igual que en el tiempo muerto" mientras hay una falta/TL a medio
+   registrar (elegir tirador, marcar aciertos, etc.). En vez de duplicar
+   botones de T.M./cambio dentro de cada uno de los 8 modales de TL,
+   se oculta (display:none, sin destruir) el modal activo — conserva
+   TODO su estado interno (el._tl, el._pid, el._state...) — y se deja al
+   usuario libre para usar la pantalla normal de partido en vivo: pedir
+   T.M., hacer un cambio desde el banquillo, lo que necesite. Un banner
+   flotante permite retomar el TL exactamente donde se dejó.
+   El modal sigue existiendo en el DOM (oculto), así que _tryProcessDQSubs
+   (que solo comprueba getElementById) lo sigue tratando como bloqueante
+   mientras está pausado — correcto: no se debe forzar una sustitución
+   por descalificación mientras hay un TL a medio registrar.
+═══════════════════════════════════════ */
+const _TL_PAUSABLE=['m-foultl','m-tlshoot','m-teamtl','m-teamtlshoot','m-ourtl','m-ourtlshoot','m-ourtl-team','m-ourtlshoot-team'];
+function _pauseTLModal(modalId){
+  const el=document.getElementById(modalId);if(!el)return;
+  el.style.display="none";
+  window._tlPaused={id:modalId};
+  _showTLResumeBanner();
+}
+function _showTLResumeBanner(){
+  document.getElementById("m-tl-resume-banner")?.remove();
+  const b=document.createElement("div");
+  b.id="m-tl-resume-banner";
+  b.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:10002;display:flex;justify-content:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));pointer-events:none";
+  b.innerHTML=`<button onclick="_resumeTLModal()" style="pointer-events:auto;width:100%;max-width:380px;padding:13px 16px;border:none;border-radius:12px;font-weight:900;font-size:14px;cursor:pointer;background:linear-gradient(135deg,var(--orange),#c2410c);color:white;box-shadow:0 4px 20px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;gap:8px;font-family:var(--font-d)">🎯 Tiros libres pendientes — toca para continuar</button>`;
+  document.body.appendChild(b);
+}
+function _resumeTLModal(){
+  document.getElementById("m-tl-resume-banner")?.remove();
+  if(!window._tlPaused)return;
+  const el=document.getElementById(window._tlPaused.id);
+  if(el)el.style.display="flex";
+  window._tlPaused=null;
+}
 function openFoulTLModal(foulerPid, isTech, foulKind){
   const m=mById(S.teamId,S.matchId);if(!m)return;
   const live=m.live||{};
@@ -8820,6 +8858,7 @@ function openFoulTLModal(foulerPid, isTech, foulKind){
   el._tl=defaultTL;
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-foultl')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🏀 Tiros libres</div>
     <div class="msub">Falta de <b style="color:var(--orange)">${foulerName}</b>${foulLabel} — ¿a quién le tiran?</div>
     ${bonusBanner}
@@ -8895,6 +8934,7 @@ function openTLShootModal(rpid, total, foulerPid){
   };
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-tlshoot')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🎯 Tiros libres</div>
     <div class="msub"><b style="color:#ef4444">${esc(rname)}</b> — ${total} tiro${total>1?"s":""}. Toca los que <b style="color:#22c55e">entran</b>.</div>
     <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:10px">Por defecto fallados ✗ · toca para marcar ✓ entra</div>
@@ -9041,6 +9081,7 @@ function openTeamTLModal(foulerPid, isTech, foulKind){
   el._tl=defaultTL;
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-teamtl')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🏀 Tiros libres del rival</div>
     <div class="msub">Falta de <b style="color:var(--orange)">${foulerName}</b>${foulLabel}</div>
     ${bonusBanner}
@@ -9104,6 +9145,7 @@ function openTeamTLShootModal(total){
   };
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-teamtlshoot')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🎯 Tiros libres del rival</div>
     <div class="msub">${total} tiro${total>1?"s":""} — toca los que <b style="color:#22c55e">entran</b>.</div>
     <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:10px">Por defecto fallados ✗</div>
@@ -9191,6 +9233,7 @@ function openOurTeamOnlyFoulTLModal(foulKind){
   el._tl=defaultTL;
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-ourtl-team')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🏀 Tiros libres nuestros</div>
     <div class="msub">Falta del rival${foulLabel} — partido en modo "solo equipo"</div>
     ${bonusBanner}
@@ -9243,6 +9286,7 @@ function openOurTeamOnlyTLShootModal(total){
   };
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-ourtlshoot-team')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🎯 Tiros libres</div>
     <div class="msub">${total} tiro${total>1?"s":""} — toca los que <b style="color:#22c55e">entran</b>.</div>
     <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:10px">Por defecto fallados ✗</div>
@@ -9314,6 +9358,7 @@ function openOurFoulTLModal(rpidOpt, foulKind){
   el._tl=defaultTL;
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-ourtl')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🏀 Tiros libres nuestros</div>
     <div class="msub">Falta de <b style="color:#ef4444">${foulerName}</b>${foulLabel} — ¿quién tira?</div>
     ${bonusBanner}
@@ -9437,6 +9482,7 @@ function openOurTLShootModal(pid,total){
   };
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
+    <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-ourtlshoot')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
     <div class="mtitle">🎯 Tiros libres</div>
     <div class="msub"><b style="color:var(--orange)">${esc(pname)}</b> — ${total} tiro${total>1?"s":""}. Toca los que <b style="color:#22c55e">entran</b>.</div>
     <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:10px">Por defecto fallados ✗</div>
