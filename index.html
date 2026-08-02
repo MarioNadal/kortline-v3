@@ -1583,13 +1583,16 @@ function _endPeriodAction(pid,action,pts,qIdx,isRival){
   const m=mById(S.teamId,S.matchId);if(!m?.live)return;
   if(isRival){
     if(pts>0&&m.live.qScores?.[qIdx])m.live.qScores[qIdx][1]+=pts;
-    m.live.log.push({pid:"rival",action:"rival",pts,q:qIdx+1,ts:Date.now()});
+    m.live.log.push({pid:"rival",action:"rival",pts,q:qIdx+1,clockAt:m.live.clockSec,ts:Date.now(),
+      desc:(m.rival||"Rival")+" +"+pts});
   } else {
     if(!m.live.stats[pid])m.live.stats[pid]={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};
     m.live.stats[pid][action]=(m.live.stats[pid][action]||0)+1;
     if(pts>0&&m.live.qScores?.[qIdx])m.live.qScores[qIdx][0]+=pts;
     if(action==="foul"&&m.live.teamFouls?.[qIdx]!==undefined){m.live.teamFouls[qIdx]++;_checkBonusEnter(m,qIdx);}
-    m.live.log.push({pid,action,pts,q:qIdx+1,ts:Date.now()});
+    const _pname=_shortName(pl(S.teamId).find(p=>p.id===pid)?.name||"?");
+    m.live.log.push({pid,action,pts,q:qIdx+1,clockAt:m.live.clockSec,ts:Date.now(),
+      desc:_pname+" — "+(_ACTLABELS[action]||action)});
   }
   _syncLiveQ(m);save();
   // Actualizar marcador en el overlay sin re-render
@@ -7667,7 +7670,7 @@ function _teamAggStatsTableHtml(agg,label,totalPts,color,headerBg,borderColor){
   return`<div style="overflow-x:auto;border-radius:10px;border:1px solid ${borderColor}">
     <table class="stats-table" style="border-color:${borderColor}">
       <thead><tr style="background:${headerBg}">
-        <th colspan="2" style="text-align:left">${label}</th><th>PTS</th><th>T2</th><th>T3</th><th>TL</th><th>RO</th><th>RD</th><th>AST</th><th>F</th><th>ROB</th><th>TAP</th><th>PER</th>
+        <th colspan="2" style="text-align:left">${label}</th><th style="text-align:center">PTS</th><th>T2</th><th>T3</th><th>TL</th><th>RO</th><th>RD</th><th>AST</th><th>F</th><th>ROB</th><th>TAP</th><th>PER</th>
       </tr></thead>
       <tbody><tr class="totrow">
         <td colspan="2" style="color:var(--td);font-size:11px;font-weight:700;padding:6px 8px">${label}</td>

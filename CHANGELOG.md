@@ -3,6 +3,24 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Auditoría completa de la app (2026-08-02)
+
+### Corregido
+
+- **El botón "↩️ deshacer última" podía salir en blanco** tras usar la corrección rápida de fin de cuarto (el overlay que aparece al terminar un periodo para arreglar la última jugada). Esas entradas del historial no guardaban descripción ni el minuto de reloj, a diferencia de todas las demás formas de anotar. Ahora sí, igual que el resto.
+- El encabezado "PTS" de la fila de totales de equipo (nueva desde el arreglo anterior) también salía pegado a la izquierda por el mismo motivo del colspan — centrado.
+
+### Auditado (sin cambios necesarios — todo correcto)
+
+Repaso completo de la aplicación pedido por Mario tras completar el Historial editable: cableado de botones, reglas de baloncesto y una simulación de partidos completos de principio a fin.
+
+- **Botones y navegación**: los ~430 `onclick`/`onchange` de la app apuntan todos a funciones que existen; no se ha encontrado ningún botón roto.
+- **IDs duplicados**: buscado el mismo patrón que causó el bug del acordeón (dos copias del mismo bloque en la página a la vez) en el resto de la app — no aparece en ningún otro sitio.
+- **Reglas de baloncesto**: bonus a la 5ª falta de equipo, descalificación (5 personales, o 2 técnicas/antideportivas, o 1 descalificante directa), tiros libres según tipo de falta (1 técnica, 2 antideportiva/descalificante, 2 en bonus), prórroga (se activa con empate, dura 5', las faltas de equipo continúan del último cuarto según regla FIBA 37.2), tiempos muertos (2 en la primera mitad, 3 en la segunda, 1 por prórroga), valoración/EFF y % de tiro — todo correcto.
+- **Simulación completa con jsdom**: partido con seguimiento individual (canastas, fallos, rebotes, asistencias, robos, tapones, pérdidas, faltas hasta descalificar a una jugadora, tiros libres, sustitución, tiempo muerto, empate forzado → prórroga con arrastre de faltas, edición del Historial a mitad de partido con reasignación y borrado) y partido en modo "solo equipo" (ambos lados, tiros libres de equipo) — en ambos casos, la suma de puntos por jugador/equipo cuadra exactamente con el marcador por cuartos en todo momento.
+- **Todas las pantallas** (Estadísticas en sus 4 vistas, Hoy, Equipo, Partidos, Detalle de partido, Partido en vivo, Asistencia, Historial de asistencia, Eventos) renderizan sin errores con datos de ambos tipos de partido, incluyendo las exportaciones a PDF y Excel de las 3 pestañas que las tienen.
+- CACHE_VERSION → dev.11
+
 ## [Sin publicar] · kortline-v3 · Fix: acordeón del Historial, stats de equipo a 0 y alineación de PTS (2026-08-02)
 
 ### Corregido
