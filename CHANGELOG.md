@@ -3,6 +3,17 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Descalificado colándose por el tiempo muerto (2026-08-02)
+
+### Corregido
+
+- **Un jugador descalificado podía volver a pista durante un tiempo muerto**, tanto el nuestro como el del rival. La sustitución que se hace desde la propia pantalla de tiempo muerto (tocar un jugador en pista → elegir quién entra del banquillo) es una implementación aparte de la sustitución normal, y no pasaba por la comprobación de descalificación que ya se había corregido ahí. Mismo hueco, además, en el banquillo del rival (el botón directo "→ Pista" tampoco comprobaba si el rival estaba descalificado). Corregido en el origen de ambos flujos (nuestro y rival) y el banquillo ahora marca "⛔ Descalificado" en las dos pantallas de tiempo muerto.
+- CACHE_VERSION → dev.15
+
+### Investigado (sin cambios de código — documentado para decidir)
+
+- Preguntado por Mario: ¿se puede pedir un tiempo muerto justo después de una falta, mientras están pendientes los tiros libres? Respuesta: los modales de "¿cuántos tiros libres / quién tira?" ocupan toda la pantalla (igual que cualquier otro modal de acción) y tapan el botón de tiempo muerto de la cabecera mientras están abiertos. La falta en sí ya queda registrada antes de que se abra ese modal, así que no se pierde nada del conteo de faltas — pero si el entrenador necesita pedir el tiempo muerto en ese momento, tiene que cancelar el modal de tiros libres primero (hay botón "Saltar sin asignar") y luego anotar esos tiros libres a mano con los botones normales de +1 TL, porque hoy no hay un atajo que pause ese modal, pida el tiempo muerto y lo retome donde se quedó. Es una limitación de flujo real, no un bug de datos — pendiente de decidir si merece la pena construir ese atajo.
+
 ## [Sin publicar] · kortline-v3 · Auditoría adversarial: 5 huecos de validación (2026-08-02)
 
 ### Corregido

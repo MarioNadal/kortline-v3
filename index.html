@@ -1866,12 +1866,20 @@ function _buildTmOverlay(team,who){
   }
   function benchChips(){
     if(!benchPlayers.length)return`<div style="font-size:12px;color:var(--tm);padding:6px 0">Sin jugadores en banquillo</div>`;
-    return benchPlayers.map(p=>`
-      <div id="tm-b-${p.id}" style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--s);cursor:pointer" onclick="_tmPickIn('${p.id}')">
+    // v1.8.25 · B-ADV6: el banquillo del panel de tiempo muerto dejaba entrar
+    // a un jugador ya descalificado (el check de _isDQ solo vivía en
+    // openSubModal/subPlayer, y este flujo de sustitución-en-TM tiene su
+    // propia implementación en _tmPickIn). Ahora se marca y se bloquea igual
+    // que en el banquillo normal.
+    return benchPlayers.map(p=>{
+      const disq=_isDQ(live.stats[p.id]||{});
+      return`
+      <div id="tm-b-${p.id}" style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--s);cursor:${disq?"not-allowed":"pointer"};${disq?"opacity:.55":""}" onclick="${disq?"toast('⛔ Jugador descalificado, no puede entrar')":`_tmPickIn('${p.id}')`}">
         <div style="width:28px;height:28px;border-radius:7px;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--td)">${p.number||"?"}</div>
-        <span style="font-size:13px;color:var(--td);flex:1">${esc(_shortName(p.name))}</span>
-        <span style="font-size:10px;color:var(--orange)">▶</span>
-      </div>`).join("");
+        <span style="font-size:13px;color:var(--td);flex:1">${esc(_shortName(p.name))}${disq?" ⛔":""}</span>
+        <span style="font-size:10px;color:${disq?"#ef4444":"var(--orange)"}">${disq?"⛔":"▶"}</span>
+      </div>`;
+    }).join("");
   }
   const el=document.createElement("div");
   el.id="m-tm-overlay";
@@ -1926,6 +1934,10 @@ function _tmPickOut(pid){
 function _tmPickIn(inPid){
   if(!_tmOutPid)return;
   const m=mById(S.teamId,S.matchId);if(!m?.live)return;
+  // v1.8.25 · B-ADV6: comprobación en el origen, no solo en la UI del
+  // banquillo del tiempo muerto (defensa en profundidad).
+  const inP=pl(S.teamId).find(p=>p.id===inPid);
+  if(inP&&_isDQ(m.live.stats[inP.id]||{})){toast("⛔ Jugador descalificado, no puede entrar");return;}
   // v1.8.0: tracking de minutos y +/- antes del cambio
   _trackExit(m,_tmOutPid);
   _trackEnter(m,inPid);
@@ -7362,17 +7374,19 @@ function liveGame(){
       const fouls=_totalFouls(st);
       const fc=_isDQ(st)?"#ef4444":fouls>=4?"#f59e0b":"var(--td)";
       const pid=p.id;
+      const disq=_isDQ(st);
       const fn=rc.length<5?"subRivalPlayer":"openRivalSubModal";
       const fa=rc.length<5?"'"+pid+"',null":"'"+pid+"'";
-      const fbg=rc.length<5?"rgba(239,68,68,.12)":"rgba(239,68,68,.08)";
-      const fbd=rc.length<5?"rgba(239,68,68,.3)":"rgba(239,68,68,.2)";
-      const ftxt=rc.length<5?"&#8594; Pista":"&#8596; Sub";
-      const subBtn="<button onclick='"+fn+"("+fa+")' style='background:"+fbg+";border:1px solid "+fbd+";border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer;padding:4px 7px;flex-shrink:0'>"+ftxt+"</button>";
-      s+="<div style='background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:120px'>"
+      const fbg=disq?"rgba(239,68,68,.1)":rc.length<5?"rgba(239,68,68,.12)":"rgba(239,68,68,.08)";
+      const fbd=disq?"rgba(239,68,68,.3)":rc.length<5?"rgba(239,68,68,.3)":"rgba(239,68,68,.2)";
+      const ftxt=disq?"⛔":rc.length<5?"&#8594; Pista":"&#8596; Sub";
+      const subOnclick=disq?"toast('⛔ Jugador rival descalificado, no puede entrar')":fn+"("+fa+")";
+      const subBtn="<button onclick=\""+subOnclick+"\" style='background:"+fbg+";border:1px solid "+fbd+";border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;cursor:"+(disq?"not-allowed":"pointer")+";padding:4px 7px;flex-shrink:0'>"+ftxt+"</button>";
+      s+="<div style='background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:120px;"+(disq?"opacity:.55":"")+"'>"
         +"<div style='font-family:var(--font-d);font-weight:900;font-size:20px;line-height:1'>"+pts+"</div>"
         +"<div style='flex:1;min-width:0'>"
           +"<div style='font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>#"+(p.number||"?")+" "+esc(_shortName(p.name))+"</div>"
-          +"<div style='font-size:11px;color:"+fc+"'>"+("●".repeat(Math.min(fouls,5))||"Sin faltas")+"</div>"
+          +"<div style='font-size:11px;color:"+fc+"'>"+(disq?"⛔ Descalificado":"●".repeat(Math.min(fouls,5))||"Sin faltas")+"</div>"
         +"</div>"+subBtn+"</div>";
     });
     s+="</div>";
@@ -9853,6 +9867,11 @@ function setStatsView(view){
 }
 function subRivalPlayer(inId,outId){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  // v1.8.25 · B-ADV6b: mismo hueco que en subPlayer() pero del lado rival —
+  // el botón directo "→ Pista" del banquillo rival no comprobaba
+  // descalificación antes de meter al jugador.
+  const inP=(m.rivalPlayers||[]).find(p=>p.id===inId);
+  if(inP&&_isDQ((m.live.rivalStats||{})[inP.id]||{})){toast("⛔ Jugador rival descalificado, no puede entrar");return;}
   _stopClockForSub(m);
   if(outId===null){
     if(!m.live.rivalOnCourt.includes(inId))m.live.rivalOnCourt.push(inId);
@@ -9867,6 +9886,7 @@ function openRivalSubModal(inId){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const rp=m.rivalPlayers||[];
   const inP=rp.find(p=>p.id===inId);
+  if(inP&&_isDQ((m.live.rivalStats||{})[inP.id]||{})){toast("⛔ Jugador rival descalificado, no puede entrar");return;}
   const courtP2=(m.live.rivalOnCourt||[]).map(id=>rp.find(p=>p.id===id)).filter(Boolean);
   document.getElementById("m-rsub")?.remove();
   const el=document.createElement("div");el.id="m-rsub";
