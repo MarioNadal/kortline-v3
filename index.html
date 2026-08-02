@@ -1732,20 +1732,35 @@ function _eopStartBreak(nextLabel,breakLabel){
   _startBreakTimer(nextLabel, window._eopBreakSec||120, breakLabel);
 }
 // ── Helpers de tiempos muertos ──────────────────────────
-function _tmCounts(live){
-  // v1.8.6 · B-46: OT (q>=5) ahora cuenta TMs del propio cuarto en curso.
+function _tmCounts(live,quarters){
+  // v1.8.6 · B-46: OT (q>nQ) ahora cuenta TMs del propio cuarto en curso.
   // Antes devolvía siempre 0/0 en prórroga aunque hubieras gastado un TM.
   // v1.8.6 · B-NEW-5: defensiva ante partidos viejos con timeouts en forma de
   // array (`addTimeout` migra al hacer click, pero un render previo a ese
   // click crasheaba al acceder `to.our[0]`).
+  // v1.8.25 · B-ADV3: el cálculo de mitades estaba hardcodeado para 4 cuartos
+  // (q<=2 = 1ª mitad, q===3||4 = 2ª mitad). Con formatos de otro nº de
+  // periodos (p.ej. el de "Escuela" por defecto, 6×8min) esto daba límites
+  // de tiempos muertos incorrectos a partir del 3er periodo. Ahora la mitad
+  // se calcula a partir del nº real de periodos del partido.
+  const nQ=quarters||4;
+  const half=Math.ceil(nQ/2);
   const q=live.q||1;
   let to=live.timeouts;
   if(!to||Array.isArray(to))to={our:[0,0,0,0,0,0],rival:[0,0,0,0,0,0]};
-  const isH1=q<=2,isH2=q===3||q===4,isOT=q>=5;
+  const isH1=q<=half,isH2=q>half&&q<=nQ,isOT=q>nQ;
   let ourUsed,rivUsed,limit;
-  if(isH1){ourUsed=(to.our[0]||0)+(to.our[1]||0);rivUsed=(to.rival[0]||0)+(to.rival[1]||0);limit=2;}
-  else if(isH2){ourUsed=(to.our[2]||0)+(to.our[3]||0);rivUsed=(to.rival[2]||0)+(to.rival[3]||0);limit=3;}
-  else{ourUsed=to.our[q-1]||0;rivUsed=to.rival[q-1]||0;limit=1;}
+  if(isH1){
+    ourUsed=0;rivUsed=0;
+    for(let i=0;i<half;i++){ourUsed+=(to.our[i]||0);rivUsed+=(to.rival[i]||0);}
+    limit=2;
+  } else if(isH2){
+    ourUsed=0;rivUsed=0;
+    for(let i=half;i<nQ;i++){ourUsed+=(to.our[i]||0);rivUsed+=(to.rival[i]||0);}
+    limit=3;
+  } else {
+    ourUsed=to.our[q-1]||0;rivUsed=to.rival[q-1]||0;limit=1;
+  }
   return{ourUsed,rivUsed,ourRem:Math.max(0,limit-ourUsed),rivRem:Math.max(0,limit-rivUsed),limit,isH1,isH2,isOT};
 }
 function _tmDots(used,limit){
@@ -1757,7 +1772,7 @@ function openTimeoutModal(){
   document.getElementById("m-tm-pick")?.remove();
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const t=S.teams.find(x=>x.id===S.teamId);
-  const{ourRem,rivRem,ourUsed,rivUsed,limit,isH1,isH2}=_tmCounts(m.live);
+  const{ourRem,rivRem,ourUsed,rivUsed,limit,isH1,isH2}=_tmCounts(m.live,m.quarters);
   const half=isH1?"1ª mitad":isH2?"2ª mitad":"Prórroga";
   const el=document.createElement("div");el.id="m-tm-pick";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.78);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
@@ -1788,19 +1803,17 @@ function addTimeout(team){
   document.getElementById("m-tm-pick")?.remove();
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const qi=(m.live.q||1)-1;
-  const q=m.live.q||1;
   if(!m.live.timeouts||Array.isArray(m.live.timeouts))
     m.live.timeouts={our:[0,0,0,0,0,0],rival:[0,0,0,0,0,0]};
   const to=m.live.timeouts;
-  const isH1=q<=2,isH2=q===3||q===4;
-  const limit=isH1?2:isH2?3:1;
+  // v1.8.25 · B-ADV3: reutiliza _tmCounts (consciente del nº real de
+  // periodos) en vez de duplicar aquí el cálculo hardcodeado de mitades.
+  const{ourUsed,rivUsed,limit}=_tmCounts(m.live,m.quarters);
   if(team==="our"){
-    const used=isH1?(to.our[0]||0)+(to.our[1]||0):isH2?(to.our[2]||0)+(to.our[3]||0):(to.our[qi]||0);
-    if(used>=limit){toast("⛔ Tiempos muertos agotados en esta mitad");return;}
+    if(ourUsed>=limit){toast("⛔ Tiempos muertos agotados en esta mitad");return;}
     to.our[qi]=(to.our[qi]||0)+1;
   } else {
-    const used=isH1?(to.rival[0]||0)+(to.rival[1]||0):isH2?(to.rival[2]||0)+(to.rival[3]||0):(to.rival[qi]||0);
-    if(used>=limit){toast("⛔ T.M. del rival agotados en esta mitad");return;}
+    if(rivUsed>=limit){toast("⛔ T.M. del rival agotados en esta mitad");return;}
     to.rival[qi]=(to.rival[qi]||0)+1;
   }
   // Para el reloj
@@ -1838,7 +1851,7 @@ function _buildTmOverlay(team,who){
   const allConv=convIds.length>0?players.filter(p=>convIds.includes(p.id)):players;
   const courtPlayers=onCourt.map(id=>allConv.find(p=>p.id===id)).filter(Boolean);
   const benchPlayers=allConv.filter(p=>!onCourt.includes(p.id));
-  const{ourUsed,rivUsed,ourRem,rivRem,limit}=_tmCounts(live);
+  const{ourUsed,rivUsed,ourRem,rivRem,limit}=_tmCounts(live,m.quarters);
   const tName=(t?.name||"Nuestro").split(" ").slice(0,2).join(" ");
   const rName=(m.rival||"Rival").split(" ").slice(0,2).join(" ");
   const isOur=team==="our";
@@ -5567,6 +5580,14 @@ function saveTeam(mid,eid){
 function savePlayer(mid,eid){
   const name=document.getElementById(mid+"-n").value.trim();if(!name)return false;
   const numV=document.getElementById(mid+"-d").value.replace(/[^0-9]/g,"").slice(0,2);
+  // v1.8.25 · B-ADV4: no había ninguna comprobación de dorsal duplicado —
+  // dos jugadores de la misma plantilla podían llevar el mismo número, algo
+  // que las reglas de baloncesto no permiten (dorsales únicos por equipo).
+  // Solo bloqueamos si el dorsal no está vacío y ya lo lleva OTRO jugador.
+  if(numV!==""){
+    const dupe=pl(S.teamId).find(x=>x.id!==eid&&String(x.number)===numV);
+    if(dupe){toast("⚠️ El dorsal #"+numV+" ya lo lleva "+esc(dupe.name||"otro jugador"));return false;}
+  }
   const pos=document.getElementById(mid+"-p").value;
   let notes=document.getElementById(mid+"-o").value.trim();
   const img=document.getElementById(mid+"-photo-img");
@@ -6887,6 +6908,16 @@ function toggleConvocado(pid){
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.convocados)m.convocados=[];
   if(m.convocados.includes(pid)){
+    // v1.8.25 · B-ADV5: si el partido ya está en marcha y el jugador está
+    // en pista en ese momento, quitarlo de la convocatoria lo hacía
+    // desaparecer de m.live.onCourt sin sacarlo realmente — el "hueco"
+    // quedaba invisible (ni contaba como banquillo libre ni se podía
+    // sustituir), dejando al equipo atascado con menos de 5 en pista sin
+    // ningún aviso. Ahora lo bloqueamos y pedimos sustituirlo primero.
+    if(m.live&&(m.live.onCourt||[]).includes(pid)){
+      toast("⛔ Está en pista ahora mismo — sustitúyelo antes de quitarlo de la convocatoria");
+      return;
+    }
     m.convocados=m.convocados.filter(x=>x!==pid);
     m.titulares=(m.titulares||[]).filter(x=>x!==pid);
     m.reducedMinutes=(m.reducedMinutes||[]).filter(x=>x!==pid);
@@ -7019,6 +7050,25 @@ function liveGame(){
   const players=pl(S.teamId);
   const convIds=m.convocados||[];
   const convP=[...players].filter(p=>convIds.includes(p.id)).sort((a,b)=>(a.number||99)-(b.number||99));
+  // v1.8.25 · B-ADV1: no había ninguna comprobación al ENTRAR a la pantalla
+  // de partido en vivo — si el entrenador saltaba la convocatoria ("Saltar —
+  // configurar después") o la dejaba con menos de 5 convocados, el partido
+  // arrancaba igualmente con menos jugadores en pista (incluso 0), sin aviso.
+  // _convFinish() ya bloqueaba esto al pulsar "Listo — ir al partido", pero
+  // ese botón no era la única puerta de entrada a esta pantalla. Repetimos
+  // aquí la misma comprobación bloqueante, solo en la inicialización
+  // (m.live aún no existe) para no interrumpir partidos ya en marcha.
+  if(!m.live&&convP.length<5){
+    S.screen="matchDetail";render();
+    _convValidationModal({
+      icon:"⚠️",
+      title:convP.length===0?"Sin convocados":`Solo ${convP.length} convocado${convP.length===1?"":"s"}`,
+      msg:"FIBA exige <b>5 jugadores en pista</b>. Completa la convocatoria con al menos 5 convocados antes de empezar el seguimiento en vivo.",
+      primaryLabel:"Ir a la convocatoria",
+      onContinue:null
+    });
+    return"";
+  }
   // Init live
   if(!m.live){
     const nQ=(m.quarters||4)+1; // +1 for OT
@@ -7285,13 +7335,15 @@ function liveGame(){
         const st=live.stats[p.id]||{};
         const pts=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3;
         const fouls=_totalFouls(st);const disq=_isDQ(st);const fc=disq?"#ef4444":fouls>=4?"#f59e0b":"var(--td)";
-        return`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:120px">
+        return`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:120px${disq?";opacity:.55":""}">
           <div style="font-family:var(--font-d);font-weight:900;font-size:20px;line-height:1">${pts}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</div>
-            <div style="font-size:11px;color:${fc}">${"●".repeat(Math.min(fouls,5))||"Sin faltas"}</div>
+            <div style="font-size:11px;color:${fc}">${disq?"⛔ Descalificado":"●".repeat(Math.min(fouls,5))||"Sin faltas"}</div>
           </div>
-          ${onCourt.length<5?
+          ${disq?
+            `<button onclick="toast('⛔ Jugador descalificado, no puede entrar')" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;cursor:not-allowed;padding:4px 7px;flex-shrink:0">⛔</button>`:
+          onCourt.length<5?
             `<button onclick="subPlayer('${p.id}',null)" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);border-radius:6px;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;padding:4px 7px;flex-shrink:0">→ Pista</button>`:
             `<button onclick="openSubModal('${p.id}')" style="background:rgba(240,99,24,.12);border:1px solid rgba(240,99,24,.3);border-radius:6px;color:var(--orange);font-size:11px;font-weight:700;cursor:pointer;padding:4px 7px;flex-shrink:0">↔ Sub</button>`
           }
@@ -9625,6 +9677,12 @@ function _stopClockForSub(m){
 }
 function subPlayer(inId,outId){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  // v1.8.25 · B-ADV2: este check antes solo vivía en openSubModal(). El botón
+  // directo "→ Pista" del banquillo (cuando hay hueco en pista) llamaba a
+  // subPlayer(id,null) sin pasar por esa comprobación, permitiendo que un
+  // jugador ya descalificado (5 faltas / expulsión) volviera a pista.
+  const inP=pl(S.teamId).find(p=>p.id===inId);
+  if(inP&&_isDQ(m.live.stats[inP.id]||{})){toast("⛔ Jugador descalificado, no puede entrar");return;}
   _stopClockForSub(m);
   // v1.8.0: tracking de minutos y +/- antes de modificar onCourt
   if(outId)_trackExit(m,outId);

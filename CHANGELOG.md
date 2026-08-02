@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Auditoría adversarial: 5 huecos de validación (2026-08-02)
+
+### Corregido
+
+- **Se podía empezar un partido en vivo con menos de 5 jugadores (incluso 0).** La validación de "mínimo 5 convocados" solo existía en el botón "Listo — ir al partido" del asistente de convocatoria; si el entrenador pulsaba "Saltar — configurar después" y luego "Seguimiento en vivo" directamente, la app arrancaba igual con los jugadores que hubiera, sin aviso. Ahora la comprobación se repite también al entrar a la pantalla de partido en vivo, bloqueando el inicio (no la visualización de un partido ya en marcha) hasta tener al menos 5 convocados.
+- **Un jugador descalificado (5 faltas / expulsión) podía volver a pista.** El aviso "⛔ Jugador descalificado" solo se comprobaba al abrir el selector de sustitución completo; el botón rápido "→ Pista" del banquillo (que aparece cuando hay un hueco libre, típicamente justo después de que alguien se elimine) no pasaba por esa comprobación y dejaba entrar al jugador igualmente. Corregido en el origen (la función que mueve jugadores a pista) para que ningún camino pueda saltárselo, y el banquillo ahora marca visualmente "⛔ Descalificado" en vez de ofrecer el botón.
+- **Los tiempos muertos calculaban mal el límite por mitad en cualquier formato que no fuera de 4 cuartos** — incluido el formato "Escuela" (6 periodos de 8 min), que es el que la app propone por defecto. A partir del 3er periodo los límites (2 en 1ª mitad / 3 en 2ª mitad) se aplicaban a los periodos equivocados. Ahora la mitad se calcula según el nº real de periodos del partido.
+- **Dos jugadores de la misma plantilla podían llevar el mismo dorsal.** Al guardar un jugador nuevo (o editar uno existente) con un número que ya lleva otro compañero, ahora se avisa y se bloquea el guardado.
+- **Quitar de la convocatoria a un jugador que está en pista en ese momento** dejaba el partido con un "hueco fantasma": desaparecía de la pista visualmente pero seguía ocupando la plaza a efectos internos, y no había forma de sustituirlo desde la pantalla de partido. Ahora se bloquea con un aviso pidiendo sustituirlo primero.
+- CACHE_VERSION → dev.14
+
+### Probado
+
+- jsdom: los 5 casos anteriores reproducidos primero (confirmando el fallo) y luego verificados como corregidos, además de comprobar que los caminos legítimos siguen funcionando sin cambios (partido con 5+ convocados arranca normal, jugador sin faltas puede seguir entrando a pista, formato clásico de 4 cuartos no cambia sus límites de T.M., dorsales distintos se guardan bien, se puede desconvocar a cualquiera que no esté en pista). Render completo de la pantalla de partido en vivo con datos reales, sin excepciones.
+
 ## [Sin publicar] · kortline-v3 · Desambiguación de nombres en vivo (2026-08-02)
 
 ### Corregido
