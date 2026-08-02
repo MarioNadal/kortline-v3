@@ -3,6 +3,14 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Proyecto Firebase real conectado (2026-08-02)
+
+### Añadido
+
+- `FIREBASE_CONFIG` rellenado con la configuración real del proyecto `kortline-v3` que creó Mario en Firebase Console. A partir de este despliegue, `_cloudEnabled` puede activarse en un navegador real (con el SDK cargado desde CDN) — pendiente de que Mario complete en Firebase Console: activar Firestore, activar el proveedor Email/Contraseña, crear la cuenta compartida `club-cbjaca@kortline.app` con el PIN del club, y pegar `firestore.rules`. Ver `SETUP_FIREBASE.md`.
+- Mensaje de error del login algo más informativo: distingue "PIN incorrecto o cuenta del club aún no creada" de un problema de red, para depurar más fácil el primer intento real.
+- CACHE_VERSION → dev.2
+
 ## [Sin publicar] · kortline-v3 · Nacimiento: base de datos compartida (2026-08-02)
 
 ### Añadido

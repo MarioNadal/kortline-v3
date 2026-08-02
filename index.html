@@ -1961,12 +1961,12 @@ function justShortLabel(sess,pid){const r=getJR(sess,pid),n=getJN(sess,pid);if(r
 const FIREBASE_CONFIG = {
   // ⚠️ Rellenar con la configuración real (Firebase Console → Configuración
   // del proyecto → Tus apps → app Web → Config). No es información secreta.
-  apiKey: "PENDIENTE",
-  authDomain: "PENDIENTE",
-  projectId: "PENDIENTE",
-  storageBucket: "PENDIENTE",
-  messagingSenderId: "PENDIENTE",
-  appId: "PENDIENTE"
+  apiKey: "AIzaSyBE8o8TdkI9j4cNtBk--Ro18f_mLN4Iz8s",
+  authDomain: "kortline-v3.firebaseapp.com",
+  projectId: "kortline-v3",
+  storageBucket: "kortline-v3.firebasestorage.app",
+  messagingSenderId: "1073570899301",
+  appId: "1:1073570899301:web:b1af40b12563bce9016d8c"
 };
 const CLUB_ID = "cbjaca";
 const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
@@ -2013,7 +2013,12 @@ function _showPinGate(){
       await firebase.auth().signInWithEmailAndPassword(CLUB_AUTH_EMAIL, pin);
       el.remove();
     }catch(e){
-      err.textContent="Código incorrecto";
+      if(e.code==="auth/user-not-found"||e.code==="auth/invalid-credential")
+        err.textContent="Código incorrecto (o la cuenta del club aún no existe en Firebase)";
+      else if(e.code==="auth/network-request-failed")
+        err.textContent="Sin conexión — inténtalo de nuevo";
+      else
+        err.textContent="Código incorrecto";
       btn.disabled=false;btn.textContent="Entrar";
     }
   };
