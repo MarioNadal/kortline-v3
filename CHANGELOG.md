@@ -3,6 +3,30 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Historial editable (borrar/reasignar cualquier acción) + limpieza del shot chart (2026-08-02)
+
+### Añadido
+
+- **Reasignar una acción del historial a otro jugador** (pedido por Mario: "si la falta ha sido de otro jugador, ponérsela al otro"). En el panel 📋 Historial por cuartos de cada partido en vivo, junto al botón de borrar (✕) aparece ahora un botón ↔ en cualquier entrada ligada a un jugador concreto (falta, canasta, robo, tapón, pérdida, rebote, asistencia, TL...). Al tocarlo se elige el jugador correcto (de nuestro equipo o del rival, según a quién pertenecía la acción) y sus estadísticas se mueven automáticamente del jugador antiguo al nuevo — recalculado en el momento, sin tocar el marcador ni las faltas de equipo/bonus (que son agregados de equipo, no cambian al mover una acción entre dos jugadores del mismo lado).
+- **El historial de acciones ya no se limita a las últimas 80** — ahora se conserva completo durante todo el partido en curso, así que se puede borrar o reasignar cualquier acción desde el principio, no solo las más recientes.
+
+### Corregido
+
+- 🔴 **Borrar o deshacer un lote de tiros libres (p.ej. "2/3 TL") solo revertía 1 unidad**, no los aciertos/fallos reales registrados — dejaba las estadísticas y a veces el marcador descuadrados tras borrar. Las entradas de TL en lote (individuales, de equipo, y "solo equipo") ahora guardan cuántos entraron y cuántos fallaron, y borrarlas/deshacerlas revierte exactamente esa cantidad.
+- Las acciones de un jugador rival marcado individualmente aparecían como "?" en el panel de Historial (solo se buscaba el nombre en la lista de jugadores propios). Ahora muestra el nombre correcto.
+- Dos tipos de entrada (ajuste rápido de faltas del rival, "falta recibida" automática) se insertaban al principio del historial en vez de al final, lo que podía hacer que "deshacer última jugada" deshiciera la acción equivocada justo después de usarlas. Ahora se añaden al final como el resto.
+- **El tiro que se está capturando (shot chart) ya no muestra encima los tiros anteriores del partido** (pedido por Mario: no tiene sentido verlos ahí, solo en las estadísticas completas). Se mantiene la cancha limpia para marcar solo la zona del tiro actual; el histórico de tiros sigue disponible en la pestaña de Estadísticas.
+- CACHE_VERSION → dev.8
+
+### Probado
+
+- jsdom: reasignar una falta de un jugador a otro mueve `stats.foul` correctamente y no toca `teamFouls` (bonus intacto).
+- jsdom: borrar una entrada de TL en lote (2 aciertos / 1 fallo) revierte exactamente `p1m -2`, `p1a -1` y el marcador `-2`, no `-1`.
+- jsdom: deshacer ("↩️") sobre una entrada de TL en lote de un jugador rival revierte igual de exacto.
+- jsdom: 120 acciones seguidas en un mismo partido → las 120 se conservan en `live.log` (antes se recortaba a 80).
+- jsdom: `render()` de la pantalla de partido en vivo con una mezcla de entradas (jugador propio, jugador rival, equipo, TL en lote) no lanza errores.
+- Regresión: apertura del modal de shot chart sigue funcionando sin errores tras quitar el overlay de tiros previos.
+
 ## [Sin publicar] · kortline-v3 · Fix: estadísticas a 0 y tiros libres bloqueados en modo "solo equipo" (2026-08-02)
 
 ### Corregido

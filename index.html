@@ -1104,7 +1104,7 @@ window._doDQSub=function(inId,outId,isRival){
       const pIn=players.find(p=>p.id===inId);
       const pOut=players.find(p=>p.id===outId);
       const desc="↔ "+_shortName(pIn?.name||"?")+" ← "+_shortName(pOut?.name||"?")+" (DQ)";
-      live.log=[...(live.log||[]),{pid:inId,action:"sub",pts:0,q:live.q,clockAt:live.clockSec,desc}].slice(-80);
+      live.log=[...(live.log||[]),{pid:inId,action:"sub",pts:0,q:live.q,clockAt:live.clockSec,desc}];
       toast("⛔↔ "+desc);
     } else {
       live.onCourt=(live.onCourt||[]).filter(id=>id!==outId);
@@ -1402,7 +1402,7 @@ function openShotChartModal(pid,action,pts){
       ${labelPts} — Pulsa la zona donde se hizo
     </div>
     <div style="background:rgba(0,0,0,.3);border-radius:14px;padding:10px;border:1px solid var(--border)">
-      ${_courtSVG({width:340,interactive:true,id:"shotchart-court",showShots:true,shots:m.live.shots||[]})}
+      ${_courtSVG({width:340,interactive:true,id:"shotchart-court",showShots:false,shots:[]})}
     </div>
     <div style="font-size:11px;color:var(--td);margin-top:10px;line-height:1.5">
       Si tocas fuera del arco con +2 (o dentro con +3), te avisaremos antes de cambiar.
@@ -7260,21 +7260,27 @@ function liveGame(){
           </div>
           <div id="${sectionId}" style="display:${isActive?"block":"none"}">
             ${[...entries].reverse().map(({e,realIdx})=>{
-              const pdata=convP.find(p=>p.id===e.pid);
-              const isRivalEntry=e.pid==="rival"||e.pid==="rival-to";
-              const pname=isRivalEntry?(m.rival||"Rival"):e.pid==="team"?"Equipo":(pdata?_shortName(pdata.name):"?");
-              const pnum=isRivalEntry?"R":e.pid==="team"?"T":(pdata?.number||"?");
+              const isRivalPlayerEntry=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
+              const isRivalGeneric=e.pid==="rival"||e.pid==="rival-to"||e.pid==="rival-team"||e.pid==="rival-foul";
+              const isRivalEntry=isRivalPlayerEntry||isRivalGeneric;
+              const pdata=isRivalPlayerEntry?(m.rivalPlayers||[]).find(p=>p.id===e.pid):convP.find(p=>p.id===e.pid);
+              const pname=isRivalGeneric?(m.rival||"Rival"):e.pid==="team"?"Equipo":(pdata?_shortName(pdata.name):"?");
+              const pnum=isRivalGeneric?"R":e.pid==="team"?"T":(pdata?.number||"?");
               const ac=isRivalEntry?"#ef4444":(_ACTCOLOR[e.action]||"var(--td)");
               const al=_ACTLABELS[e.action]||e.action;
               const ptsLabel=e.pts>0?`<span style="font-size:11px;font-weight:800;color:${isRivalEntry?"#ef4444":"#22c55e"};margin-left:4px">${isRivalEntry?"-":"+"}${e.pts}</span>`:"";
               const clockStr=e.clockAt!=null?` · ${_fmtClock(e.clockAt)}`:"";
               const dotColor=isRivalEntry?"#ef4444":t.color;
+              const targetCount=isRivalPlayerEntry?(m.rivalPlayers||[]).length:convP.length;
+              const canReassign=!isRivalGeneric&&e.pid!=="team"&&e.action!=="sub"&&e.action!=="timeout"&&targetCount>1;
+              const reassignBtn=canReassign?`<button onclick="openReassignLogModal(${realIdx})" style="width:28px;height:28px;border-radius:7px;border:1px solid rgba(249,115,22,.3);background:rgba(249,115,22,.08);color:var(--orange);cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;display:flex;align-items:center;justify-content:center">↔</button>`:"";
               return`<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border)">
                 <div style="width:26px;height:26px;border-radius:6px;background:linear-gradient(135deg,${dotColor},${dotColor}88);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:white;flex-shrink:0">${pnum}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:13px;font-weight:600;color:var(--tx)">${esc(pname)}${ptsLabel}</div>
                   <div style="font-size:11px;font-weight:700;color:${ac};margin-top:1px">${al}<span style="font-weight:400;color:var(--tm)">${clockStr}</span></div>
                 </div>
+                ${reassignBtn}
                 <button onclick="deleteLogEntry(${realIdx})" style="width:28px;height:28px;border-radius:7px;border:1px solid rgba(239,68,68,.25);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;display:flex;align-items:center;justify-content:center">✕</button>
               </div>`;
             }).join("")}
@@ -8106,7 +8112,7 @@ window._pickReboundRival=function(){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const live=m.live;
   const entry={pid:"rival",action:"rd",pts:0,q:live.q,clockAt:live.clockSec,desc:"Rebote rival"};
-  live.log=[...(live.log||[]),entry].slice(-80);
+  live.log=[...(live.log||[]),entry];
   save();render();
   toast("📦 Rebote del rival");
 };
@@ -8455,7 +8461,6 @@ function liveAction(pid,action,pts){
   }
   const entry={pid,action,pts,q:live.q,clockAt:live.clockSec,desc:`${pname} — ${_ACTLABELS[action]||action}`};
   live.log=[...(live.log||[]),entry];
-  if(live.log.length>80)live.log=live.log.slice(-80);
   // Tipo de jugada (Planificacion_Anual_Cadete_Junior_2025-2026 §7): solo se
   // etiquetan tiros de campo propios (no rival, no TL). Base para los KPIs
   // de equipo (transición, bloqueo directo, % triple sobre tiros de campo).
@@ -8640,9 +8645,9 @@ function saveTLResults(rpid, total, foulerPid){
   // Log entry
   const rp=(m.rivalPlayers||[]).find(p=>p.id===rpid);
   const rname=_shortName(rp?.name||"Rival");
-  const entry={pid:rpid,action:"p1",pts:made,q:live.q,clockAt:live.clockSec,
+  const entry={pid:rpid,action:"p1",pts:made,q:live.q,clockAt:live.clockSec,made,missed:total-made,total,
     desc:`TL ${rname}: ${made}/${total}`};
-  live.log=[...(live.log||[]),entry].slice(-80);
+  live.log=[...(live.log||[]),entry];
   el.remove();
   save();render();
   toast(`🎯 ${rname}: ${made}/${total} TL (${made} pt${made!==1?"s":""})`);
@@ -8681,7 +8686,7 @@ function liveTeamAction(action, pts){
     }
     const entry={pid:"rival-team",action,pts,q:live.q,clockAt:live.clockSec,
       desc:(pts>0?"Rival +"+pts+" pts":_ACTLABELS[action]||action)};
-    live.log=[...(live.log||[]),entry].slice(-80);
+    live.log=[...(live.log||[]),entry];
   } else {
     if(pts>0)live.qScores[qi][0]=(live.qScores[qi][0]||0)+pts;
     if(isFoulAction){
@@ -8701,7 +8706,7 @@ function liveTeamAction(action, pts){
     }
     const entry={pid:"team",action,pts,q:live.q,clockAt:live.clockSec,
       desc:_ACTLABELS[action]||(pts>0?"+"+pts+" pts":action)};
-    live.log=[...(live.log||[]),entry].slice(-80);
+    live.log=[...(live.log||[]),entry];
     // v3 · B-teamOnly-kpi: acumulador de equipo SIN capar (a diferencia de
     // live.log, que solo guarda las últimas 80 entradas) para que las
     // estadísticas de Equipo (computeTeamKPIs) reflejen partidos jugados en
@@ -8828,9 +8833,9 @@ function confirmTeamTLShoot(total){
   const live=m.live;const qi=(live.q||1)-1;
   _ensureQSlot(live,qi);
   live.qScores[qi][1]=(live.qScores[qi][1]||0)+made;
-  const entry={pid:"rival",action:"p1",pts:made,q:live.q,clockAt:live.clockSec,
+  const entry={pid:"rival",action:"p1",pts:made,q:live.q,clockAt:live.clockSec,made,missed:total-made,total,
     desc:"TL rival: "+made+"/"+total};
-  live.log=[...(live.log||[]),entry].slice(-80);
+  live.log=[...(live.log||[]),entry];
   el.remove();_syncLiveQ(m);save();render();
   toast("🎯 TL rival: "+made+"/"+total);
 }
@@ -8856,7 +8861,7 @@ function rivalFoulLive(delta){
   m.live.rivalFouls[q]=Math.max(0,(m.live.rivalFouls[q]||0)+delta);
   // Log it
   const live=m.live;
-  if(delta>0)live.log=[{pid:"rival-foul",action:"rfoul",pts:0,q:live.q,clockAt:live.clockSec,desc:"Falta rival"},...(live.log||[])].slice(0,80);
+  if(delta>0)live.log=[...(live.log||[]),{pid:"rival-foul",action:"rfoul",pts:0,q:live.q,clockAt:live.clockSec,desc:"Falta rival"}];
   // Parada de reloj con falta (también si la comete el rival)
   if(delta>0&&m.stopOnFoul&&live.clockRunning){
     live.clockRunning=false;clearInterval(_liveTimer);_liveTimer=null;
@@ -8973,9 +8978,9 @@ function confirmOurTeamOnlyTLShoot(total){
   live.teamAgg.p1m=(live.teamAgg.p1m||0)+made;
   live.teamAgg.p1a=(live.teamAgg.p1a||0)+missed;
   live.qScores[qi][0]=(live.qScores[qi][0]||0)+made;
-  const entry={pid:"team",action:"p1m",pts:made,q:live.q,clockAt:live.clockSec,
+  const entry={pid:"team",action:"p1m",pts:made,q:live.q,clockAt:live.clockSec,made,missed,total,
     desc:`Equipo TL: ${made}/${total}`};
-  live.log=[...(live.log||[]),entry].slice(-80);
+  live.log=[...(live.log||[]),entry];
   el.remove();_syncLiveQ(m);save();render();
   toast(`🎯 Equipo: ${made}/${total} TL`);
 }
@@ -9104,7 +9109,7 @@ function confirmOurTL(){
     live.stats[pid].frecv=(live.stats[pid].frecv||0)+1;
     const pname2=_shortName(pl(S.teamId).find(p=>p.id===pid)?.name||"?");
     const qi=(live.q||1)-1;_ensureQSlot(live,qi);
-    live.log=[{pid,action:"frecv",pts:0,q:live.q,clockAt:live.clockSec,desc:pname2+" — Falta Recibida"},...(live.log||[])].slice(0,80);
+    live.log=[...(live.log||[]),{pid,action:"frecv",pts:0,q:live.q,clockAt:live.clockSec,desc:pname2+" — Falta Recibida"}];
     save();
   }
   if(total===0){
@@ -9172,9 +9177,9 @@ function confirmOurTLShoot(pid,total){
   // Log
   const players=pl(S.teamId);
   const pname=_shortName(players.find(p=>p.id===pid)?.name||"?");
-  const entry={pid,action:"p1m",pts:made,q:live.q,clockAt:live.clockSec,
+  const entry={pid,action:"p1m",pts:made,q:live.q,clockAt:live.clockSec,made,missed:total-made,total,
     desc:`${pname} TL: ${made}/${total}`};
-  live.log=[...(live.log||[]),entry].slice(-80);
+  live.log=[...(live.log||[]),entry];
   el.remove();_syncLiveQ(m);save();render();
   toast(`🎯 ${pname}: ${made}/${total} TL`);
 }
@@ -9247,50 +9252,139 @@ function _doSetLiveQ(m,q){
   while(m.live.qScores.length<q)m.live.qScores.push([0,0]);
   save();render();
 }
+// v3 · Historial: revierte una entrada del log sobre el bucket de stats indicado
+// (live.stats[pid], live.rivalStats[pid] o live.teamAgg), soportando tanto
+// acciones simples (1 unidad) como lotes de tiros libres (e.made/e.missed/e.total,
+// que afectan a p1m Y p1a a la vez y por más de 1 unidad).
+function _revertEntryStats(st,e){
+  if(!st)return;
+  if(e.total!=null){
+    // Lote de TL: revertir exactamente los aciertos y fallos registrados
+    if(st.p1m)st.p1m=Math.max(0,st.p1m-(e.made||0));
+    if(st.p1a)st.p1a=Math.max(0,st.p1a-(e.missed||0));
+  } else if(st[e.action]>0){
+    st[e.action]--;
+  }
+}
 function undoLiveAction(){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log||m.live.log.length===0)return;
   const last=m.live.log.pop();
-  const isRiv2=(m.rivalPlayers||[]).find(p=>p.id===last.pid);
-  if(isRiv2){
-    const st2=m.live.rivalStats?.[last.pid];
-    if(st2&&st2[last.action]>0)st2[last.action]--;
-    const qi2=(last.q||1)-1;
-    if(last.pts>0&&m.live.qScores)m.live.qScores[qi2][1]=Math.max(0,(m.live.qScores[qi2][1]||0)-last.pts);
-    if((last.action==="foul"||last.action==="ftech")&&m.live.rivalFouls)m.live.rivalFouls[qi2]=Math.max(0,(m.live.rivalFouls[qi2]||0)-1);
-  } else {
-  const st=m.live.stats[last.pid];
-  if(st&&st[last.action]>0)st[last.action]--;
-  const qi=(last.q||1)-1;
-  if(last.pts>0&&m.live.qScores)m.live.qScores[qi][0]=Math.max(0,(m.live.qScores[qi][0]||0)-last.pts);
-  if(last.action==="foul"&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
-  }
-  _syncLiveQ(m);save();render();toast("↩️ Deshecho");
+  deleteLogEntry(-1,last,m);
 }
-function deleteLogEntry(idx){
-  const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
+function deleteLogEntry(idx,_preRemoved,_preM){
+  const m=_preM||mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
   const log=m.live.log;
-  if(idx<0||idx>=log.length)return;
-  const e=log[idx];
-  if(e.pid==="rival"){
+  let e;
+  if(_preRemoved){
+    // Llamado desde undoLiveAction: la entrada ya se sacó del array con pop()
+    e=_preRemoved;
+  } else {
+    if(idx<0||idx>=log.length)return;
+    e=log[idx];
+  }
+  if(e.pid==="rival"||e.pid==="rival-team"){
     const qi=(e.q||1)-1;
-    if(m.live.qScores)m.live.qScores[qi][1]=Math.max(0,(m.live.qScores[qi][1]||0)-e.pts);
+    if(m.live.qScores)m.live.qScores[qi][1]=Math.max(0,(m.live.qScores[qi][1]||0)-(e.pts||0));
+    if(e.pid==="rival-team"&&(e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
   } else if(e.pid==="rival-foul"){
     const qi=(e.q||1)-1;
     if(m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
   } else if(e.action==="timeout"){
-    const qi=(e.q||1)-1;const q=e.q||1;
+    const qi=(e.q||1)-1;
     const to=m.live.timeouts||{our:[],rival:[]};
     if(e.pid==="rival-to"){if(to.rival[qi]>0)to.rival[qi]--;}
     else{if(to.our[qi]>0)to.our[qi]--;}
-  } else {
-    const st=m.live.stats[e.pid];
-    if(st&&st[e.action]!==undefined&&st[e.action]>0)st[e.action]--;
+  } else if(e.pid==="team"){
+    // Modo "solo equipo": revertir en teamAgg (uncapped) y, si aplica, en qScores
+    _revertEntryStats(m.live.teamAgg,e);
     const qi=(e.q||1)-1;
     if(e.pts>0&&m.live.qScores)m.live.qScores[qi][0]=Math.max(0,(m.live.qScores[qi][0]||0)-e.pts);
-    if((e.action==="foul"||e.action==="ftech")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
+    if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
+  } else {
+    const isRivalPid=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
+    if(isRivalPid){
+      _revertEntryStats(m.live.rivalStats?.[e.pid],e);
+      const qi=(e.q||1)-1;
+      if(e.pts>0&&m.live.qScores)m.live.qScores[qi][1]=Math.max(0,(m.live.qScores[qi][1]||0)-e.pts);
+      if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
+    } else {
+      _revertEntryStats(m.live.stats?.[e.pid],e);
+      const qi=(e.q||1)-1;
+      if(e.pts>0&&m.live.qScores)m.live.qScores[qi][0]=Math.max(0,(m.live.qScores[qi][0]||0)-e.pts);
+      if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
+    }
   }
-  log.splice(idx,1);
-  _syncLiveQ(m);save();render();toast("↩️ Acción eliminada");
+  if(!_preRemoved)log.splice(idx,1);
+  _syncLiveQ(m);save();render();toast(_preRemoved?"↩️ Deshecho":"↩️ Acción eliminada");
+}
+// v3 · Historial: modal para elegir el jugador destino al reasignar una entrada
+function openReassignLogModal(idx){
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
+  const e=m.live.log[idx];if(!e)return;
+  const isRivalPlayerEntry=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
+  const roster=isRivalPlayerEntry?(m.rivalPlayers||[]):pl(S.teamId);
+  const current=roster.find(p=>p.id===e.pid);
+  const candidates=roster.filter(p=>p.id!==e.pid);
+  if(candidates.length===0){toast("No hay otro jugador al que reasignar");return;}
+  document.getElementById("m-reassign-log")?.remove();
+  const el=document.createElement("div");
+  el.id="m-reassign-log";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=ev=>{if(ev.target===el)el.remove();};
+  const al=_ACTLABELS[e.action]||e.action;
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">↔ Reasignar acción</div>
+    <div class="msub">${al} de <b style="color:var(--orange)">${esc(_shortName(current?.name||"?"))}</b> — elige el jugador correcto</div>
+    <div style="display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto;margin:12px 0">
+      ${candidates.map(p=>`<button onclick="reassignLogEntry(${idx},'${p.id}');document.getElementById('m-reassign-log').remove();" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;text-align:left;font-size:14px;font-weight:600">
+        <span style="width:24px;height:24px;border-radius:6px;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:var(--td);flex-shrink:0">${p.number||"?"}</span>
+        ${esc(_shortName(p.name||"?"))}
+      </button>`).join("")}
+    </div>
+    <button class="btn-s" onclick="document.getElementById('m-reassign-log').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+// v3 · Historial: reasigna una entrada del log a otro jugador del mismo lado
+// (nuestro equipo o rival), moviendo su aportación estadística del jugador
+// antiguo al nuevo. No aplica a entradas de equipo/rival genérico (pid "team",
+// "rival", "rival-team", "rival-foul", "rival-to") porque no hay un jugador
+// concreto del que restar.
+function reassignLogEntry(idx,newPid){
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
+  const log=m.live.log;
+  if(idx<0||idx>=log.length)return;
+  const e=log[idx];
+  if(e.pid===newPid)return;
+  const isRivalPid=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
+  const bucket=isRivalPid?m.live.rivalStats:m.live.stats;
+  if(!bucket)return;
+  // Restar del jugador antiguo
+  _revertEntryStats(bucket[e.pid],e);
+  // Sumar al nuevo jugador
+  if(!bucket[newPid])bucket[newPid]={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,ftech:0,funsport:0,fdq:0,stl:0,blk:0,to:0};
+  const stNew=bucket[newPid];
+  if(e.total!=null){
+    stNew.p1m=(stNew.p1m||0)+(e.made||0);
+    stNew.p1a=(stNew.p1a||0)+(e.missed||0);
+  } else {
+    stNew[e.action]=(stNew[e.action]||0)+1;
+  }
+  // Actualizar la propia entrada del log para reflejar el nuevo jugador
+  const players=isRivalPid?(m.rivalPlayers||[]):pl(S.teamId);
+  const pNew=players.find(p=>p.id===newPid);
+  const pname=_shortName(pNew?.name||"?");
+  // Reescribir la descripción sustituyendo el nombre anterior por el nuevo,
+  // conservando el resto del texto (marcador, TL, etc).
+  const oldPname=(()=>{
+    const oldPlayers=isRivalPid?(m.rivalPlayers||[]):pl(S.teamId);
+    const oldP=oldPlayers.find(p=>p.id===e.pid);
+    return _shortName(oldP?.name||"?");
+  })();
+  e.pid=newPid;
+  if(e.desc&&oldPname&&oldPname!=="?")e.desc=e.desc.replace(oldPname,pname);
+  save();render();toast("↔ Reasignado a "+pname);
 }
 // v2-live . B-SUB1: las sustituciones (de cualquier equipo) solo son legales
 // con balon muerto. Si el reloj esta corriendo cuando se confirma un cambio,
