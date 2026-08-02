@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 120" width="880" height="240">
+  <defs>
+    <linearGradient id="bgGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" style="stop-color:#F06318"/>
+      <stop offset="55%" style="stop-color:#E05510"/>
+      <stop offset="100%" style="stop-color:#B83808"/>
+    </linearGradient>
+    <radialGradient id="topLight" cx="25%" cy="18%" r="60%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.18)"/>
+      <stop offset="100%" style="stop-color:rgba(255,255,255,0)"/>
+    </radialGradient>
+    <linearGradient id="boardGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ffffff"/><stop offset="100%" style="stop-color:#dde8f5"/></linearGradient>
+    <linearGradient id="poleGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:rgba(255,255,255,0.5)"/><stop offset="50%" style="stop-color:rgba(255,255,255,0.85)"/><stop offset="100%" style="stop-color:rgba(255,255,255,0.4)"/></linearGradient>
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#FFD070"/><stop offset="50%" style="stop-color:#FF9520"/><stop offset="100%" style="stop-color:#CC6800"/></linearGradient>
+    <radialGradient id="ballGrad" cx="35%" cy="32%" r="65%"><stop offset="0%" style="stop-color:rgba(255,255,255,0.28)"/><stop offset="60%" style="stop-color:rgba(255,255,255,0.08)"/><stop offset="100%" style="stop-color:rgba(0,0,0,0.12)"/></radialGradient>
+    <filter id="boardShadow"><feDropShadow dx="2" dy="3" stdDeviation="2.5" flood-color="rgba(0,0,0,0.5)"/></filter>
+    <filter id="rimGlow" x="-40%" y="-100%" width="180%" height="380%"><feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="rgba(255,185,50,0.9)"/></filter>
+    <filter id="netShadow"><feDropShadow dx="0.5" dy="1" stdDeviation="0.8" flood-color="rgba(0,0,0,0.35)"/></filter>
+    <filter id="textGlow"><feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="rgba(0,0,0,0.2)"/></filter>
+  </defs>
+  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="url(#topLight)"/>
+  <rect x="1" y="1" width="118" height="118" rx="25" ry="25" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="none" stroke="rgba(0,0,0,0.25)" stroke-width="3"/>
+  <line x1="14" y1="103" x2="106" y2="103" stroke="rgba(255,255,255,0.28)" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="14" y1="105.5" x2="106" y2="105.5" stroke="rgba(0,0,0,0.15)" stroke-width="1" stroke-linecap="round"/>
+  <rect x="82.5" y="79" width="4" height="24" rx="2" ry="2" fill="url(#poleGrad)"/>
+  <rect x="79" y="100" width="11" height="3" rx="1.5" ry="1.5" fill="rgba(255,255,255,0.55)"/>
+  <rect x="76.5" y="27" width="13" height="55" rx="2.5" ry="2.5" fill="rgba(0,0,0,0.3)" filter="url(#boardShadow)"/>
+  <rect x="76" y="26" width="13" height="55" rx="2.5" ry="2.5" fill="url(#boardGrad)"/>
+  <rect x="76" y="26" width="2.5" height="55" rx="2" ry="2" fill="rgba(255,255,255,0.6)"/>
+  <rect x="76" y="26" width="13" height="2.5" rx="2" ry="2" fill="rgba(255,255,255,0.55)"/>
+  <rect x="78.5" y="47" width="8" height="11" rx="1.2" ry="1.2" fill="none" stroke="rgba(220,75,0,0.9)" stroke-width="1.8"/>
+  <line x1="76" y1="56" x2="66" y2="56" stroke="rgba(255,255,255,0.65)" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="76" y1="59" x2="70" y2="56" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="37" y1="57.5" x2="66" y2="57.5" stroke="rgba(0,0,0,0.3)" stroke-width="4.5" stroke-linecap="round"/>
+  <line x1="37" y1="56" x2="66" y2="56" stroke="url(#rimGrad)" stroke-width="4" stroke-linecap="round" filter="url(#rimGlow)"/>
+  <ellipse cx="37" cy="56" rx="3" ry="2.2" fill="#FF9520" filter="url(#rimGlow)"/>
+  <line x1="39" y1="54.5" x2="65" y2="54.5" stroke="rgba(255,230,130,0.6)" stroke-width="1.2" stroke-linecap="round"/>
+  <g filter="url(#netShadow)"><path d="M 40 56 C 39 63 38 70 40.5 78" fill="none" stroke="rgba(255,255,255,0.82)" stroke-width="1"/><path d="M 46 56 C 45.5 63 45 70 46 78" fill="none" stroke="rgba(255,255,255,0.82)" stroke-width="1"/><path d="M 52 56 C 52 63 52 70 51.5 78" fill="none" stroke="rgba(255,255,255,0.82)" stroke-width="1"/><path d="M 58 56 C 58.5 63 59 70 57.5 78" fill="none" stroke="rgba(255,255,255,0.82)" stroke-width="1"/><path d="M 64 56 C 65 63 65.5 70 63 78" fill="none" stroke="rgba(255,255,255,0.82)" stroke-width="1"/><path d="M 39.5 60 Q 52 61.2 64.5 60" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="0.85"/><path d="M 39 65 Q 52 66.5 65 65" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="0.85"/><path d="M 39 70 Q 52 71.8 64.5 70" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="0.85"/><path d="M 39.5 75 Q 52 76.5 63.5 75" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="0.85"/><path d="M 40.5 78 Q 52 81.5 63 78" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="1.2" stroke-linecap="round"/></g>
+  <circle cx="23" cy="42" r="11.5" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
+  <circle cx="23" cy="42" r="10" fill="rgba(255,255,255,0.13)" stroke="rgba(255,255,255,0.4)" stroke-width="1.3"/>
+  <circle cx="23" cy="42" r="10" fill="url(#ballGrad)"/>
+  <g stroke="rgba(255,255,255,0.5)" stroke-width="1" fill="none" stroke-linecap="round"><line x1="23" y1="32" x2="23" y2="52"/><line x1="13" y1="42" x2="33" y2="42"/><path d="M 15 36 Q 23 40.5 31 36"/><path d="M 15 48 Q 23 43.5 31 48"/></g>
+  <ellipse cx="19" cy="37" rx="3.5" ry="2.2" fill="rgba(255,255,255,0.28)" transform="rotate(-20,19,37)"/>
+  <path d="M 32 40 Q 44 30 52 38 Q 57 43 53 55" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.4" stroke-dasharray="3,3" stroke-linecap="round"/>
+  <path d="M 31 43 Q 40 35 47 41" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="144" y="68" font-family="'Arial Black', 'Impact', sans-serif" font-weight="900" font-size="50" letter-spacing="-0.5" fill="white" filter="url(#textGlow)">KORT</text>
+  <text x="268" y="68" font-family="'Arial Black', 'Impact', sans-serif" font-weight="900" font-size="50" letter-spacing="-0.5" fill="#F06318">LINE</text>
+  <line x1="144" y1="78" x2="401" y2="78" stroke="rgba(240,99,24,0.4)" stroke-width="1.2"/>
+  <text x="144" y="98" font-family="'Arial', 'Helvetica', sans-serif" font-weight="400" font-size="13" letter-spacing="4" fill="rgba(255,255,255,0.5)">DE LA PISTA AL DATO</text>
+</svg>

@@ -1,0 +1,14 @@
+rules_version = '2';
+// Kortline v3 · CB Jaca
+// Toda la app comparte una única identidad de club (código/PIN compartido =
+// contraseña de una cuenta fija de Firebase Auth, ver CLUB_AUTH_EMAIL en
+// index.html). Solo esa cuenta puede leer/escribir, y solo dentro de su
+// propio club — nada es público.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /clubs/{clubId}/{document=**} {
+      allow read, write: if request.auth != null
+                          && request.auth.token.email == "club-cbjaca@kortline.app";
+    }
+  }
+}
