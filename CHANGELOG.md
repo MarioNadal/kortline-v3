@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix definitivo: dejar de sincronizar solo por el reloj (2026-08-02)
+
+### Corregido
+
+- 🔴 **"Cada pocos segundos sigue cargándolo"** — el límite de 1 sincronización cada 3s (fix anterior) reducía el problema pero no lo eliminaba, porque el reloj del partido sigue siendo un cambio real cada segundo (`m.live.clockSec`), así que cada 3s SÍ había algo "distinto" que sincronizar y repintar. Arreglo de raíz: el segundero del reloj ya no cuenta como cambio a la hora de decidir si un partido necesita sincronizarse (`_matchCmpView`) — ni se escribe a Firestore, ni por tanto llega al móvil de quien solo mira. Anotar una canasta, un rebote, una falta... sigue sincronizando y viéndose por el otro lado (con el mismo margen de hasta ~3s de antes); el simple avance del reloj, no.
+- CACHE_VERSION → dev.6
+
+### Probado
+
+- Reloj corriendo 20 "segundos" sin ninguna otra acción: 0 escrituras a Firestore, 0 repintados en el móvil espectador (antes de este arreglo habría seguido sincronizando cada ~3s).
+- Inmediatamente después, una canasta real: sí se sincroniza y sí se repinta en el espectador, con el marcador correcto.
+
 ## [Sin publicar] · kortline-v3 · Fix: "Hoy" cargando sin parar en el móvil espectador (2026-08-02)
 
 ### Corregido

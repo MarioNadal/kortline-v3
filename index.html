@@ -2086,12 +2086,26 @@ function _snapshotState(){
     teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions
   }));
 }
-function _diffArrayById(batch, colRef, curArr, prevArr){
+// v3 · B-live-clock: el reloj del partido cambia m.live.clockSec una vez
+// por segundo mientras corre (vía save() en cada tick de startClock), y
+// eso por sí solo ya hacía que el partido "cambiara" en cada comparación,
+// disparando una sincronización (y el repintado de pantalla que conlleva
+// en el móvil de quien solo mira) cada pocos segundos aunque no hubiera
+// pasado nada relevante en el juego. cmpFn permite comparar una versión
+// del objeto sin ese ruido, sin afectar a los datos que de verdad se
+// escriben cuando el guardado sí está justificado por otro motivo.
+function _matchCmpView(m){
+  if(!m || !m.live) return m;
+  const {clockSec, ...restLive} = m.live;
+  return {...m, live: restLive};
+}
+function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
+  cmpFn = cmpFn || (x=>x);
   let n=0;
   const curById={};(curArr||[]).forEach(x=>curById[x.id]=x);
   const prevById={};(prevArr||[]).forEach(x=>prevById[x.id]=x);
   for(const id in curById){
-    if(JSON.stringify(curById[id])!==JSON.stringify(prevById[id])){
+    if(JSON.stringify(cmpFn(curById[id]))!==JSON.stringify(cmpFn(prevById[id]))){
       const data={...curById[id]};delete data.id;
       batch.set(colRef.doc(id), _fsSanitize(data));n++;
     }
@@ -2125,7 +2139,7 @@ async function _runCloudSync(){
     const teamIds1=new Set([...Object.keys(cur.players||{}), ...Object.keys(prev?.players||{})]);
     for(const tid of teamIds1) n+=_diffArrayById(batch, _teamDocRef(tid).collection("players"), cur.players[tid]||[], prev?.players?.[tid]);
     const teamIds2=new Set([...Object.keys(cur.matches||{}), ...Object.keys(prev?.matches||{})]);
-    for(const tid of teamIds2) n+=_diffArrayById(batch, _teamDocRef(tid).collection("matches"), cur.matches[tid]||[], prev?.matches?.[tid]);
+    for(const tid of teamIds2) n+=_diffArrayById(batch, _teamDocRef(tid).collection("matches"), cur.matches[tid]||[], prev?.matches?.[tid], _matchCmpView);
     const teamIds3=new Set([...Object.keys(cur.events||{}), ...Object.keys(prev?.events||{})]);
     for(const tid of teamIds3) n+=_diffArrayById(batch, _teamDocRef(tid).collection("events"), cur.events[tid]||[], prev?.events?.[tid]);
     n+=_diffSessions(batch, cur.sessions, prev?.sessions);
