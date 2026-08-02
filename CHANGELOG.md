@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Desambiguación de nombres en vivo (2026-08-02)
+
+### Corregido
+
+- **Dos jugadores con el mismo nombre de pila se veían indistinguibles en el partido en vivo.** El nombre corto usado en pista, banquillo, marcador, historial y avisos de sustitución/falta solo mostraba la primera palabra significativa del nombre (p.ej. "Alex" para "Alex Martínez" y "Alex Fernández"). Con dos jugadores que comparten esa palabra, ambos se veían igual en pantalla y solo el dorsal los distinguía.
+- Ahora, cuando dos jugadores de la plantilla actual (o de la plantilla + el rival del partido en curso) coinciden en el nombre corto, se añade automáticamente la inicial del siguiente apellido: "Alex M." / "Alex F.". Sin colisión, el comportamiento no cambia.
+- CACHE_VERSION → dev.13
+
+### Probado
+
+- jsdom: nombres que colisionan (mismo primer nombre), nombres con inicial al principio ("I. Javier Rodríguez"), plantilla sin colisiones (no cambia el texto mostrado).
+
 ## [Sin publicar] · kortline-v3 · Orden personalizado de equipos (2026-08-02)
 
 ### Añadido

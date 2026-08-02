@@ -1510,8 +1510,12 @@ function _confirmShot(pid,action,pts,xNorm,yNorm){
    Cuando un jugador se llama "I. Javier Rodríguez" la UI mostraba "I."
    (split[0] = inicial). Saltamos las iniciales/abreviaturas para mostrar
    un nombre legible.
+   v1.8.25 · Desambiguación: si dos jugadores del contexto actual (nuestra
+   plantilla + rival del partido en curso) comparten la misma palabra
+   representativa (p.ej. dos "Alex"), añadimos la inicial del siguiente
+   apellido para poder distinguirlos en marcador, banquillo e historial.
 ═══════════════════════════════════════ */
-function _shortName(full){
+function _shortNameBase(full){
   const parts=(full||"").trim().split(/\s+/).filter(Boolean);
   if(!parts.length)return "?";
   // Si el primer trozo es una inicial (1-2 letras o termina en "."), usar el siguiente
@@ -1519,6 +1523,31 @@ function _shortName(full){
   const isInitial=first.length<=2 || /\.$/.test(first);
   if(isInitial && parts[1])return parts[1];
   return first;
+}
+function _shortNamePool(){
+  if(!S.teamId)return null;
+  const names=[];
+  try{
+    (pl(S.teamId)||[]).forEach(p=>{ if(p&&p.name) names.push(p.name); });
+    if(S.matchId){
+      const m=mById(S.teamId,S.matchId);
+      if(m && Array.isArray(m.rivalPlayers)) m.rivalPlayers.forEach(p=>{ if(p&&p.name) names.push(p.name); });
+    }
+  }catch(e){}
+  return names;
+}
+function _shortName(full){
+  const base=_shortNameBase(full);
+  if(base==="?")return base;
+  const pool=_shortNamePool();
+  if(!pool || pool.length<2)return base;
+  const collides=pool.some(n=>n!==full && _shortNameBase(n)===base);
+  if(!collides)return base;
+  const parts=(full||"").trim().split(/\s+/).filter(Boolean);
+  const baseIdx=parts.indexOf(base);
+  const rest=baseIdx>=0?parts.slice(baseIdx+1):[];
+  if(rest.length)return base+" "+rest[0][0].toUpperCase()+".";
+  return base;
 }
 // v1.8.5 · F4c: nombre corto de equipo para el selector on-court y otros sitios
 // estrechos. Prioriza la primera palabra significativa antes de truncar con "…".
