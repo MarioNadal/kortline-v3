@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Orden personalizado de equipos (2026-08-02)
+
+### Añadido
+
+- **Reordenar los equipos en la pantalla Equipos** (pedido por Mario). Nuevo botón ↕ en la cabecera (solo visible con 2 o más equipos) que activa un modo "ordenar": cada tarjeta muestra flechas ▲/▼ para moverla, en vez de abrir el equipo al tocarla. El orden elegido es el que verán todos los entrenadores del club, no solo en este dispositivo.
+- Detalle técnico: como los equipos se sincronizan vía Firestore entre los 5 entrenadores, el orden no se podía basar en la posición del array (Firestore no garantiza devolver los documentos siempre en el mismo orden). Cada equipo guarda ahora un campo `order` explícito que viaja con el resto de sus datos; los equipos ya existentes lo reciben automáticamente la primera vez que se carga la app tras esta actualización, sin tener que hacer nada.
+- CACHE_VERSION → dev.12
+
+### Probado
+
+- jsdom: relleno automático del campo `order` en equipos existentes sin él, subir/bajar equipos, casos límite (mover el primero hacia arriba o el último hacia abajo no hace nada), pantalla con y sin modo ordenar activo, y que con un solo equipo no aparece el botón ↕.
+
 ## [Sin publicar] · kortline-v3 · Auditoría completa de la app (2026-08-02)
 
 ### Corregido

@@ -2209,8 +2209,17 @@ function _attachClubListeners(){
   _clubUnsubs.push(_clubDocRef().collection("teams").onSnapshot(snap=>{
     const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
     if(JSON.stringify(fresh)===JSON.stringify(S.teams))return;
-    _applyingRemote=true;S.teams=fresh;_applyingRemote=false;
-    _persistLocalCacheOnly();render();
+    _applyingRemote=true;S.teams=fresh;
+    const needsBackfill=_sortTeams();
+    _applyingRemote=false;
+    if(needsBackfill){
+      // Equipos antiguos sin campo "order": lo asignamos aquí y lo subimos a
+      // Firestore para que todos los entrenadores converjan al mismo orden
+      // (una sola vez; a partir de aquí ya lo traen todos los snapshots).
+      save();render();
+    } else {
+      _persistLocalCacheOnly();render();
+    }
   }));
 }
 function _attachTeamListeners(tid){
@@ -2254,8 +2263,40 @@ function _attachTeamListeners(tid){
 /* ═══════════════════════════════════════
    STORAGE
 ═══════════════════════════════════════ */
+// v3 · Orden personalizado de equipos (pantalla "Equipos"). El array S.teams
+// se reconstruye desde Firestore en el orden que devuelva la consulta
+// (no garantizado, ni el mismo en todos los dispositivos), así que el orden
+// que el usuario elija tiene que guardarse en un campo explícito ("order")
+// en cada equipo y aplicarse siempre aquí, tanto al cargar en local como
+// cada vez que llega una actualización remota.
+function _sortTeams(){
+  let needsBackfill=false;
+  S.teams.forEach((t,i)=>{ if(t.order==null){ t.order=i; needsBackfill=true; } });
+  S.teams.sort((a,b)=>(a.order??0)-(b.order??0));
+  return needsBackfill;
+}
+function moveTeamUp(id){
+  const i=S.teams.findIndex(t=>t.id===id);
+  if(i<=0)return;
+  const a=S.teams[i],b=S.teams[i-1];
+  const ao=a.order,bo=b.order;
+  a.order=bo;b.order=ao;
+  if(a.order===b.order){a.order=i-1;b.order=i;} // caso raro: ambos sin order previo
+  S.teams.sort((x,y)=>(x.order??0)-(y.order??0));
+  save();render();
+}
+function moveTeamDown(id){
+  const i=S.teams.findIndex(t=>t.id===id);
+  if(i<0||i>=S.teams.length-1)return;
+  moveTeamUp(S.teams[i+1].id); // subir al siguiente equivale a bajar el actual
+}
+function toggleTeamsReorder(){
+  S._teamReorder=!S._teamReorder;
+  render();
+}
 function load(){
   S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};
+  _sortTeams();
   S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
   const sc=lsGet("cbj:cfg");
   S.cfg=sc?{...DEFAULT_CFG,...sc,features:{...DEFAULT_CFG.features,...(sc.features||{})}}:{...DEFAULT_CFG};
@@ -3328,9 +3369,10 @@ function toggleHtml(key,title,desc){const on=S.cfg.features[key];return`<div cla
 /* ── EQUIPOS SCREEN ── */
 function equiposScreen(){
   const allSessions=S.sessions;
+  const reorder=!!S._teamReorder&&S.teams.length>1;
   const cards=S.teams.length===0
     ?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">👥</div><div style="font-size:14px;line-height:1.7;color:var(--tm)">Sin equipos aún.<br/>Pulsa <b style="color:var(--orange)">＋</b> para crear el primero.</div></div>`
-    :S.teams.map(t=>{
+    :S.teams.map((t,i)=>{
       const players=pl(t.id);
       const sessions=Object.entries(allSessions).filter(([k])=>k.startsWith(t.id+"_")).map(([,v])=>v);
       const totalSess=sessions.length;
@@ -3345,9 +3387,17 @@ function equiposScreen(){
       // Matches for this team
       const teamMatches=(S.matches[t.id]||[]);
       const played=teamMatches.filter(m=>m.finished||(m.q&&m.q.some(v=>v!==null))).length;
-      return`<div class="team-card" onclick="go('team','${t.id}')">
+      // v3 · Orden personalizado: en modo "ordenar" la tarjeta no navega al
+      // tocarla, y en su lugar muestra flechas ▲/▼ para moverla en la lista.
+      const reorderRow=reorder?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--tm);flex:1">Posición ${i+1} de ${S.teams.length}</div>
+        <button onclick="event.stopPropagation();moveTeamUp('${t.id}')" ${i===0?"disabled":""} style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:${i===0?"var(--tm)":"var(--tx)"};font-size:15px;font-weight:900;cursor:${i===0?"default":"pointer"};opacity:${i===0?".4":"1"}">▲</button>
+        <button onclick="event.stopPropagation();moveTeamDown('${t.id}')" ${i===S.teams.length-1?"disabled":""} style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:${i===S.teams.length-1?"var(--tm)":"var(--tx)"};font-size:15px;font-weight:900;cursor:${i===S.teams.length-1?"default":"pointer"};opacity:${i===S.teams.length-1?".4":"1"}">▼</button>
+      </div>`:"";
+      return`<div class="team-card" ${reorder?"":`onclick="go('team','${t.id}')"`} style="${reorder?"cursor:default":""}">
         <div class="team-accent" style="background:${t.color}"></div>
         <div class="team-body">
+          ${reorderRow}
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
             <div style="flex:1">
               <div style="font-weight:800;font-size:17px">${esc(t.name)}</div>
@@ -3378,11 +3428,17 @@ function equiposScreen(){
         </div>
       </div>`;
     }).join("");
+  const reorderToggleBtn=S.teams.length>1
+    ?(reorder
+      ?`<button class="bbtn" onclick="toggleTeamsReorder()" style="width:auto;padding:0 12px;font-size:13px;font-weight:800;color:var(--orange)">✓ Listo</button>`
+      :`<button class="bbtn" onclick="toggleTeamsReorder()" title="Ordenar equipos">↕</button>`)
+    :"";
   return`<header class="header"><div class="hrow">
     <div onclick="openClubSettings()" style="cursor:pointer">${logoHtml(42,10)}</div>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">${esc(S.clubName)}</div>
     <div style="font-size:11px;color:var(--orange);font-weight:700;letter-spacing:2px;text-transform:uppercase">Equipos</div></div>
-    <button class="bbtn" onclick="openTeamModal()">＋</button>
+    ${reorderToggleBtn}
+    ${reorder?"":`<button class="bbtn" onclick="openTeamModal()">＋</button>`}
   </div></header>
   <div class="content"><div class="cards-grid">${cards}</div></div>
   ${navBar()}`;
@@ -5474,7 +5530,7 @@ function saveTeam(mid,eid){
   const schedule={};for(let i=0;i<7;i++){const cb=document.getElementById(mid+"-day-"+i),ti=document.getElementById(mid+"-time-"+i);if(cb?.checked||ti?.value)schedule[i]=ti?ti.value:"";}
   const colorEl=document.querySelector("#"+mid+"-cols .cdot.s");const color=colorEl?(colorEl.dataset.col||colorEl.style.background):COLORS[0];
   if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,schedule,color,coaches}:t);toast("✅ Actualizado");}
-  else{S.teams.push({id:uid(),name,category:cat,schedule,color,coaches});toast("✅ Equipo creado");}
+  else{S.teams.push({id:uid(),name,category:cat,schedule,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
   clearDirty();
   document.getElementById(mid)?.remove();save();render();
   return true;
