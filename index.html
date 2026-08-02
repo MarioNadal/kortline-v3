@@ -7641,6 +7641,95 @@ function liveGame(){
    se accede desde aquí. En portrait el botón no
    aparece (la tabla ya está al fondo del scroll).
 ═══════════════════════════════════════ */
+// v3 · Historial reutilizable: el panel de acciones (con reasignar/borrar) vive
+// dentro de .live-stats-wrap, que solo se muestra en landscape. En portrait la
+// única forma de llegar a las stats es el modal 📊 (openLiveStatsModal), que
+// usaba _buildLiveStatsHtml pero NO incluía el historial -- por eso en vertical
+// solo se veía el botón de "deshacer última". Esta función construye el mismo
+// HTML del historial de forma independiente (recalculando m/live/convP/qlabels
+// desde cero, igual que _buildLiveStatsHtml) para poder insertarlo también en
+// el modal, sin duplicar ni arriesgar el bloque que ya funciona en landscape.
+function _buildLiveLogPanelHtml(teamId,matchId){
+  const m=mById(teamId,matchId);if(!m?.live)return"";
+  const t=S.teams.find(x=>x.id===teamId);
+  const live=m.live;
+  const players=pl(teamId);
+  const convIds=m.convocados||[];
+  const convP=players.filter(p=>convIds.includes(p.id)).sort((a,b)=>(a.number||99)-(b.number||99));
+  const curQ=live.q||1;
+  const nQuarters=m.quarters||4;
+  const _pLabel=nQuarters===4?"Q":"P";
+  const _otCount=live.otCount||0;
+  const _otLabelsLG=_otCount===1?["OT"]:Array.from({length:_otCount},(_,i)=>"OT"+(i+1));
+  const qlabels=[...[...Array(nQuarters).keys()].map(i=>_pLabel+(i+1)),..._otLabelsLG];
+  const logByQ={};
+  (live.log||[]).forEach((e,realIdx)=>{
+    const q=e.q||1;
+    if(!logByQ[q])logByQ[q]=[];
+    logByQ[q].push({e,realIdx});
+  });
+  const totalLog=(live.log||[]).length;
+  if(totalLog===0)return`<div style="text-align:center;padding:20px 10px;color:var(--tm);font-size:13px">Sin acciones registradas todavía.</div>`;
+  return`
+    <div style="margin-top:14px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:8px">📋 Historial por cuartos</div>
+      ${qlabels.map((ql,qi)=>{
+        const qNum=qi+1;
+        const entries=logByQ[qNum]||[];
+        if(entries.length===0)return"";
+        const isActive=qNum===curQ;
+        const pts=entries.reduce((s,{e})=>s+(e.pts&&e.pid!=="rival"&&e.pid!=="rival-to"?e.pts:0),0);
+        const rivPts=entries.reduce((s,{e})=>s+(e.pts&&(e.pid==="rival"||e.pid==="rival-to")?e.pts:0),0);
+        const summary=`${entries.length} acción${entries.length!==1?"es":""}${pts>0?" · +"+pts+" pts":""}${rivPts>0?" · rival +"+rivPts:""}`;
+        const sectionId="log-q-"+qNum;
+        return`<div style="margin-bottom:6px;border:1px solid ${isActive?"rgba(249,115,22,.45)":"var(--border)"};border-radius:10px;overflow:hidden">
+          <div onclick="var b=document.getElementById('${sectionId}');b.style.display=b.style.display==='none'?'block':'none';this.querySelector('.log-chevron').textContent=b.style.display==='none'?'▶':'▼'" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:${isActive?"rgba(249,115,22,.08)":"var(--s2)"};cursor:pointer;user-select:none">
+            <span style="font-size:11px;font-weight:900;color:${isActive?"var(--orange)":"var(--td)"};min-width:28px">${ql}</span>
+            ${isActive?`<span style="font-size:9px;font-weight:800;background:var(--orange);color:white;border-radius:4px;padding:1px 6px;letter-spacing:.5px">EN CURSO</span>`:""}
+            <span style="font-size:11px;color:var(--tm);flex:1">${summary}</span>
+            <span class="log-chevron" style="font-size:10px;color:var(--tm)">${isActive?"▼":"▶"}</span>
+          </div>
+          <div id="${sectionId}" style="display:${isActive?"block":"none"}">
+            ${[...entries].reverse().map(({e,realIdx})=>{
+              const isRivalPlayerEntry=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
+              const isRivalGeneric=e.pid==="rival"||e.pid==="rival-to"||e.pid==="rival-team"||e.pid==="rival-foul";
+              const isRivalEntry=isRivalPlayerEntry||isRivalGeneric;
+              const pdata=isRivalPlayerEntry?(m.rivalPlayers||[]).find(p=>p.id===e.pid):convP.find(p=>p.id===e.pid);
+              const pname=isRivalGeneric?(m.rival||"Rival"):e.pid==="team"?"Equipo":(pdata?_shortName(pdata.name):"?");
+              const pnum=isRivalGeneric?"R":e.pid==="team"?"T":(pdata?.number||"?");
+              const ac=isRivalEntry?"#ef4444":(_ACTCOLOR[e.action]||"var(--td)");
+              const al=_ACTLABELS[e.action]||e.action;
+              const ptsLabel=e.pts>0?`<span style="font-size:11px;font-weight:800;color:${isRivalEntry?"#ef4444":"#22c55e"};margin-left:4px">${isRivalEntry?"-":"+"}${e.pts}</span>`:"";
+              const clockStr=e.clockAt!=null?` · ${_fmtClock(e.clockAt)}`:"";
+              const dotColor=isRivalEntry?"#ef4444":(t?.color||"var(--orange)");
+              const targetCount=isRivalPlayerEntry?(m.rivalPlayers||[]).length:convP.length;
+              const canReassign=!isRivalGeneric&&e.pid!=="team"&&e.action!=="sub"&&e.action!=="timeout"&&targetCount>1;
+              const reassignBtn=canReassign?`<button onclick="openReassignLogModal(${realIdx})" style="width:28px;height:28px;border-radius:7px;border:1px solid rgba(249,115,22,.3);background:rgba(249,115,22,.08);color:var(--orange);cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;display:flex;align-items:center;justify-content:center">↔</button>`:"";
+              return`<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border)">
+                <div style="width:26px;height:26px;border-radius:6px;background:linear-gradient(135deg,${dotColor},${dotColor}88);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:white;flex-shrink:0">${pnum}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600;color:var(--tx)">${esc(pname)}${ptsLabel}</div>
+                  <div style="font-size:11px;font-weight:700;color:${ac};margin-top:1px">${al}<span style="font-weight:400;color:var(--tm)">${clockStr}</span></div>
+                </div>
+                ${reassignBtn}
+                <button onclick="deleteLogEntry(${realIdx})" style="width:28px;height:28px;border-radius:7px;border:1px solid rgba(239,68,68,.25);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:13px;font-weight:700;flex-shrink:0;display:flex;align-items:center;justify-content:center">✕</button>
+              </div>`;
+            }).join("")}
+          </div>
+        </div>`;
+      }).join("")}
+      <div style="text-align:center;padding:4px 0">
+        <button onclick="_confirm('¿Limpiar el historial de acciones?','🗑 Limpiar',()=>{const m=mById(S.teamId,S.matchId);if(m&&m.live)m.live.log=[];save();render();_refreshLiveLogPanels();})" style="font-size:12px;color:var(--tm);background:none;border:none;cursor:pointer">🗑 Limpiar historial</button>
+      </div>
+    </div>`;
+}
+// Refresca el historial dentro del modal 📊 (si está abierto) tras
+// borrar/reasignar/deshacer/limpiar -- el modal vive fuera de #root, así que
+// un render() normal no lo toca.
+function _refreshLiveLogPanels(){
+  const holder=document.getElementById('m-livestats-log');
+  if(holder)holder.innerHTML=_buildLiveLogPanelHtml(S.teamId,S.matchId);
+}
 function _buildLiveStatsHtml(teamId,matchId){
   const m=mById(teamId,matchId);if(!m?.live)return{ours:'',rival:'',rivalEnabled:false};
   const t=S.teams.find(x=>x.id===teamId);
@@ -7896,6 +7985,7 @@ function openLiveStatsModal(){
         </div>
         ${toggleHtml}
         <div id="m-livestats-table">${initContent}</div>
+        <div id="m-livestats-log">${_buildLiveLogPanelHtml(S.teamId,S.matchId)}</div>
       </div>
     </div>`;
   document.body.appendChild(el);
@@ -9315,7 +9405,7 @@ function deleteLogEntry(idx,_preRemoved,_preM){
     }
   }
   if(!_preRemoved)log.splice(idx,1);
-  _syncLiveQ(m);save();render();toast(_preRemoved?"↩️ Deshecho":"↩️ Acción eliminada");
+  _syncLiveQ(m);save();render();_refreshLiveLogPanels();toast(_preRemoved?"↩️ Deshecho":"↩️ Acción eliminada");
 }
 // v3 · Historial: modal para elegir el jugador destino al reasignar una entrada
 function openReassignLogModal(idx){
@@ -9384,7 +9474,7 @@ function reassignLogEntry(idx,newPid){
   })();
   e.pid=newPid;
   if(e.desc&&oldPname&&oldPname!=="?")e.desc=e.desc.replace(oldPname,pname);
-  save();render();toast("↔ Reasignado a "+pname);
+  save();render();_refreshLiveLogPanels();toast("↔ Reasignado a "+pname);
 }
 // v2-live . B-SUB1: las sustituciones (de cualquier equipo) solo son legales
 // con balon muerto. Si el reloj esta corriendo cuando se confirma un cambio,

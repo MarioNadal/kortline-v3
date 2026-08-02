@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix: el Historial editable no se veía en modo vertical (2026-08-02)
+
+### Corregido
+
+- 🔴 **El panel 📋 Historial por cuartos (con los botones ↔ reasignar / ✕ borrar añadidos en el cambio anterior) solo era visible con el móvil en horizontal** — en vertical (el modo normal para anotar un partido) esa zona de la pantalla está oculta a propósito desde v1.8.24 (`.live-stats-wrap{display:none!important}`, solo se activa con `@media(orientation:landscape)`); en vertical las estadísticas solo se veían pulsando el botón 📊, pero ese modal no incluía el historial. Resultado: en el uso normal (vertical) solo se veía el botón de "deshacer última", igual que reportó Mario.
+- **Arreglo**: el botón 📊 (visible en todo momento, también en vertical) ahora abre también el Historial completo, con los mismos botones de reasignar y borrar, justo debajo de la tabla de estadísticas. Al reasignar/borrar/deshacer una acción desde ahí, el propio modal se refresca al momento (antes se habría quedado con el contenido desactualizado, porque ese modal vive fuera de la pantalla principal y no se actualiza solo).
+- CACHE_VERSION → dev.9
+
+### Probado
+
+- jsdom: abrir el modal de estadísticas (📊) en modo vertical simulado incluye el panel de Historial con botones de reasignar y borrar.
+- jsdom: borrar una acción desde dentro del modal actualiza el propio modal al instante (pasa de mostrar la acción a "Sin acciones registradas").
+
 ## [Sin publicar] · kortline-v3 · Historial editable (borrar/reasignar cualquier acción) + limpieza del shot chart (2026-08-02)
 
 ### Añadido
