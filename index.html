@@ -2058,10 +2058,27 @@ function _initCloudGate(){
    en cada guardado (evita pisar cambios de otro entrenador) ── */
 let _lastSyncedSnapshot=null;
 let _cloudSyncTimer=null;
+let _lastCloudSyncAt=0;
+// v3 · B-live-sync: mientras el reloj de un partido corre, save() se llama
+// una vez por segundo (cada tick). Con un debounce corto sin más, eso
+// sincronizaba (y por tanto repintaba la pantalla del OTRO entrenador que
+// está mirando, p.ej. en "Hoy") una vez por segundo — el "carga todo el
+// rato" que reportó Mario. Ahora, además del debounce corto para que una
+// acción real (canasta, falta...) se vea casi al instante tras un rato de
+// calma, se limita a como mucho una sincronización cada 3s si ya hubo una
+// hace poco (que en la práctica es siempre el propio tick del reloj) — se
+// agrupan todos los cambios intermedios en el siguiente envío.
+const CLOUD_SYNC_MIN_GAP_MS=3000;
 function _scheduleCloudSync(){
   if(!_cloudEnabled || !_fbReady || !_fbUser || _applyingRemote) return;
-  if(_cloudSyncTimer) clearTimeout(_cloudSyncTimer);
-  _cloudSyncTimer=setTimeout(_runCloudSync, 350);
+  if(_cloudSyncTimer) return; // ya hay un envío en camino: esta llamada se agrupa con él
+  const elapsed=Date.now()-_lastCloudSyncAt;
+  const wait=elapsed>=CLOUD_SYNC_MIN_GAP_MS ? 350 : (CLOUD_SYNC_MIN_GAP_MS-elapsed);
+  _cloudSyncTimer=setTimeout(()=>{
+    _cloudSyncTimer=null;
+    _lastCloudSyncAt=Date.now();
+    _runCloudSync();
+  }, wait);
 }
 function _snapshotState(){
   return JSON.parse(JSON.stringify({

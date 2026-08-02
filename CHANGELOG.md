@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix: "Hoy" cargando sin parar en el móvil espectador (2026-08-02)
+
+### Corregido
+
+- 🔴 **La pestaña Hoy del entrenador que solo mira (no el que lleva el partido) cargaba todo el rato** mientras el otro entrenador tenía un partido en vivo abierto (reportado por Mario tras el arreglo anterior). El arreglo de "eco propio" ya evitaba que el entrenador que anota se repintase a sí mismo de más, pero el reloj del partido sigue avanzando de verdad una vez por segundo — y eso es un cambio real, no un eco, así que el entrenador que solo mira sí recibía (correctamente) una actualización por segundo, con el repintado completo de pantalla que eso implica.
+- **Arreglo**: límite de sincronización a como mucho una vez cada 3 segundos cuando ya hubo una hace poco (`CLOUD_SYNC_MIN_GAP_MS`). Anotar una canasta sigue viéndose casi al instante tras un momento de calma; el tick del reloj (que solo cambia el segundero, no información relevante para quien mira desde fuera) ya no dispara una sincronización — y por tanto un repintado— cada segundo. Los cambios intermedios (incluida una canasta anotada durante la espera) se agrupan en el siguiente envío, con un desfase máximo de ~3s.
+- CACHE_VERSION → dev.5
+
+### Probado
+
+- Simulación de 2 clientes con un partido en vivo real durante ~13s (reloj corriendo + 2 canastas): los repintados de "Hoy" en el móvil espectador bajan de ~13 (uno por segundo) a 6, y el marcador final sigue llegando correcto (con hasta ~3s de desfase, esperado y aceptable).
+- Regresión local completa repetida: 0 errores.
+
+### Limitación conocida (no es un bug, apuntada para el futuro)
+
+- Hoy la app solo mantiene sincronización en tiempo real de partidos del **equipo activo** en cada móvil (para no leer de más). Si dos entrenadores llevan equipos distintos y uno quiere ver en directo el partido del otro equipo desde "Hoy" sin cambiar de equipo, no lo verá actualizar hasta que entre en ese equipo. Con 5 entrenadores y pocos equipos el caso de uso normal (mirar el marcador del propio equipo, o entrar al equipo del compañero para seguirlo) queda cubierto; si hace falta un "ticker" global de todos los equipos a la vez, es un cambio aparte a valorar.
+
 ## [Sin publicar] · kortline-v3 · Fix: parón cada segundo en partido en vivo (2026-08-02)
 
 ### Corregido
