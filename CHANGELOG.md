@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix crítico: partidos en vivo no sincronizaban (2026-08-02)
+
+### Corregido
+
+- 🔴 **Los partidos en vivo no se guardaban en la base de datos compartida** (reportado por Mario probando con un segundo entrenador: "no guarda bien y no le sale al otro entrenador"). Causa raíz: Firestore no admite arrays anidados dentro de otro array, y `m.live.qScores` se guarda en la app como array de pares `[[0,0],[0,0],...]` — cada intento de sincronizar un partido con marcador fallaba en silencio (el error se registraba en consola pero no se mostraba, así que parecía que "no pasaba nada"). Los equipos, jugadores y sesiones de entrenamiento no se vieron afectados porque no tienen ese patrón de datos, por eso sí sincronizaban bien.
+- **Arreglo**: `_fsSanitize`/`_fsRestore`, un saneado genérico en la frontera con Firestore que envuelve cualquier array anidado en un objeto marcador al escribir y lo desenvuelve al leer. El objeto `S` en memoria (y por tanto toda la lógica de la app) no cambia de forma en ningún sitio — el arreglo vive solo en la capa de sincronización.
+- CACHE_VERSION → dev.3
+
+### Probado
+
+- Test específico de partido en vivo con 2 clientes contra un mock que **imita la restricción real de Firestore** (rechaza arrays anidados, igual que el servidor de verdad) — antes del arreglo habría fallado igual que en producción; con el arreglo, el entrenador B recibe el partido en vivo del entrenador A con el marcador y el log de jugadas correctos, en la forma de array que espera el resto de la app.
+- Regresión completa en modo local puro repetida tras el cambio: 0 errores.
+
 ## [Sin publicar] · kortline-v3 · Proyecto Firebase real conectado (2026-08-02)
 
 ### Añadido

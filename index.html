@@ -1984,6 +1984,20 @@ function _fbInit(){
     _cloudEnabled=true;
   }catch(e){ console.warn("Firebase no disponible, modo local", e); _cloudEnabled=false; }
 }
+// Firestore no admite arrays anidados directamente dentro de otro array
+// (p.ej. m.live.qScores = [[0,0],[0,0],...]). Los envolvemos en un objeto
+// marcador de ida, y los desenvolvemos de vuelta al leer — así el resto de
+// la app sigue viendo arrays normales, solo cambia lo que viaja por la red.
+function _fsSanitize(val){
+  if(Array.isArray(val)) return val.map(v=>Array.isArray(v)?{__na:true,v:_fsSanitize(v)}:_fsSanitize(v));
+  if(val && typeof val==="object"){ const out={}; for(const k in val) out[k]=_fsSanitize(val[k]); return out; }
+  return val;
+}
+function _fsRestore(val){
+  if(Array.isArray(val)) return val.map(v=>(v&&typeof v==="object"&&v.__na)?_fsRestore(v.v):_fsRestore(v));
+  if(val && typeof val==="object"){ const out={}; for(const k in val) out[k]=_fsRestore(val[k]); return out; }
+  return val;
+}
 function _clubDocRef(){ return firebase.firestore().collection("clubs").doc(CLUB_ID); }
 function _teamDocRef(tid){ return _clubDocRef().collection("teams").doc(tid); }
 
@@ -2062,7 +2076,7 @@ function _diffArrayById(batch, colRef, curArr, prevArr){
   for(const id in curById){
     if(JSON.stringify(curById[id])!==JSON.stringify(prevById[id])){
       const data={...curById[id]};delete data.id;
-      batch.set(colRef.doc(id), data);n++;
+      batch.set(colRef.doc(id), _fsSanitize(data));n++;
     }
   }
   for(const id in prevById){ if(!curById[id]){ batch.delete(colRef.doc(id));n++; } }
@@ -2075,7 +2089,7 @@ function _diffSessions(batch, curSess, prevSess){
     if(JSON.stringify(curSess[key])!==JSON.stringify(prevSess[key])){
       const us=key.indexOf("_");const tid=key.slice(0,us),date=key.slice(us+1);
       if(curSess[key]===undefined) batch.delete(_teamDocRef(tid).collection("sessions").doc(date));
-      else batch.set(_teamDocRef(tid).collection("sessions").doc(date), curSess[key]);
+      else batch.set(_teamDocRef(tid).collection("sessions").doc(date), _fsSanitize(curSess[key]));
       n++;
     }
   }
@@ -2089,7 +2103,7 @@ async function _runCloudSync(){
     const db=firebase.firestore();
     const batch=db.batch();
     let n=0;
-    if(!prev || JSON.stringify(cur.club)!==JSON.stringify(prev.club)){ batch.set(_clubDocRef(), cur.club, {merge:true}); n++; }
+    if(!prev || JSON.stringify(cur.club)!==JSON.stringify(prev.club)){ batch.set(_clubDocRef(), _fsSanitize(cur.club), {merge:true}); n++; }
     n+=_diffArrayById(batch, _clubDocRef().collection("teams"), cur.teams, prev?.teams);
     const teamIds1=new Set([...Object.keys(cur.players||{}), ...Object.keys(prev?.players||{})]);
     for(const tid of teamIds1) n+=_diffArrayById(batch, _teamDocRef(tid).collection("players"), cur.players[tid]||[], prev?.players?.[tid]);
@@ -2120,17 +2134,18 @@ function _attachClubListeners(){
     if(!snap.exists)return;
     const d=snap.data()||{};
     _applyingRemote=true;
-    if("clubLogo" in d)S.clubLogo=d.clubLogo;
-    if("clubName" in d)S.clubName=d.clubName;
-    if("clubAbrev" in d)S.clubAbrev=d.clubAbrev;
-    if("clubLema" in d)S.clubLema=d.clubLema;
-    if(d.cfg)S.cfg={...DEFAULT_CFG,...d.cfg,features:{...DEFAULT_CFG.features,...(d.cfg.features||{})}};
+    const rd=_fsRestore(d);
+    if("clubLogo" in rd)S.clubLogo=rd.clubLogo;
+    if("clubName" in rd)S.clubName=rd.clubName;
+    if("clubAbrev" in rd)S.clubAbrev=rd.clubAbrev;
+    if("clubLema" in rd)S.clubLema=rd.clubLema;
+    if(rd.cfg)S.cfg={...DEFAULT_CFG,...rd.cfg,features:{...DEFAULT_CFG.features,...(rd.cfg.features||{})}};
     _applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _clubUnsubs.push(_clubDocRef().collection("teams").onSnapshot(snap=>{
     _applyingRemote=true;
-    S.teams=snap.docs.map(d=>({id:d.id,...d.data()}));
+    S.teams=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
     _applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
@@ -2140,22 +2155,22 @@ function _attachTeamListeners(tid){
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
   _teamUnsubs.push(teamRef.collection("players").onSnapshot(snap=>{
-    _applyingRemote=true;S.players[tid]=snap.docs.map(d=>({id:d.id,...d.data()}));_applyingRemote=false;
+    _applyingRemote=true;S.players[tid]=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
-    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=snap.docs.map(d=>({id:d.id,...d.data()}));_applyingRemote=false;
+    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("events").onSnapshot(snap=>{
-    _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=snap.docs.map(d=>({id:d.id,...d.data()}));_applyingRemote=false;
+    _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
     _applyingRemote=true;
     snap.docChanges().forEach(ch=>{
       const key=sk(tid, ch.doc.id);
-      if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=ch.doc.data();
+      if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=_fsRestore(ch.doc.data());
     });
     _applyingRemote=false;
     _persistLocalCacheOnly();render();
