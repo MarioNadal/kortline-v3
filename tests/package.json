@@ -1,0 +1,12 @@
+{
+  "name": "kortline-v3-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Suite de regresion de Kortline v3. Ejecuta el index.html real dentro de jsdom y llama a las funciones reales de la app (las mismas que disparan los botones), sin necesidad de navegador.",
+  "scripts": {
+    "test": "node run-all.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

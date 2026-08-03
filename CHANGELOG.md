@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Suite de tests persistente + limpieza de documentación (2026-08-03)
+
+### Añadido
+
+- **Carpeta `tests/` con una suite de regresión real**, que se queda en el repo en vez de scripts de jsdom desechables que se escriben y se borran en cada sesión (como se venía haciendo hasta ahora). Ejecuta el `index.html` real dentro de jsdom y llama a las funciones reales de la app. `cd tests && npm install && npm test`. Cubre: guardas de jugador descalificado (las 3 vías de sustitución), mínimo 5 convocados para arrancar en vivo, dorsal duplicado, cálculo de mitades de tiempos muertos con distinto nº de periodos, pausar/reanudar los 8 modales de tiros libres, aviso de partido seguido desde dos dispositivos, y desambiguación de nombres cortos. 53 comprobaciones, 0 fallos.
+- `tests/README.md` documenta qué cubre cada archivo y cómo añadir uno nuevo.
+
+### Corregido (documentación)
+
+- El README decía que Firebase "todavía no está conectado" — desactualizado desde que se rellenó `FIREBASE_CONFIG` con el proyecto real y se puso en producción para los ~5 entrenadores. Actualizado el estado actual y añadido enlace a `tests/README.md`.
+
+Sin cambios en `index.html` ni en `sw.js` — no aplica bump de CACHE_VERSION.
+
 ## [Sin publicar] · kortline-v3 · Aviso de partido en vivo seguido desde dos dispositivos (2026-08-03)
 
 ### Añadido

@@ -11,11 +11,12 @@ Repositorio: [github.com/MarioNadal/kortline-v3](https://github.com/MarioNadal/k
 
 ## Estado actual
 
-**En desarrollo activo · pre-release v3.0.0.** El código de sincronización está implementado y probado (simulación con 2 clientes en paralelo, ver `CHANGELOG.md`), pero **todavía no está conectado a un proyecto de Firebase real** — mientras `FIREBASE_CONFIG` tenga valores `"PENDIENTE"` en `index.html`, la app funciona exactamente igual que kortline-v2 (100% local, sin PIN de acceso). En cuanto se rellene la configuración (ver `SETUP_FIREBASE.md`), se activan el login con código de club y la sincronización entre entrenadores.
+**En producción.** Conectada a un proyecto de Firebase real (`kortline-v3`, ver `FIREBASE_CONFIG` en `index.html`) y en uso por los ~5 entrenadores del club, con login por código/PIN de club y sincronización en tiempo real entre dispositivos. `SETUP_FIREBASE.md` describe cómo se dejó configurado por si hace falta reproducirlo o migrarlo.
 
 Para el historial detallado, ver [`CHANGELOG.md`](CHANGELOG.md).
 Para el manual de usuario, ver [`MANUAL_USUARIO_KORTLINE.md`](MANUAL_USUARIO_KORTLINE.md).
-Para dejar la base de datos compartida funcionando, ver [`SETUP_FIREBASE.md`](SETUP_FIREBASE.md).
+Para dejar la base de datos compartida funcionando (o reproducirla), ver [`SETUP_FIREBASE.md`](SETUP_FIREBASE.md).
+Para ejecutar la suite de regresión antes de desplegar un cambio, ver [`tests/README.md`](tests/README.md).
 
 ---
 
