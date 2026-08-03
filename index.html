@@ -2171,7 +2171,13 @@ function _snapshotState(){
 // escriben cuando el guardado sí está justificado por otro motivo.
 function _matchCmpView(m){
   if(!m || !m.live) return m;
-  const {clockSec, ...restLive} = m.live;
+  // v1.8.27 · B-CONC1: trackedBy/trackedAt (latido de "quién está siguiendo
+  // este partido en vivo ahora mismo", ver _checkLivePresence) se excluyen
+  // igual que clockSec -- si son el UNICO cambio no merece disparar un envío
+  // a Firestore ni un repintado en el móvil de otro entrenador. Cuando SI
+  // hay un cambio real de juego, el latido viaja gratis dentro de ese mismo
+  // envío (no se excluye del payload, solo de la comparación).
+  const {clockSec, trackedBy, trackedAt, ...restLive} = m.live;
   return {...m, live: restLive};
 }
 function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
@@ -2363,6 +2369,16 @@ function save(){
   // YA NO se llama a autoBackup() aquí — duplicaba todo el espacio sin ofrecer
   // seguridad real (vive en el mismo localStorage que los datos primarios).
   // El sistema honesto es export/import manual desde Ajustes.
+  // v1.8.27 · B-CONC1: si estamos viendo el partido en vivo, refrescar
+  // nuestro latido de presencia sobre ESE partido en cada guardado real
+  // (no hace falta un temporizador aparte: en live game se llama a save()
+  // constantemente, en cada acción). Esto es lo que permite avisar a otro
+  // entrenador que abra el mismo partido de que ya lo está siguiendo
+  // alguien más en ese momento.
+  if(S.screen==="liveGame" && S.teamId && S.matchId){
+    const _lm=mById(S.teamId,S.matchId);
+    if(_lm && _lm.live){ _lm.live.trackedBy=_getDeviceId(); _lm.live.trackedAt=Date.now(); }
+  }
   let ok=true;
   if(!lsSet("cbj:t",S.teams))ok=false;
   if(!lsSet("cbj:p",S.players))ok=false;
@@ -3348,6 +3364,11 @@ function render(){
     const mn=document.getElementById("match-notes");
     if(mn)S._matchNotesDraft={matchId:S.matchId,teamId:S.teamId,notes:mn.value};
   }
+  // v1.8.27 · B-CONC1: al salir de la pantalla de partido en vivo, olvidar
+  // qué partido veníamos vigilando -- si se vuelve a entrar (al mismo o a
+  // otro partido) queremos volver a comprobar si alguien más lo está
+  // siguiendo en ese momento, no confiar en un chequeo de hace rato.
+  if(S.screen!=="liveGame")_liveHeartbeatMatchId=null;
   _destroyCharts();
   const r=document.getElementById("root");
   if(S.screen==="hoy")r.innerHTML=hoy();
@@ -7055,6 +7076,43 @@ function setPlayType(k){
 /* ═══════════════════════════════════════
    LIVE GAME SCREEN
 ═══════════════════════════════════════ */
+/* ═══════════════════════════════════════
+   PRESENCIA EN PARTIDO EN VIVO (v1.8.27 · B-CONC1)
+   La sincronización a Firestore guarda cada partido como documento
+   completo: si dos entrenadores tienen abierto el seguimiento en vivo del
+   MISMO partido a la vez (el principal + un ayudante, por ejemplo), el
+   último que sincroniza sobreescribe entero lo que haya anotado el otro,
+   sin ningún aviso. No es una pérdida de datos frecuente, pero es
+   silenciosa cuando pasa -- así que en vez de resolver el merge (cambio de
+   modelo de datos mayor, para otra sesión), avisamos: cada dispositivo se
+   identifica con un id local persistente y marca m.live.trackedBy/
+   trackedAt en cada guardado real mientras está en la pantalla de partido
+   en vivo (ver save()). Al ENTRAR a esa pantalla, si el latido de otro
+   dispositivo es reciente, se avisa una vez. No bloquea nada -- es un
+   aviso para que los entrenadores se coordinen, no un candado.
+═══════════════════════════════════════ */
+const LIVE_PRESENCE_STALE_MS=25000;
+let _liveHeartbeatMatchId=null;
+function _getDeviceId(){
+  let id=lsGet("cbj:devid");
+  if(!id){
+    id="d"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+    lsSet("cbj:devid",id,true);
+  }
+  return id;
+}
+function _checkLivePresence(m){
+  const live=m.live;if(!live)return;
+  const myId=_getDeviceId();
+  const other=live.trackedBy;
+  const otherAt=live.trackedAt||0;
+  const isOtherActive=other && other!==myId && (Date.now()-otherAt)<LIVE_PRESENCE_STALE_MS;
+  if(isOtherActive){
+    toast("⚠️ Otro dispositivo está registrando este partido en directo ahora mismo — evita hacerlo desde dos móviles a la vez, podríais pisaros cambios");
+  }
+  live.trackedBy=myId;live.trackedAt=Date.now();
+  save();
+}
 function liveGame(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const m=mById(S.teamId,S.matchId);
@@ -7091,6 +7149,10 @@ function liveGame(){
     save();
   }
   const live=m.live;
+  if(_liveHeartbeatMatchId!==m.id){
+    _liveHeartbeatMatchId=m.id;
+    _checkLivePresence(m);
+  }
   // Migrate old timeouts array format to object
   if(Array.isArray(live.timeouts)||!live.timeouts)
     live.timeouts={our:[0,0,0,0,0,0],rival:[0,0,0,0,0,0]};

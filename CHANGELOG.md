@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Aviso de partido en vivo seguido desde dos dispositivos (2026-08-03)
+
+### Añadido
+
+- **Aviso cuando dos entrenadores tienen abierto el seguimiento en vivo del mismo partido a la vez.** La sincronización a Firestore guarda cada partido como documento completo: si dos móviles editan el mismo partido en vivo simultáneamente (el entrenador principal + un ayudante, por ejemplo), el último en sincronizar puede sobreescribir sin aviso lo que haya anotado el otro. No se ha cambiado el modelo de sincronización (sería un cambio mayor), pero ahora cada dispositivo se identifica con un id local persistente y, al entrar a la pantalla de partido en vivo, si detecta un latido reciente (menos de 25s) de otro dispositivo distinto, avisa: "⚠️ Otro dispositivo está registrando este partido en directo ahora mismo — evita hacerlo desde dos móviles a la vez, podríais pisaros cambios". No bloquea nada, es un aviso para coordinarse.
+- El latido de presencia se apoya en los guardados que ya ocurren constantemente durante el partido en vivo (cada acción llama a `save()`), sin temporizador nuevo. Se excluye del cálculo de qué sincronizar a Firestore (igual que ya se hacía con el reloj) para no generar tráfico ni repintados extra en el móvil de otro entrenador solo por el latido.
+- CACHE_VERSION → dev.17
+
+### Probado (jsdom)
+
+- Dos "dispositivos" simulados sobre el mismo partido: el primero en entrar no ve aviso; el segundo ve el aviso una sola vez (no se repite en renders sucesivos del mismo partido).
+- Latido del propio dispositivo no genera aviso; latido de otro dispositivo pero caducado (>25s) tampoco.
+- La comparación usada para decidir si sincronizar a Firestore sigue ignorando reloj y latido de presencia, pero sí detecta cambios reales de juego.
+- El id de dispositivo es estable entre llamadas y persiste en `localStorage`.
+- Render inicial de la pantalla de partido en vivo sin errores tras el cambio.
+
 ## [Sin publicar] · kortline-v3 · Pausar tiros libres para gestionar el partido (2026-08-02)
 
 ### Añadido
