@@ -2122,6 +2122,10 @@ function _initCloudGate(){
       _fbUser=user; _fbReady=true;
       document.getElementById("m-pin-gate")?.remove();
       _attachClubListeners();
+      // v1.8.29 · B-COACHID1: tras entrar (recién con el PIN, o porque
+      // Firebase ya recordaba la sesión de este móvil), preguntar el
+      // nombre UNA vez si este dispositivo todavía no lo tiene puesto.
+      _maybeShowCoachNamePrompt();
     } else {
       _fbUser=null;
       _showPinGate();
@@ -2177,7 +2181,7 @@ function _matchCmpView(m){
   // a Firestore ni un repintado en el móvil de otro entrenador. Cuando SI
   // hay un cambio real de juego, el latido viaja gratis dentro de ese mismo
   // envío (no se excluye del payload, solo de la comparación).
-  const {clockSec, trackedBy, trackedAt, ...restLive} = m.live;
+  const {clockSec, trackedBy, trackedAt, trackedByName, ...restLive} = m.live;
   return {...m, live: restLive};
 }
 function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
@@ -2377,7 +2381,7 @@ function save(){
   // alguien más en ese momento.
   if(S.screen==="liveGame" && S.teamId && S.matchId){
     const _lm=mById(S.teamId,S.matchId);
-    if(_lm && _lm.live){ _lm.live.trackedBy=_getDeviceId(); _lm.live.trackedAt=Date.now(); }
+    if(_lm && _lm.live){ _lm.live.trackedBy=_getDeviceId(); _lm.live.trackedAt=Date.now(); _lm.live.trackedByName=_getCoachName()||null; }
   }
   let ok=true;
   if(!lsSet("cbj:t",S.teams))ok=false;
@@ -4808,6 +4812,10 @@ function openClubSettings(){
     <div style="text-align:center;margin-bottom:18px"><img src="${_FULL_SVG_URL}" style="height:40px;max-width:100%;opacity:0.95"/></div>
     <div class="mtitle">⚙️ Configuración</div>
     <div class="stg-sec">
+      <div class="stg-sec-title">👤 Tu perfil en este dispositivo</div>
+      <div class="fg"><label class="fl">Tu nombre</label><input class="fi" id="cfg-coachname" value="${esc(_getCoachName())}" placeholder="ej. María" maxlength="40"/><div style="font-size:11px;color:var(--tm);margin-top:4px">Solo se guarda en este móvil (no es una cuenta). Sirve para que el aviso de "partido en directo ya seguido por otro dispositivo" diga quién es en vez de un aviso genérico.</div></div>
+    </div>
+    <div class="stg-sec">
       <div class="stg-sec-title">🏀 Club</div>
       <div class="fg"><label class="fl">Logo</label>
         <div style="text-align:center"><div class="logo-upload" onclick="document.getElementById('logo-input').click()">${S.clubLogo?`<img src="${S.clubLogo}" style="width:100%;height:100%;object-fit:cover"/>`:`<div style="font-size:28px;margin-bottom:4px">📷</div><div style="font-size:11px;color:var(--tm)">Subir</div>`}</div>
@@ -5592,7 +5600,14 @@ function toggleDayTime(cb,tid){const ti=document.getElementById(tid);if(!ti)retu
 function syncDayCheckFromTime(ti,cid){const cb=document.getElementById(cid);if(!cb)return;cb.checked=!!ti.value;}
 function toggleFeat(key){S.cfg.features[key]=!S.cfg.features[key];const btn=document.querySelector(`[onclick="toggleFeat('${key}')"]`);if(btn){btn.classList.toggle("on",S.cfg.features[key]);}}
 function handleLogo(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{openLogoCropModal(e.target.result,function(croppedUrl){S.clubLogo=croppedUrl;save();render();toast("✅ Logo actualizado");});};r.readAsDataURL(file);}
-function saveClubSettings(){const name=document.getElementById("cfg-name")?.value.trim();if(name)S.clubName=name;const abrev=document.getElementById("cfg-abrev")?.value.trim();S.clubAbrev=abrev!==undefined?abrev:S.clubAbrev;const lema=document.getElementById("cfg-lema")?.value.trim();S.clubLema=lema!==undefined?lema:S.clubLema;const risk=document.getElementById("cfg-risk")?.value;if(risk)S.cfg.riskThreshold=parseInt(risk);save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
+function saveClubSettings(){
+  const coachNameInput=document.getElementById("cfg-coachname");
+  if(coachNameInput){
+    const cn=coachNameInput.value.trim();
+    if(cn)_setCoachName(cn);
+    else{lsSet("cbj:coachname","",true);}
+  }
+  const name=document.getElementById("cfg-name")?.value.trim();if(name)S.clubName=name;const abrev=document.getElementById("cfg-abrev")?.value.trim();S.clubAbrev=abrev!==undefined?abrev:S.clubAbrev;const lema=document.getElementById("cfg-lema")?.value.trim();S.clubLema=lema!==undefined?lema:S.clubLema;const risk=document.getElementById("cfg-risk")?.value;if(risk)S.cfg.riskThreshold=parseInt(risk);save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
 function saveTeam(mid,eid){
   // Normalización v1.6.9: los nombres de equipo se guardan siempre en MAYÚSCULAS
   // para coherencia con cómo se muestran en la UI y con la confirmación tipografiada de borrado.
@@ -7101,6 +7116,68 @@ function _getDeviceId(){
   }
   return id;
 }
+/* ═══════════════════════════════════════
+   IDENTIFICACIÓN LIGERA POR ENTRENADOR (v1.8.29 · B-COACHID1)
+   Los ~5 entrenadores del club comparten un único código/PIN de acceso
+   (una sola cuenta de Firebase Auth) -- eso no cambia, sigue entrando una
+   sola vez por dispositivo igual que hasta ahora. Esto es solo una capa
+   por encima: un nombre que cada entrenador pone en SU móvil (guardado
+   local, nunca es una cuenta ni una contraseña) para que el aviso de
+   partido en vivo concurrente diga "María está registrando este partido"
+   en vez de "otro dispositivo". No da permisos ni seguridad real -- es
+   solo una etiqueta que cualquiera podría poner igual a otra cosa -- pero
+   para un equipo pequeño de confianza es toda la atribución que hace
+   falta, sin gestionar contraseñas de 5 personas.
+═══════════════════════════════════════ */
+function _getCoachName(){ return lsGet("cbj:coachname")||""; }
+function _setCoachName(name){
+  const clean=(name||"").trim().slice(0,40);
+  lsSet("cbj:coachname",clean,true);
+  if(clean){
+    if(!Array.isArray(S.cfg.knownCoachNames))S.cfg.knownCoachNames=[];
+    if(!S.cfg.knownCoachNames.includes(clean)){
+      S.cfg.knownCoachNames=[...S.cfg.knownCoachNames,clean].slice(-12);
+      save();
+    }
+  }
+  return clean;
+}
+function _maybeShowCoachNamePrompt(){
+  if(!_cloudEnabled)return; // sin sincronización no hay "otro dispositivo" del que avisar
+  if(_getCoachName())return; // ya lo tiene puesto
+  if(lsGet("cbj:coachname_skipped"))return; // ya dijo que no, no insistimos
+  _showCoachNamePrompt();
+}
+function _showCoachNamePrompt(){
+  document.getElementById("m-coachname")?.remove();
+  const known=(S.cfg.knownCoachNames||[]).filter(Boolean);
+  const el=document.createElement("div");
+  el.id="m-coachname";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:99998;display:flex;align-items:flex-end;justify-content:center;";
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">👋 ¿Quién eres?</div>
+    <div class="msub">Solo para este móvil — así el resto del equipo sabe quién está anotando cuando coincidís siguiendo el mismo partido en directo. No es una cuenta ni hace falta contraseña.</div>
+    ${known.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${known.map(n=>`<button onclick="document.getElementById('coachname-input').value='${esc(n).replace(/'/g,"&#39;")}'" style="padding:7px 12px;border-radius:20px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-size:13px;cursor:pointer">${esc(n)}</button>`).join("")}</div>`:""}
+    <input id="coachname-input" class="fi" placeholder="Tu nombre" style="margin-top:6px" maxlength="40"/>
+    <button class="btn-p" onclick="_confirmCoachNamePrompt()">Guardar</button>
+    <button class="btn-s" onclick="_skipCoachNamePrompt()">Ahora no</button>
+  </div>`;
+  document.body.appendChild(el);
+  setTimeout(()=>document.getElementById("coachname-input")?.focus(),200);
+}
+function _confirmCoachNamePrompt(){
+  const input=document.getElementById("coachname-input");
+  const name=(input?.value||"").trim();
+  if(!name){toast("⚠️ Escribe tu nombre, o toca \"Ahora no\"");return;}
+  _setCoachName(name);
+  document.getElementById("m-coachname")?.remove();
+  toast("✅ ¡Hola, "+name+"!");
+}
+function _skipCoachNamePrompt(){
+  lsSet("cbj:coachname_skipped",true,true);
+  document.getElementById("m-coachname")?.remove();
+}
 function _checkLivePresence(m){
   const live=m.live;if(!live)return;
   const myId=_getDeviceId();
@@ -7108,9 +7185,13 @@ function _checkLivePresence(m){
   const otherAt=live.trackedAt||0;
   const isOtherActive=other && other!==myId && (Date.now()-otherAt)<LIVE_PRESENCE_STALE_MS;
   if(isOtherActive){
-    toast("⚠️ Otro dispositivo está registrando este partido en directo ahora mismo — evita hacerlo desde dos móviles a la vez, podríais pisaros cambios");
+    // v1.8.29 · B-COACHID1: si el otro dispositivo ha puesto su nombre, lo
+    // usamos en el aviso -- mucho mas util que "otro dispositivo" cuando
+    // sois 5 entrenadores compartiendo el mismo código de club.
+    const otherName=live.trackedByName;
+    toast(`⚠️ ${otherName||"Otro dispositivo"} está registrando este partido en directo ahora mismo — evita hacerlo desde dos móviles a la vez, podríais pisaros cambios`);
   }
-  live.trackedBy=myId;live.trackedAt=Date.now();
+  live.trackedBy=myId;live.trackedAt=Date.now();live.trackedByName=_getCoachName()||null;
   save();
 }
 function liveGame(){

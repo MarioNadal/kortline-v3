@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Identificación ligera por entrenador (2026-08-03)
+
+### Añadido
+
+- **Cada entrenador puede poner su nombre en su propio móvil** — no es una cuenta nueva ni una contraseña, sigue habiendo un único código/PIN de club y se entra una sola vez por dispositivo exactamente igual que hasta ahora. Es solo una etiqueta local que sirve para dos cosas: (1) el aviso de "este partido en directo ya lo está siguiendo otro dispositivo" ahora dice el nombre de quien lo está siguiendo en vez de un genérico "otro dispositivo", y (2) queda guardado por si en el futuro hace falta atribuir cambios a una persona.
+- Tras entrar (con el PIN, o porque el móvil ya recordaba la sesión), si ese dispositivo todavía no tiene nombre puesto, aparece una vez "👋 ¿Quién eres?" con un campo de texto y — a partir del segundo entrenador que lo use — chips con los nombres ya usados por otros, para no tener que escribir. Se puede saltar con "Ahora no" y no vuelve a insistir. Editable en cualquier momento desde ⚙️ Configuración → "Tu perfil en este dispositivo".
+- Decisión tomada tras hablarlo: se valoró pasar a una cuenta por entrenador (con permisos separados por equipo) frente a esto. Para un equipo de 5 personas de confianza no compensa la complejidad de gestionar 5 contraseñas y reglas de Firestore por equipo — esta capa ligera da la atribución que hacía falta sin ese coste. Si el club crece o hace falta seguridad real de verdad, ahí sí compensaría el salto.
+- CACHE_VERSION → dev.19
+
+### Probado (jsdom)
+
+- El prompt aparece una vez por dispositivo sin nombre, no se repite tras confirmarlo, y "Ahora no" lo descarta sin volver a insistir en ese dispositivo.
+- Sin sincronización a Firestore activa no se pregunta (no tiene sentido sin "otro dispositivo" del que avisar).
+- El aviso de partido en vivo concurrente usa el nombre cuando el otro dispositivo lo tiene puesto, y cae al texto genérico si no (no regresión sobre el aviso ya existente).
+- Guardar el nombre desde Ajustes funciona igual que desde el prompt inicial.
+
 ## [Sin publicar] · kortline-v3 · 4º hueco de descalificado: tirador de TL desde banquillo (2026-08-03)
 
 ### Corregido

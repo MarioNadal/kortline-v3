@@ -11,8 +11,16 @@ const INDEX_HTML_PATH = path.join(__dirname, "..", "index.html");
 // intentar leerlo como identificador suelto lanzaria ReferenceError.
 const EXPOSED_GLOBALS = [
   "S",
-  "_liveHeartbeatMatchId",
   "_TL_PAUSABLE"
+];
+
+// Variables `let` de scope global que algun test necesita poder LEER Y
+// ESCRIBIR desde fuera y ver reflejado de inmediato en el codigo real de la
+// app (no solo una copia congelada en el momento de cargar) -- se exponen
+// con un getter/setter en vez de una simple asignacion.
+const EXPOSED_LIVE_BINDINGS = [
+  "_liveHeartbeatMatchId",
+  "_cloudEnabled"
 ];
 
 function buildBridgeScript() {
@@ -22,10 +30,11 @@ function buildBridgeScript() {
   const assigns = EXPOSED_GLOBALS.map(name =>
     "try{window." + name + "=" + name + ";}catch(e){console.error('[harness] no se pudo exponer " + name + ":',e.message);}"
   ).join("");
-  return "<script>" + assigns +
-    "try{Object.defineProperty(window,\"_liveHeartbeatMatchId\",{get:()=>_liveHeartbeatMatchId,set:v=>{_liveHeartbeatMatchId=v;}});}" +
-    "catch(e){console.error('[harness] no se pudo enlazar _liveHeartbeatMatchId:',e.message);}" +
-    "</script>";
+  const bindings = EXPOSED_LIVE_BINDINGS.map(name =>
+    "try{Object.defineProperty(window,\"" + name + "\",{configurable:true,get:()=>" + name + ",set:v=>{" + name + "=v;}});}" +
+    "catch(e){console.error('[harness] no se pudo enlazar " + name + ":',e.message);}"
+  ).join("");
+  return "<script>" + assigns + bindings + "</script>";
 }
 
 function loadApp() {
