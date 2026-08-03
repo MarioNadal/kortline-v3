@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · 4º hueco de descalificado: tirador de TL desde banquillo (2026-08-03)
+
+### Corregido
+
+- **Un jugador descalificado podía volver a pista como tirador de un tiro libre propio.** Al revisar si unificar las funciones de sustitución (`subPlayer`/`_tmPickIn`/`subRivalPlayer`), se encontró un cuarto punto de entrada a pista sin guardia: el selector "¿quién tira nuestro TL?" (tras una falta del rival) mostraba también a los jugadores de banquillo, y `confirmOurTL()` mete automáticamente en pista al elegido si viene del banquillo (v1.8.11 · B-7) — pero ese salto nunca pasaba por la comprobación de `_isDQ()` que sí tienen los otros tres caminos de sustitución. Ahora el banquillo de ese selector marca "⛔ Descalificado" e impide el click, con una segunda comprobación en el origen de `confirmOurTL()` por si acaso (mismo patrón de defensa en profundidad usado en los otros tres arreglos).
+- Se revisaron sistemáticamente TODOS los puntos del código que mutan `onCourt`/`rivalOnCourt` (6 en total) para confirmar que los 6 tienen ya guardia de descalificación donde corresponde — no queda ningún quinto hueco pendiente de este tipo.
+- CACHE_VERSION → dev.18
+
+### Decidido (sin cambios de código)
+
+- Se consideró unificar `subPlayer`/`_tmPickIn`/`subRivalPlayer` en una sola función para evitar que este tipo de hueco vuelva a aparecer. Se descarta por ahora: las tres divergen en más cosas de las que parecía a simple vista (seguimiento de minutos solo en nuestro equipo, registro en el log de partido solo en algunos casos, parada de reloj, reconstrucción de la interfaz del tiempo muerto...), así que unificarlas de verdad sería un cambio de más riesgo que beneficio para una app en producción con 5 entrenadores. La lección que sí se aplica: cada nuevo punto de entrada a pista necesita su propio guard explícito, y ahora hay un test (`tests/dq_guards_tl_shooter.test.js`) que lo comprueba automáticamente.
+
+### Añadido
+
+- `tests/dq_guards_tl_shooter.test.js` en la suite de regresión, cubriendo este caso y su no-regresión.
+
 ## [Sin publicar] · kortline-v3 · Suite de tests persistente + limpieza de documentación (2026-08-03)
 
 ### Añadido

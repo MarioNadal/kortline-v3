@@ -9406,10 +9406,23 @@ function openOurFoulTLModal(rpidOpt, foulKind){
   const bonusBanner=_inBonus&&(foulKind==="foul"||!foulKind)?`<div style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#22c55e;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center">⚠️ BONUS rival · esta falta tira 2 TL</div>`:"";
   const rivalPlayers=m.rivalPlayers||[];
   const foulerName=rpidOpt?_shortName(rivalPlayers.find(p=>p.id===rpidOpt)?.name||"?"):"Rival";
-  const playerRowFor=(p,inPista)=>`<button onclick="selectOurTLShooter('${p.id}')" data-pid="${p.id}" style="display:flex;align-items:center;gap:10px;width:100%;background:${inPista?"rgba(240,99,24,.06)":"var(--s2)"};border:1.5px solid ${inPista?"rgba(240,99,24,.25)":"var(--border)"};border-radius:10px;padding:9px 11px;cursor:pointer;margin-bottom:5px;text-align:left">
+  // v1.8.28 · B-ADV7: este picker de "quien tira nuestro TL" dejaba elegir a
+  // un jugador de banquillo YA DESCALIFICADO -- confirmOurTL() lo mete a
+  // pista automaticamente si viene del banquillo (v1.8.11 B-7), y ese salto
+  // nunca pasaba por el guard de _isDQ que subPlayer/_tmPickIn/
+  // subRivalPlayer ya tienen. Mismo hueco, cuarta vez que aparece: cada
+  // punto de entrada a pista necesita su propio guard porque no comparten
+  // implementacion (ver notas en subPlayer). Los jugadores EN PISTA no se
+  // comprueban aqui porque si estuvieran descalificados ya los habria
+  // sacado _forceSubAfterDQ.
+  const playerRowFor=(p,inPista)=>{
+    const disq=!inPista&&_isDQ(m.live.stats[p.id]||{});
+    const onClickAttr=disq?"toast('⛔ Jugador descalificado, no puede tirar')":`selectOurTLShooter('${p.id}')`;
+    return `<button onclick="${onClickAttr}" data-pid="${p.id}" style="display:flex;align-items:center;gap:10px;width:100%;background:${inPista?"rgba(240,99,24,.06)":"var(--s2)"};border:1.5px solid ${inPista?"rgba(240,99,24,.25)":"var(--border)"};border-radius:10px;padding:9px 11px;cursor:${disq?"not-allowed":"pointer"};margin-bottom:5px;text-align:left;${disq?"opacity:.55":""}">
     <div style="width:30px;height:30px;border-radius:7px;background:rgba(240,99,24,.2);border:1px solid rgba(240,99,24,.4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:var(--orange);flex-shrink:0">${p.number||"?"}</div>
-    <div style="flex:1;min-width:0;display:flex;align-items:center;gap:6px"><span style="font-weight:700;font-size:14px">${esc(p.name)}</span>${inPista?'<span style="font-size:9px;color:var(--orange);font-weight:800;background:rgba(240,99,24,.15);padding:1px 5px;border-radius:4px">EN PISTA</span>':'<span style="font-size:9px;color:var(--td);font-weight:700;background:var(--s3);padding:1px 5px;border-radius:4px">BANQUILLO</span>'}</div>
+    <div style="flex:1;min-width:0;display:flex;align-items:center;gap:6px"><span style="font-weight:700;font-size:14px">${esc(p.name)}</span>${disq?'<span style="font-size:9px;color:#ef4444;font-weight:800;background:rgba(239,68,68,.15);padding:1px 5px;border-radius:4px">⛔ DESCALIFICADO</span>':inPista?'<span style="font-size:9px;color:var(--orange);font-weight:800;background:rgba(240,99,24,.15);padding:1px 5px;border-radius:4px">EN PISTA</span>':'<span style="font-size:9px;color:var(--td);font-weight:700;background:var(--s3);padding:1px 5px;border-radius:4px">BANQUILLO</span>'}</div>
   </button>`;
+  };
   const courtList=convP.filter(p=>onCourt.includes(p.id)).map(p=>playerRowFor(p,true)).join("");
   const benchList=convP.filter(p=>!onCourt.includes(p.id)).map(p=>playerRowFor(p,false)).join("");
   const el=document.createElement("div");
@@ -9483,6 +9496,13 @@ function confirmOurTL(){
   const pid=el._pid;
   const total=el._tl||0;
   if(!pid){toast("⚠️ Selecciona quién tira");return;}
+  // v1.8.28 · B-ADV7: comprobacion en el origen, no solo en la UI del
+  // picker (defensa en profundidad, mismo patron que subPlayer/_tmPickIn).
+  const mCheck=mById(S.teamId,S.matchId);
+  const inPCheck=pl(S.teamId).find(p=>p.id===pid);
+  if(mCheck&&mCheck.live&&inPCheck&&_isDQ(mCheck.live.stats[inPCheck.id]||{})){
+    toast("⛔ Jugador descalificado, no puede tirar");return;
+  }
   // v1.8.11 · B-7: si viene del banquillo, confirmar sustitución y meterlo en pista
   const fromBench=el._fromBench;
   el.remove();
