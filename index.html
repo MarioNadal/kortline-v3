@@ -3453,12 +3453,14 @@ function equiposScreen(){
     ?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">👥</div><div style="font-size:14px;line-height:1.7;color:var(--tm)">Sin equipos aún.<br/>Pulsa <b style="color:var(--orange)">＋</b> para crear el primero.</div></div>`
     :S.teams.map((t,i)=>{
       const players=pl(t.id);
-      const sessions=Object.entries(allSessions).filter(([k])=>k.startsWith(t.id+"_")).map(([,v])=>v);
+      // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
+      const sessions=Object.entries(allSessions).filter(([k])=>k.startsWith(t.id+"_")).map(([k,v])=>({date:k.replace(t.id+"_",""),data:v}));
       const totalSess=sessions.length;
       let avgPct=0;
       if(totalSess>0&&players.length>0){
-        const totalPr=sessions.reduce((a,s)=>a+players.filter(p=>(s[p.id]||"present")==="present"||(s[p.id])==="late").length,0);
-        avgPct=pc(totalPr,totalSess*players.length);
+        let sumPr=0,sumPs=0;
+        players.forEach(p=>{const c=_countAtt(p,sessions);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+        avgPct=pc(sumPr,sumPs);
       }
       const lastDate=Object.keys(allSessions).filter(k=>k.startsWith(t.id+"_")).map(k=>k.replace(t.id+"_","")).sort().reverse()[0];
       const coaches=(t.coaches||[]).filter(Boolean);
@@ -3531,12 +3533,14 @@ function statsHomeScreen(){
   if(S.teams.length===1){S.teamId=S.teams[0].id;S.screen="stats";return stats();}
   const cards=S.teams.map(t=>{
     const players=pl(t.id);
-    const sessions=Object.entries(S.sessions).filter(([k])=>k.startsWith(t.id+"_")).map(([,v])=>v);
+    // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
+    const sessions=Object.entries(S.sessions).filter(([k])=>k.startsWith(t.id+"_")).map(([k,v])=>({date:k.replace(t.id+"_",""),data:v}));
     const totalSess=sessions.length;
     let avgPct=0;
     if(totalSess>0&&players.length>0){
-      const totalPr=sessions.reduce((a,s)=>a+players.filter(p=>(s[p.id]||"present")==="present"||(s[p.id])==="late").length,0);
-      avgPct=pc(totalPr,totalSess*players.length);
+      let sumPr=0,sumPs=0;
+      players.forEach(p=>{const c=_countAtt(p,sessions);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+      avgPct=pc(sumPr,sumPs);
     }
     const col=avgPct>=90?"#22c55e":avgPct>=75?"#f59e0b":"#ef4444";
     return`<div class="team-card" onclick="S.teamId='${t.id}';S.screen='stats';render()">
@@ -4321,12 +4325,20 @@ function team(){
     }).join("")}</div>`;
   const schedRows=t.schedule&&Object.keys(t.schedule).length?Object.entries(t.schedule).sort((a,b)=>+a[0]-+b[0]).map(([i,time])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600;font-size:14px">${DAYSF[i]}</div><div style="color:var(--orange);font-family:var(--font-d);font-weight:700;font-size:15px">${time||"—"}</div></div>`).join(""):`<div style="font-size:13px;color:var(--tm);padding:8px 0">Sin horario</div>`;
   // Attendance stats bar
-  const allSessTeam=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([,v])=>v);
+  // v1.8.33 · B-ATT1: usaba present-por-defecto sin respetar la fecha de
+  // alta de cada jugador (players.filter sobre TODAS las sesiones) --
+  // cualquier jugador añadido a media temporada (puntual o no) aparecía
+  // como "presente" en entrenamientos anteriores a que existiera, inflando
+  // la media. El resto de la app (exportPDF, Stats, Historial) ya
+  // respetaba esto vía _playerStartDate/_countAtt -- aquí solo faltaba
+  // usarlo también.
+  const allSessTeam=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
   const totalSessTeam=allSessTeam.length;
   let avgPctTeam=0;
   if(totalSessTeam>0&&players.length>0){
-    const totalPr=allSessTeam.reduce((a,s)=>a+players.filter(p=>(s[p.id]||"present")==="present"||(s[p.id])==="late").length,0);
-    avgPctTeam=pc(totalPr,totalSessTeam*players.length);
+    let sumPr=0,sumPs=0;
+    players.forEach(p=>{const c=_countAtt(p,allSessTeam);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+    avgPctTeam=pc(sumPr,sumPs);
   }
   const pctCol=avgPctTeam>=90?"#22c55e":avgPctTeam>=75?"#f59e0b":"#ef4444";
   const attBar=totalSessTeam>0?`<div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px">
@@ -4405,18 +4417,23 @@ function buildWeeklyText(tid,showMotivo,opts){
   const coachesToShowW=coachNames!==null?coachNames:allCoaches;
   coachesToShowW.forEach(c=>lines.push(`👟 ${c}`));
   lines.push(`📅 Últimos ${allSess.length} entrenamientos\n─────────────────`);
+  // v1.8.33 · B-ATT1: cada día solo cuenta a los jugadores que ya estaban de
+  // alta ese día (mismo patrón que hist()) -- si no, un jugador recién
+  // añadido aparecía "presente" en entrenamientos previos a que existiera.
   allSess.forEach(s=>{
-    const pr2=players.filter(p=>(s.data[p.id]||"present")==="present").length;
-    const la2=players.filter(p=>s.data[p.id]==="late").length;
-    const pv=pc(pr2+la2,players.length);const ts2=s.data._teamScore;
+    const activeP=players.filter(p=>{const start=_playerStartDate(p,allSess);return !start||s.date>=start;});
+    const pr2=activeP.filter(p=>(s.data[p.id]||"present")==="present").length;
+    const la2=activeP.filter(p=>s.data[p.id]==="late").length;
+    const pv=activeP.length?pc(pr2+la2,activeP.length):0;const ts2=s.data._teamScore;
     lines.push(`${pv>=90?"🟢":pv>=75?"🟡":"🔴"} *${cap(fd(s.date,true))}* — ${pv}%${showMotivo&&ts2&&S.cfg.features.teamScore?" · "+ts2+"★":""}`);
     if(showMotivo&&s.data._exercises&&S.cfg.features.exercises)lines.push(`   📋 ${s.data._exercises.slice(0,80)}`);
     if(s.data._notes&&showMotivo)lines.push(`   📝 ${s.data._notes}`);
   });
   lines.push("─────────────────");
-  const totalPr=allSess.reduce((a,s)=>{players.forEach(p=>{if((s.data[p.id]||"present")==="present"||(s.data[p.id])==="late")a++;});return a;},0);
-  lines.push(`📊 *Media: ${pc(totalPr,allSess.length*players.length)}%*\n\n👤 *Por jugador:*`);
-  players.map(p=>{let c=0;allSess.forEach(s=>{if((s.data[p.id]||"present")==="present"||(s.data[p.id])==="late")c++;});return{...p,c,pct:pc(c,allSess.length)};}).sort((a,b)=>b.pct-a.pct).forEach(p=>{lines.push(`${p.pct>=90?"🟢":p.pct>=75?"🟡":"🔴"} ${p.name}  ${p.pct}% (${p.c}/${allSess.length})`);});
+  let sumPr=0,sumPs=0;
+  players.forEach(p=>{const c=_countAtt(p,allSess);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+  lines.push(`📊 *Media: ${pc(sumPr,sumPs)}%*\n\n👤 *Por jugador:*`);
+  players.map(p=>{const c=_countAtt(p,allSess);return{...p,c:c.pr+c.la,tot:c.tot,pct:c.tot>0?pc(c.pr+c.la,c.tot):0};}).sort((a,b)=>b.pct-a.pct).forEach(p=>{lines.push(`${p.pct>=90?"🟢":p.pct>=75?"🟡":"🔴"} ${p.name}  ${p.pct}% (${p.c}/${p.tot})`);});
   const realClub=S.clubName&&S.clubName!=="Kortline"?S.clubName:"";
   lines.push(`\n_${realClub||t.name}_`);
   return lines.join("\n");
@@ -4623,8 +4640,9 @@ function saveEvento(mid,eid){
 }
 function _evtAutoSuggest(tid,eid){
   const e=evtById(tid,eid);if(!e)return;const players=pl(tid);if(!players.length)return;if((e.convocados||[]).length>0)return;
-  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([,v])=>v);
-  if(allSess.length>0){const ranked=[...players].sort((a,b)=>{const pa=allSess.filter(s=>(s[a.id]||"present")==="present"||(s[a.id])==="late").length;const pb=allSess.filter(s=>(s[b.id]||"present")==="present"||(s[b.id])==="late").length;return pb-pa;});e.convocados=ranked.map(p=>p.id);}
+  // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
+  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([k,v])=>({date:k.replace(tid+"_",""),data:v}));
+  if(allSess.length>0){const ranked=[...players].sort((a,b)=>{const ca=_countAtt(a,allSess),cb=_countAtt(b,allSess);return(cb.pr+cb.la)-(ca.pr+ca.la);});e.convocados=ranked.map(p=>p.id);}
   else{e.convocados=players.map(p=>p.id);}save();
 }
 function delEvento(eid){_confirm("¿Eliminar este evento y su convocatoria?","🗑 Eliminar",()=>{S.events[S.teamId]=(S.events[S.teamId]||[]).filter(e=>e.id!==eid);save();render();toast("🗑 Evento eliminado");});}
@@ -4633,8 +4651,9 @@ function openEventoConvModal(){
   const players=[...pl(S.teamId)].sort((a,b)=>(a.number||99)-(b.number||99));
   function convRows(cids){
     if(!players.length)return'<div style="padding:20px;text-align:center;color:var(--tm);font-size:13px">Sin jugadores en la plantilla.</div>';
-    const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([,v])=>v);
-    return players.map(p=>{const inc=cids.includes(p.id);const att=allSess.length?pc(allSess.filter(s=>(s[p.id]||"present")==="present"||(s[p.id])==="late").length,allSess.length):null;
+    // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
+    const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
+    return players.map(p=>{const inc=cids.includes(p.id);const _c=_countAtt(p,allSess);const att=_c.tot>0?pc(_c.pr+_c.la,_c.tot):null;
       return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
     }).join("");
   }
@@ -4656,9 +4675,10 @@ function evtTogglePlayer(pid){
   const e=evtById(S.teamId,S.eventId);if(!e)return;if(!e.convocados)e.convocados=[];
   if(e.convocados.includes(pid)){e.convocados=e.convocados.filter(x=>x!==pid);}else{e.convocados.push(pid);}save();
   const t=S.teams.find(x=>x.id===S.teamId);const players=[...pl(S.teamId)].sort((a,b)=>(a.number||99)-(b.number||99));
-  const cids=e.convocados;const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([,v])=>v);
+  // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
+  const cids=e.convocados;const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
   const list=document.getElementById("ev-conv-list");
-  if(list){list.innerHTML=players.map(p=>{const inc=cids.includes(p.id);const att=allSess.length?pc(allSess.filter(s=>(s[p.id]||"present")==="present"||(s[p.id])==="late").length,allSess.length):null;
+  if(list){list.innerHTML=players.map(p=>{const inc=cids.includes(p.id);const _c=_countAtt(p,allSess);const att=_c.tot>0?pc(_c.pr+_c.la,_c.tot):null;
     return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
   }).join("");}
   const cnt=document.getElementById("ev-conv-count");if(cnt)cnt.textContent=cids.length+" convocado"+(cids.length!==1?"s":"");

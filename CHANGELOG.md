@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: la asistencia media ignoraba la fecha de alta de cada jugador (2026-08-04)
+
+### Corregido
+
+- **B-ATT1** — Siguiendo el aviso del propio usuario sobre lo comentado en la nota del cambio anterior (jugadores puntuales inflando la asistencia media), se investigó a fondo y se encontró que el problema era más amplio: 7 sitios calculaban el % de asistencia contando como "presente" por defecto a un jugador en fechas **anteriores a que existiera en la plantilla**, porque descartaban la fecha de cada sesión antes de comparar. El resto de la app (`exportPDF`, la pantalla Estadísticas de un jugador, el Historial de entrenamientos) ya tenía esto resuelto correctamente desde antes con los helpers `_playerStartDate()`/`_countAtt()` (que sí respetan `p.addedAt`) — aquí solo faltaba reutilizarlos, exactamente el mismo patrón de "el mismo cálculo reimplementado varias veces, y algunas copias mal" que ya había aparecido con el hueco de descalificado y la insignia de BONUS.
+- Sitios corregidos: la media de asistencia de la pantalla Equipo, la tarjeta de cada equipo en la pantalla Equipos, la tarjeta de cada equipo en el selector de Estadísticas, la sugerencia automática de convocatoria de un Evento, la insignia de % de cada jugador en la convocatoria de un Evento, y el resumen semanal que se comparte por WhatsApp (tanto el % diario como el % por jugador).
+- Efecto práctico: antes, un jugador recién añadido a la plantilla (puntual o fijo) contaba como si hubiera asistido a todos los entrenamientos anteriores a su alta, inflando la media del equipo y pudiendo hacer que un invitado con una sola sesión real apareciera con más prioridad que un jugador con historial real en la sugerencia automática de convocatoria.
+
+### Probado (jsdom)
+
+- `tests/attendance_addedat.test.js` (11 comprobaciones): escenario con 2 entrenamientos previos al alta de un jugador y 1 posterior, verificando el número correcto (86%, no el 89% inflado) en las 6 pantallas de agregados, el orden correcto en la sugerencia automática de convocatoria, y la insignia de % individual del invitado en la convocatoria de eventos (0%, no 67% inflado). Suite completa: 124/124 en 14 archivos.
+- CACHE_VERSION → dev.23
+
 ## [Sin publicar] · kortline-v3 · Jugadores puntuales/invitados + arreglos del modo equipo (2026-08-04)
 
 ### Añadido
