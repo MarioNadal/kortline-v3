@@ -3,6 +3,14 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Auditoría de deshacer/reasignar tiros libres en lote (2026-08-04)
+
+### Probado (jsdom)
+
+- Se auditó el flujo de deshacer/reasignar/eliminar-por-índice para lotes de tiros libres (p.ej. 3 TL guardados de golpe, 2 aciertos + 1 fallo): el marcador, el registro (`live.log`) y las estadísticas del jugador reflejan siempre el lote completo, no solo el último tiro. `undoLiveAction` revierte el lote entero, reasignar un lote mueve todos sus aciertos al nuevo jugador sin tocar el marcador (los puntos son del equipo, no del jugador), y borrar por índice una entrada que no es la última del log funciona correctamente. No se encontró ningún fallo — se confirma que la corrección aplicada anteriormente sigue sólida.
+- Test añadido a la suite persistente (`tests/undo_tl_batch.test.js`, 12 comprobaciones) para proteger esto de regresiones futuras. Suite completa: 89/89 en 10 archivos.
+- Sin cambios en `index.html`/`sw.js` — no hace falta subir CACHE_VERSION.
+
 ## [Sin publicar] · kortline-v3 · Identificación ligera por entrenador (2026-08-03)
 
 ### Añadido
