@@ -3,6 +3,32 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Mapa de tiro: separar el rival del nuestro (2026-08-04)
+
+### Corregido
+
+- **Bug real**: en modo "solo estadísticas de equipo" con el mapa de tiro activo, si se anotaba un tiro con la pestaña **Rival** activa, se capturaba igualmente con el identificador interno de "Equipo" (`pid: "team"`) — el mismo que usan nuestros propios tiros de equipo. Resultado: el mapa de tiro (y su agregado de toda la temporada, que es el importante) podía acabar mezclando tiros nuestros con tiros de un rival concreto de un partido concreto, sin ninguna forma de separarlos. Los puntos/porcentajes del marcador en vivo NO se veían afectados (esos ya se calculaban bien), solo la captura de zona del tiro.
+- Ahora los tiros del rival en modo equipo se guardan con un identificador propio (`pid: "rival-team"`) y todo tiro (de equipo o de un jugador rival individual con plantilla propia) se marca explícitamente con `rival: true/false` al guardarse.
+- La pantalla del mapa de tiro tiene un nuevo selector **🟠 Nuestro equipo / 🔴 Rival (este partido)** — solo aparece cuando el partido en curso tiene tiros del rival registrados. El rival **nunca** se agrega a la vista de temporada (solo tiene sentido dentro de ese partido concreto); nuestro equipo sigue pudiéndose ver por partido o por toda la temporada como siempre.
+- El botón de exportar a PNG (📤, para compartir por WhatsApp) ahora respeta el mismo filtro — antes recalculaba los tiros por su cuenta sin aplicar ninguna distinción rival/nuestro, así que un PNG exportado podía llevar tiros mezclados aunque en pantalla ya se vieran separados.
+
+### Probado (jsdom)
+
+- `tests/shotmap_rival.test.js` (14 comprobaciones): etiquetado correcto de tiros de equipo rival y de jugador rival individual, separación del mapa por partido (nuestro vs rival), y que el agregado de temporada nunca incluye tiros del rival. Suite completa: 169/169 en 17 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.25`.
+
+## [Sin publicar] · kortline-v3 · Bug real: el orden local/visitante al anotar el marcador se invertía (2026-08-04)
+
+### Corregido
+
+- **Bug real** (reportado por el usuario): al anotar el resultado manual por cuartos, los dos contadores de cada cuarto se ordenaban según el índice local/visitante "en crudo" de `m.q` (el local siempre arriba). Jugando en casa, nuestro equipo salía arriba — pero jugando **fuera**, el rival salía arriba y nuestro equipo abajo. El orden se invertía de un partido a otro sin ningún aviso, lo cual confundía al anotar en directo ("si estoy de visitante registrando resultados... al revés queda raro").
+- Ahora el primer contador (arriba) es **siempre** nuestro equipo y el segundo (abajo) siempre el rival, sea cual sea el campo. El marcador de arriba de la pantalla (con las etiquetas Local/Visitante) sigue siendo el que manda de cara al acta — este cambio solo afecta al orden de ENTRADA de datos, no a qué índice de `m.q` se guarda cada marcador (esa convención, par=local/impar=visitante, no cambia).
+
+### Probado (jsdom)
+
+- `tests/qscore_order.test.js` (6 comprobaciones): orden del primer/segundo contador tanto en casa como fuera, valores mostrados, y que las etiquetas Local/Visitante del marcador no cambian. Suite completa: 155/155 en 16 archivos (en el momento de este commit).
+- CACHE_VERSION → `kortline-v3.0.0-dev.24`.
+
 ## [Sin publicar] · kortline-v3 · Copia de pruebas aislada para probar desde el móvil (2026-08-04)
 
 ### Añadido

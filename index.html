@@ -1224,7 +1224,15 @@ async function _exportShotMapPNG(){
   const filterQ=S.shotMapQ||"all";
   const filterMade=S.shotMapMade||"all";
   const mode=S.shotMapMode||"shots";
-  const source=S.shotMapSource||"match";
+  // v1.8.35 . B-SHOTMAP1: exportar respeta el mismo lado (nuestro/rival) que
+  // se está viendo en pantalla -- antes reimplementaba la recolección de
+  // shots por su cuenta sin aplicar el filtro rival, así que un PNG exportado
+  // podía mezclar tiros nuestros y del rival aunque en pantalla se vieran
+  // separados. El rival nunca se agrega a temporada.
+  const matchHasRivalShots=!!(m&&m.live&&(m.live.shots||[]).some(s=>s.rival));
+  let side=S.shotMapSide||"our";
+  if(side==="rival"&&!matchHasRivalShots)side="our";
+  const source=side==="rival"?"match":(S.shotMapSource||"match");
   // Recolectar shots con la misma lógica que shotMap()
   let allShots=[];
   if(source==="season"){
@@ -1232,6 +1240,7 @@ async function _exportShotMapPNG(){
   } else if(m&&m.live){
     allShots=(m.live.shots||[]).map(s=>({...s}));
   }
+  allShots=allShots.filter(s=>!!s.rival===(side==="rival"));
   let shots=allShots;
   if(filterPid!=="all")shots=shots.filter(s=>s.pid===filterPid);
   if(source==="match"&&filterQ!=="all")shots=shots.filter(s=>String(s.q)===String(filterQ));
@@ -1242,19 +1251,22 @@ async function _exportShotMapPNG(){
   const svg=_courtSVG({width:_COURT_W,shots,showShots:mode==="shots",heatmap:mode==="heatmap",exportMode:true});
   // Cabecera con nombre, fecha y resumen
   const players=pl(S.teamId);
-  const pname=filterPid==="all"?"Todos":(_shortName(players.find(p=>p.id===filterPid)?.name||"?"));
+  const rivalPlayersExp=m?.rivalPlayers||[];
+  const pname=filterPid==="all"?(side==="rival"?"Rival (todo)":"Todos"):(side==="rival"?_shortName(rivalPlayersExp.find(p=>p.id===filterPid)?.name||"?"):_shortName(players.find(p=>p.id===filterPid)?.name||"?"));
   const made=shots.filter(s=>s.made).length;
   const att=shots.length;
   const pct=att>0?Math.round(100*made/att):0;
   const dateStr=new Date().toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric"});
-  const subtitleText=source==="season"?"Toda la temporada":(m?`vs ${m.rival||"Rival"}`:"");
+  const subtitleText=side==="rival"?`Rival: ${m?.rival||"Rival"} (solo este partido)`:(source==="season"?"Toda la temporada":(m?`vs ${m.rival||"Rival"}`:""));
+  const titleName=side==="rival"?(m?.rival||"Rival"):t.name;
+  const titleColor=side==="rival"?"#ef4444":"#F06318";
   const headerH=240;
   const fullW=_COURT_W;
   const fullH=_COURT_H+headerH+60;
   const headerSVG=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${fullW} ${fullH}" width="${fullW}">
     <rect x="0" y="0" width="${fullW}" height="${fullH}" fill="#070f1e"/>
-    <text x="40" y="80" fill="#F06318" font-family="system-ui,sans-serif" font-weight="900" font-size="62">${esc(t.name)}</text>
-    <text x="40" y="140" fill="white" font-family="system-ui,sans-serif" font-weight="700" font-size="42">📍 Mapa de tiros · ${esc(pname)}</text>
+    <text x="40" y="80" fill="${titleColor}" font-family="system-ui,sans-serif" font-weight="900" font-size="62">${esc(titleName)}</text>
+    <text x="40" y="140" fill="white" font-family="system-ui,sans-serif" font-weight="700" font-size="42">${side==="rival"?"🔴":"📍"} Mapa de tiros · ${esc(pname)}</text>
     <text x="40" y="190" fill="#6b8aaf" font-family="system-ui,sans-serif" font-weight="500" font-size="34">${esc(subtitleText)} · ${dateStr}</text>
     <text x="${fullW-40}" y="80" text-anchor="end" fill="#22c55e" font-family="system-ui,sans-serif" font-weight="900" font-size="62">${made}/${att}</text>
     <text x="${fullW-40}" y="140" text-anchor="end" fill="white" font-family="system-ui,sans-serif" font-weight="700" font-size="48">${pct}%</text>
@@ -1389,11 +1401,12 @@ function openShotChartModal(pid,action,pts){
   const players=pl(S.teamId);
   const rivalPlayers=m.rivalPlayers||[];
   const isTeamShot=pid==="team";
-  const isRival=!isTeamShot&&rivalPlayers.some(p=>p.id===pid);
+  const isRivalTeamShot=pid==="rival-team";
+  const isRival=!isTeamShot&&!isRivalTeamShot&&rivalPlayers.some(p=>p.id===pid);
   const p=isRival?rivalPlayers.find(x=>x.id===pid):players.find(x=>x.id===pid);
   const t_=S.teams.find(x=>x.id===S.teamId);
-  const pname=isTeamShot?"Equipo (sin jugador)":_shortName(p?.name||"?");
-  const pNum=isTeamShot?"":(p?.number||"?");
+  const pname=isTeamShot?"Equipo (sin jugador)":isRivalTeamShot?"🔴 Rival (sin jugador)":_shortName(p?.name||"?");
+  const pNum=(isTeamShot||isRivalTeamShot)?"":(p?.number||"?");
   const made=action==="p2m"||action==="p3m";
   const value=(action==="p3m"||action==="p3a")?3:2;
   const labelPts=made?(value===3?"+3 Triple":"+2 Canasta"):(value===3?"✗ Fallo de 3":"✗ Fallo de 2");
@@ -1484,14 +1497,19 @@ function _confirmShot(pid,action,pts,xNorm,yNorm){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // Marcar como "directo" para que liveAction/liveTeamAction NO vuelvan a abrir el modal
   window._scSkipCapture=true;
-  if(pid==="team")liveTeamAction(action,pts);
+  if(pid==="team"||pid==="rival-team")liveTeamAction(action,pts);
   else liveAction(pid,action,pts);
   window._scSkipCapture=false;
   // Persistir las coordenadas en m.live.shots[]
   if(!m.live.shots)m.live.shots=[];
   const made=action==="p2m"||action==="p3m";
   const value=(action==="p3m"||action==="p3a")?3:2;
-  m.live.shots.push({pid,made,value,x:xNorm,y:yNorm,q:m.live.q,clockAt:m.live.clockSec,ts:Date.now()});
+  // v1.8.35 . B-SHOTMAP1: marcamos explicitamente si el tiro es del rival
+  // (pid "rival-team", o un jugador rival individual con plantilla propia) para
+  // poder separar el mapa de tiro del rival (solo importa ese partido) del
+  // mapa de tiro de nuestro equipo (el que se agrega en toda la temporada).
+  const isRivalShot=pid==="rival-team"||(m.rivalPlayers||[]).some(rp=>rp.id===pid);
+  m.live.shots.push({pid,made,value,x:xNorm,y:yNorm,q:m.live.q,clockAt:m.live.clockSec,ts:Date.now(),rival:isRivalShot});
   save();render();
   // v1.8.6 · B-NEW-3: si _pickActionFor encoló un chain (asistencia/rebote)
   // porque shotChart estaba activo, dispararlo ahora que la captura terminó.
@@ -6399,26 +6417,37 @@ function matchDetail(){
     </div>
     <div class="sb-team"><div class="sb-name" style="color:${awayColor}">${awayTeam}</div><div class="sb-badge">Visitante</div></div>
   </div>`;
-  // Quarters input — grid dinámico que se ajusta al número de columnas
+  // Quarters input -- grid dinamico que se ajusta al numero de columnas
+  // v1.8.34 . B-QSCORE1: los steppers de cada cuarto se ordenaban por el
+  // indice local/visitante "en crudo" de m.q (local siempre arriba), asi
+  // que jugando en casa arriba salia nuestro equipo pero jugando fuera
+  // arriba salia el rival -- el orden se invertia de un partido a otro y
+  // confundia al anotar en directo. Ahora arriba SIEMPRE es nuestro equipo
+  // y abajo SIEMPRE el rival (con su color de siempre), sea cual sea el
+  // campo; el marcador de arriba (scoreboardHtml) sigue mostrando
+  // correctamente quien es Local/Visitante, que es lo que importa de cara
+  // al acta -- esto solo cambia el orden de ENTRADA de datos.
+  const isAwayD=m.location==="away";
   const quartersHtml=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px">
     ${qlabels.map((ql,qi)=>{
       const hi=qi*2,ai=qi*2+1;
-      const hv=q[hi]!==null&&q[hi]!==undefined?q[hi]:"";
-      const av=q[ai]!==null&&q[ai]!==undefined?q[ai]:"";
+      const ourI=isAwayD?ai:hi,rivI=isAwayD?hi:ai;
+      const ourV=q[ourI]!==null&&q[ourI]!==undefined?q[ourI]:"";
+      const rivV=q[rivI]!==null&&q[rivI]!==undefined?q[rivI]:"";
       const isOT=qi>=nQuarters;
       return`<div style="background:var(--s2);border:1px solid ${isOT?"rgba(245,158,11,.4)":"var(--border)"};border-radius:8px;padding:5px 2px;text-align:center;position:relative">
         ${isOT&&qi===qlabels.length-1?`<button onclick="removeLastOT()" style="position:absolute;top:2px;right:2px;background:none;border:none;color:var(--tm);cursor:pointer;font-size:10px;line-height:1;padding:1px 3px" title="Quitar">✕</button>`:""}
         <div style="font-size:10px;font-weight:700;color:${isOT?"#f59e0b":"var(--td)"};margin-bottom:5px">${ql}</div>
-        <div class="q-stepper" style="margin-bottom:4px">
-          <button class="q-stepper-btn" onclick="_qStep(${hi},-1)">−</button>
-          <span class="q-stepper-val" id="qv-${hi}" onclick="_qInlineEdit(${hi})" title="Toca para editar" style="cursor:pointer">${hv!==""?hv:"—"}</span>
-          <button class="q-stepper-btn" onclick="_qStep(${hi},1)">+</button>
+        <div class="q-stepper" style="margin-bottom:4px" title="Nosotros">
+          <button class="q-stepper-btn" onclick="_qStep(${ourI},-1)">−</button>
+          <span class="q-stepper-val" id="qv-${ourI}" onclick="_qInlineEdit(${ourI})" title="Toca para editar" style="cursor:pointer;color:${t.color}">${ourV!==""?ourV:"—"}</span>
+          <button class="q-stepper-btn" onclick="_qStep(${ourI},1)">+</button>
         </div>
         <div style="font-size:9px;color:var(--tm);margin:2px 0">vs</div>
-        <div class="q-stepper">
-          <button class="q-stepper-btn" onclick="_qStep(${ai},-1)">−</button>
-          <span class="q-stepper-val" id="qv-${ai}" onclick="_qInlineEdit(${ai})" title="Toca para editar" style="cursor:pointer">${av!==""?av:"—"}</span>
-          <button class="q-stepper-btn" onclick="_qStep(${ai},1)">+</button>
+        <div class="q-stepper" title="Rival">
+          <button class="q-stepper-btn" onclick="_qStep(${rivI},-1)">−</button>
+          <span class="q-stepper-val" id="qv-${rivI}" onclick="_qInlineEdit(${rivI})" title="Toca para editar" style="cursor:pointer;color:#ef4444">${rivV!==""?rivV:"—"}</span>
+          <button class="q-stepper-btn" onclick="_qStep(${rivI},1)">+</button>
         </div>
       </div>`;
     }).join("")}
@@ -8694,7 +8723,13 @@ function shotMap(){
   const filterQ=S.shotMapQ||"all";
   const filterMade=S.shotMapMade||"all";
   const mode=S.shotMapMode||"shots"; // "shots" | "heatmap"
-  const source=S.shotMapSource||"match"; // "match" | "season"
+  // v1.8.35 . B-SHOTMAP1: el rival solo importa dentro del partido concreto,
+  // nunca se agrega a lo largo de la temporada -- si el lado activo es
+  // "rival" forzamos la fuente a "match" pase lo que pase en S.shotMapSource.
+  let side=S.shotMapSide||"our"; // "our" | "rival"
+  const matchHasRivalShots=!!(m&&m.live&&(m.live.shots||[]).some(s=>s.rival));
+  if(side==="rival"&&!matchHasRivalShots)side="our"; // por si se cambia de partido
+  const source=side==="rival"?"match":(S.shotMapSource||"match"); // "match" | "season"
   // v1.8.2: agregar shots según fuente (este partido o toda la temporada)
   let allShots=[];
   if(source==="season"){
@@ -8704,6 +8739,10 @@ function shotMap(){
   } else if(m&&m.live){
     allShots=(m.live.shots||[]).map(s=>({...s,_matchId:m.id,_date:m.date}));
   }
+  // v1.8.35 . B-SHOTMAP1: separar SIEMPRE los tiros del rival (pid "rival-team"
+  // o un jugador de m.rivalPlayers) de los nuestros -- antes se mezclaban sin
+  // distinción en "Todos los jugadores" y en el agregado de temporada.
+  allShots=allShots.filter(s=>!!s.rival===(side==="rival"));
   let shots=allShots;
   if(filterPid!=="all")shots=shots.filter(s=>s.pid===filterPid);
   if(source==="match"&&filterQ!=="all")shots=shots.filter(s=>String(s.q)===String(filterQ));
@@ -8723,39 +8762,54 @@ function shotMap(){
   const qLabels=[...Array.from({length:nQ},(_,i)=>(nQ===4?"Q":"P")+(i+1)),...Array.from({length:otCount},(_,i)=>otCount===1?"OT":"OT"+(i+1))];
   // Para temporada: jugadores convocados en cualquier partido
   const playerIdsInMatches=new Set();
-  if(source==="season"){
-    (S.matches[S.teamId]||[]).forEach(mm=>(mm.convocados||[]).forEach(id=>playerIdsInMatches.add(id)));
-  } else if(m){
-    (m.convocados||[]).forEach(id=>playerIdsInMatches.add(id));
+  if(side==="our"){
+    if(source==="season"){
+      (S.matches[S.teamId]||[]).forEach(mm=>(mm.convocados||[]).forEach(id=>playerIdsInMatches.add(id)));
+    } else if(m){
+      (m.convocados||[]).forEach(id=>playerIdsInMatches.add(id));
+    }
   }
-  const playerOpts=players.filter(p=>playerIdsInMatches.has(p.id)).sort((a,b)=>(a.number||99)-(b.number||99));
-  const subtitle=source==="season"
-    ?`Temporada · ${(S.matches[S.teamId]||[]).filter(mm=>mm.live?.shots?.length).length} partidos`
-    :(m?`${esc(t.name)} vs ${esc(m.rival||"Rival")}`:"");
+  const playerOpts=side==="our"
+    ?players.filter(p=>playerIdsInMatches.has(p.id)).sort((a,b)=>(a.number||99)-(b.number||99))
+    :(m?.rivalPlayers||[]).filter(p=>(m.live?.shots||[]).some(s=>s.pid===p.id)).sort((a,b)=>(a.number||99)-(b.number||99));
+  const subtitle=side==="rival"
+    ?`🔴 Rival · ${esc(m?.rival||"Rival")} · solo este partido`
+    :(source==="season"
+      ?`Temporada · ${(S.matches[S.teamId]||[]).filter(mm=>(mm.live?.shots||[]).some(s=>!s.rival)).length} partidos`
+      :(m?`${esc(t.name)} vs ${esc(m.rival||"Rival")}`:""));
   // Header del filtro de fuente — habilitado solo si hay partido actual con shots o si hay matches
   const hasMatch=!!m&&!!m.live;
-  const seasonHasShots=(S.matches[S.teamId]||[]).some(mm=>mm.live?.shots?.length);
+  const seasonHasShots=(S.matches[S.teamId]||[]).some(mm=>(mm.live?.shots||[]).some(s=>!s.rival));
   return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
-    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📍 Mapa de tiros</div><div style="font-size:11px;color:var(--orange);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${subtitle}</div></div>
+    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">${side==="rival"?"🔴":"📍"} Mapa de tiros</div><div style="font-size:11px;color:${side==="rival"?"#ef4444":"var(--orange)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${subtitle}</div></div>
     ${shots.length>0?`<button onclick="_exportShotMapPNG()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#22c55e;width:36px;height:36px;border-radius:9px;cursor:pointer;font-size:16px;flex-shrink:0" title="Exportar PNG para WhatsApp">📤</button>`:""}
   </div></header>
   <div class="content" style="padding-bottom:90px">
+    <!-- v1.8.35 . B-SHOTMAP1: toggle nuestro equipo / rival — el mapa del rival
+         solo tiene sentido dentro del partido en curso (nunca se agrega a la
+         temporada), asi que se marca claramente y bloquea la fuente a "este
+         partido" mientras esta activo. -->
+    ${matchHasRivalShots?`<div style="display:flex;gap:6px;margin-bottom:10px">
+      <button onclick="S.shotMapSide='our';S.shotMapPid='all';render()" style="flex:1;padding:9px;border-radius:9px;border:${side==="our"?"2px solid var(--orange)":"1px solid var(--border)"};background:${side==="our"?"rgba(240,99,24,.15)":"var(--s)"};color:${side==="our"?"var(--orange)":"var(--td)"};cursor:pointer;font-size:13px;font-weight:800">🟠 Nuestro equipo</button>
+      <button onclick="S.shotMapSide='rival';S.shotMapPid='all';render()" style="flex:1;padding:9px;border-radius:9px;border:${side==="rival"?"2px solid #ef4444":"1px solid var(--border)"};background:${side==="rival"?"rgba(239,68,68,.15)":"var(--s)"};color:${side==="rival"?"#ef4444":"var(--td)"};cursor:pointer;font-size:13px;font-weight:800">🔴 Rival (este partido)</button>
+    </div>`:""}
     <!-- Toggle modo: Puntos / Mapa de calor -->
     <div style="display:flex;gap:6px;margin-bottom:10px">
       <button onclick="S.shotMapMode='shots';S.shotMapSource='match';render()" style="flex:1;padding:9px;border-radius:9px;border:${mode==="shots"?"2px solid var(--orange)":"1px solid var(--border)"};background:${mode==="shots"?"rgba(240,99,24,.15)":"var(--s)"};color:${mode==="shots"?"var(--orange)":"var(--td)"};cursor:pointer;font-size:13px;font-weight:800">🎯 Puntos</button>
       <button onclick="S.shotMapMode='heatmap';render()" style="flex:1;padding:9px;border-radius:9px;border:${mode==="heatmap"?"2px solid var(--orange)":"1px solid var(--border)"};background:${mode==="heatmap"?"rgba(240,99,24,.15)":"var(--s)"};color:${mode==="heatmap"?"var(--orange)":"var(--td)"};cursor:pointer;font-size:13px;font-weight:800">🔥 Mapa de calor</button>
     </div>
-    <!-- Toggle fuente: Este partido / Toda la temporada (solo en modo Mapa de calor) -->
-    ${mode==="heatmap"&&(hasMatch||seasonHasShots)?`<div style="display:flex;gap:6px;margin-bottom:10px">
+    <!-- Toggle fuente: Este partido / Toda la temporada (solo en modo Mapa de calor,
+         y solo para nuestro equipo -- el mapa del rival siempre es de un solo partido) -->
+    ${mode==="heatmap"&&side==="our"&&(hasMatch||seasonHasShots)?`<div style="display:flex;gap:6px;margin-bottom:10px">
       ${hasMatch?`<button onclick="S.shotMapSource='match';render()" style="flex:1;padding:8px;border-radius:9px;border:${source==="match"?"2px solid #06b6d4":"1px solid var(--border)"};background:${source==="match"?"rgba(6,182,212,.12)":"var(--s)"};color:${source==="match"?"#06b6d4":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">📅 Este partido</button>`:""}
       ${seasonHasShots?`<button onclick="S.shotMapSource='season';render()" style="flex:1;padding:8px;border-radius:9px;border:${source==="season"?"2px solid #06b6d4":"1px solid var(--border)"};background:${source==="season"?"rgba(6,182,212,.12)":"var(--s)"};color:${source==="season"?"#06b6d4":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">🗓 Toda la temporada</button>`:""}
     </div>`:""}
     <!-- Filtros -->
     <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px">
-      <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:6px">JUGADOR</div>
+      <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:6px">${side==="rival"?"JUGADOR RIVAL":"JUGADOR"}</div>
       <select onchange="S.shotMapPid=this.value;render()" style="width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--s);color:var(--tx);font-size:13px;margin-bottom:10px">
-        <option value="all" ${filterPid==="all"?"selected":""}>Todos los jugadores</option>
+        <option value="all" ${filterPid==="all"?"selected":""}>${side==="rival"?"Todo el rival":"Todos los jugadores"}</option>
         ${playerOpts.map(p=>`<option value="${p.id}" ${filterPid===p.id?"selected":""}>#${p.number||"?"} ${esc(p.name)}</option>`).join("")}
       </select>
       ${source==="match"?`<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
@@ -9261,12 +9315,19 @@ function saveTLResults(rpid, total, foulerPid){
 // ── Team-only mode actions (no individual player) ──
 function liveTeamAction(action, pts){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  // v1.8.35 . B-SHOTMAP1: antes se llamaba a isRivalSide DESPUES de la rama del
+  // shot chart, asi que un tiro anotado con la pestana "Rival" activa se
+  // capturaba igualmente con pid "team" -- se mezclaba con nuestros propios
+  // tiros en el mapa de tiro (y en el agregado de temporada). Ahora se calcula
+  // antes y se etiqueta con un pid distinto ("rival-team") para poder
+  // separarlos limpiamente despues.
+  const isRivalSideForShot=m.live.activeTeam==="rival";
   // v2-live . B-TEAM1: el modo "estadisticas de equipo" es independiente del
   // shot chart -- si esta activo, capturamos zona igual que en modo individual
-  // (con pid generico 'team', sin box score por jugador).
+  // (con pid generico 'team'/'rival-team', sin box score por jugador).
   if(m.shotChart && !window._scSkipCapture){
     if(action==="p2m"||action==="p3m"||action==="p2a"||action==="p3a"){
-      openShotChartModal("team",action,pts);
+      openShotChartModal(isRivalSideForShot?"rival-team":"team",action,pts);
       return;
     }
   }
