@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Pantalla Hoy: orden cronológico + barra de próximo entreno (2026-08-04)
+
+### Añadido
+
+- Las tarjetas de entrenamiento de la pantalla **Hoy** ahora se ordenan por la hora del entreno (de más temprano a más tarde), no por el orden en que aparecen en la pantalla Equipos. Así el primero de la lista es siempre al que antes hay que pasar lista.
+- Nueva **barra de próximo entrenamiento** justo debajo de la cabecera: muestra el entreno más cercano al que todavía no se le ha pasado lista. Si su hora ya ha llegado se marca en rojo ("🔴 Toca pasar lista ahora"); si es más tarde, en naranja ("⏰ Próximo entrenamiento · HH:MMh"). Toca la barra para ir directo a pasar esa lista. Desaparece en cuanto ya se ha pasado lista a todos los entrenos de hoy.
+
+### Probado (jsdom)
+
+- `tests/hoy_screen.test.js` (7 comprobaciones): orden cronológico frente al orden de S.teams, barra urgente con hora ya pasada, barra informativa con hora futura, y ausencia de barra cuando ya se pasó lista. Suite completa: 102/102 en 12 archivos.
+- CACHE_VERSION → dev.21
+
 ## [Sin publicar] · kortline-v3 · Bug real: insignia BONUS de la cabecera un fallo antes de tiempo (2026-08-04)
 
 ### Corregido
