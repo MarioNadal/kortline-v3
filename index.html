@@ -3794,7 +3794,7 @@ function att(){
         <div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t?.color||"#F06318"},${t?.color||"#F06318"}80)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>
         ${avatar}
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${esc(p.name)}${isInj?`<span class="injury-badge" title="Lesionado">🚑</span>`:""}</div>
+          <div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${esc(p.name)}${isInj?`<span class="injury-badge" title="Lesionado">🚑</span>`:""}${p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px">🔄 PUNTUAL</span>`:""}</div>
           <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:2px">
             <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:12px;font-weight:700;background:${v.bg};color:${v.c}">${v.i} ${v.l}</span>
             ${autoHint}
@@ -3864,6 +3864,9 @@ function att(){
     ${filterBanner}
     ${bulkRow}
     <div class="card card-2col">${prows}</div>
+    <div style="text-align:center;margin:8px 0 12px">
+      <button onclick="openGuestPlayerModal({mode:'att'})" style="background:none;border:1px dashed var(--border);color:var(--td);cursor:pointer;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;width:100%">🔄 + Invitado puntual (jugador de otra categoría / externo)</button>
+    </div>
     ${exercisesHtml}${photoHtml}${teamScoreHtml}
     <div class="fg"><label class="fl">📝 Notas del entrenador</label><input class="fi" id="att-notes" value="${esc(notesVal)}" placeholder="Solo visibles para el entrenador..." oninput="_attAutoSave()"/></div>
     <div style="display:flex;gap:8px;align-items:stretch">
@@ -4296,6 +4299,7 @@ function team(){
       const iStart=injuryStart(p);
       const iDays=iStart?injuryDays(iStart):0;
       const badge=isInj?`<span class="injury-badge" title="Lesionado${iStart?" desde "+fd(iStart,false):""}">🚑</span>`:"";
+      const guestBadge=p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="Jugador puntual/invitado${p.guestNote?": "+esc(p.guestNote):""}">🔄 PUNTUAL</span>`:"";
       const pnum=`<div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}99)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>`;
       const avatar=p.photo?`<img class="pavatar" src="${p.photo}" alt=""/>`:"";
       // Formato compacto para no cortar en filas estrechas: "🚑 10/04 (6d)"
@@ -4313,7 +4317,7 @@ function team(){
         :"background:var(--s2);border:1px solid var(--border);color:var(--td)";
       const incBadge=incCount>0?`<span class="injury-badge" style="background:#f59e0b" title="${incCount} incidencia${incCount===1?"":"s"}">${incCount}</span>`:"";
       const incBtn=S.cfg.features.incidents?`<button onclick="openIncidentModal('${p.id}')" title="Incidencias" style="position:relative;padding:5px 9px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:4px;${incBtnStyle}">⚠️${incBadge}</button>`:"";
-      return `<div class="pr">${pnum}${avatar}<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${badge}</div><div style="font-size:12px;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subLine)}</div></div><button onclick="openPlayerModal(${JSON.stringify({...p,id:p.id}).replace(/"/g,'&quot;')})" title="Editar datos" style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:13px;margin-right:4px">✏️</button>${injBtn}${incBtn}<button onclick="delPlayer('${p.id}')" title="Eliminar" style="padding:5px 9px;border-radius:6px;border:none;background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-size:13px">🗑</button></div>`;
+      return `<div class="pr">${pnum}${avatar}<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${badge}${guestBadge}</div><div style="font-size:12px;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subLine)}</div></div><button onclick="openPlayerModal(${JSON.stringify({...p,id:p.id}).replace(/"/g,'&quot;')})" title="Editar datos" style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:13px;margin-right:4px">✏️</button>${injBtn}${incBtn}<button onclick="delPlayer('${p.id}')" title="Eliminar" style="padding:5px 9px;border-radius:6px;border:none;background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-size:13px">🗑</button></div>`;
     }).join("")}</div>`;
   const schedRows=t.schedule&&Object.keys(t.schedule).length?Object.entries(t.schedule).sort((a,b)=>+a[0]-+b[0]).map(([i,time])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600;font-size:14px">${DAYSF[i]}</div><div style="color:var(--orange);font-family:var(--font-d);font-weight:700;font-size:15px">${time||"—"}</div></div>`).join(""):`<div style="font-size:13px;color:var(--tm);padding:8px 0">Sin horario</div>`;
   // Attendance stats bar
@@ -5687,6 +5691,77 @@ function delPlayer(id){
   if(!p)return;
   _confirm("¿Eliminar a <b>"+esc(p.name||"")+"</b>?","🗑 Eliminar",()=>{S.players[S.teamId]=pl(S.teamId).filter(x=>x.id!==id);save();render();toast("🗑 Eliminado");});
 }
+// v1.8.32 · B-GUEST1: jugadores puntuales/invitados -- alguien que no es
+// de la plantilla fija (sube de categoría solo para un partido, o un
+// externo que juega/entrena de forma excepcional). Decisión tomada con el
+// usuario: SÍ deben contar en las estadísticas de temporada del equipo, así
+// que se crean como un jugador normal de S.players[tid] (con guest:true
+// para poder distinguirlos visualmente en todas las pantallas) en vez de
+// mantenerlos en una lista aparte -- así heredan gratis todo el pipeline de
+// stats/asistencia ya existente, sin tener que duplicar lógica en ningún
+// sitio.
+function openGuestPlayerModal(opts){
+  const mode=(opts&&opts.mode)||"att"; // "match" | "att"
+  document.getElementById("m-guest-player")?.remove();
+  const el=document.createElement("div");
+  el.id="m-guest-player";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔄 Jugador puntual</div>
+    <div class="msub">No se queda en la plantilla fija — solo para ${mode==="match"?"este partido":"este entrenamiento"}. Cuenta igual en las estadísticas del equipo.</div>
+    <div class="frow">
+      <div class="fg" style="flex:2"><label class="fl">Nombre</label><input class="fi" id="gp-name" placeholder="Nombre Apellido"/></div>
+      <div class="fg" style="flex:1"><label class="fl">Dorsal</label><input class="fi" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" id="gp-num" placeholder="9" style="text-align:center" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)"/></div>
+    </div>
+    <div class="fg"><label class="fl">Nota (opcional)</label><input class="fi" id="gp-note" placeholder="ej. Infantil Masculino · sube puntualmente"/></div>
+    <button class="btn-p" onclick="_guestPlayerCommit('${mode}')">✅ Añadir</button>
+    <button class="btn-s" onclick="document.getElementById('m-guest-player').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+  setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
+}
+function _guestPlayerCommit(mode){
+  const name=(document.getElementById("gp-name")?.value||"").trim();
+  if(!name){toast("Ponle un nombre al jugador");return;}
+  const numV=(document.getElementById("gp-num")?.value||"").replace(/[^0-9]/g,"").slice(0,2);
+  // Mismo guard de dorsal duplicado que savePlayer() (B-ADV4) -- un invitado
+  // con el mismo número que alguien de la plantilla fija sería igual de
+  // ilegal en pista.
+  if(numV!==""){
+    const dupe=pl(S.teamId).find(x=>String(x.number)===numV);
+    if(dupe){toast("⚠️ El dorsal #"+numV+" ya lo lleva "+esc(dupe.name||"otro jugador"));return;}
+  }
+  const note=(document.getElementById("gp-note")?.value||"").trim();
+  if(!S.players[S.teamId])S.players[S.teamId]=[];
+  const id=uid();
+  S.players[S.teamId].push({id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt:td()});
+  if(mode==="match"){
+    const m=mById(S.teamId,S.matchId);
+    if(m){
+      m.convocados=[...(m.convocados||[]),id];
+      save();
+      document.getElementById("m-guest-player")?.remove();
+      // Redibuja el paso "nuestro equipo" del wizard de convocatoria con el
+      // invitado ya añadido y marcado como convocado.
+      const t=S.teams.find(x=>x.id===S.teamId);
+      const wiz=document.getElementById("m-conv-setup");
+      if(wiz&&t)wiz.innerHTML=_convSetupHtml(m,t,wiz._step||0);
+      toast(`✅ ${name} añadido y convocado`);
+      return;
+    }
+  } else {
+    const k=sk(S.teamId,S.date);
+    const sess={...S.sessions[k]||{}};
+    sess[id]="present";
+    S.sessions[k]=sess;
+  }
+  save();
+  document.getElementById("m-guest-player")?.remove();
+  render();
+  toast(`✅ ${name} añadido`);
+}
 function delTeam(){
   // v1.8.6 · B-NEW-2: nombre se resolvía desde el onclick (`delTeam('${esc(t.name)}')`),
   // pero el HTML decodifica `&#39;` antes de ejecutar el JS — un nombre con
@@ -6457,8 +6532,8 @@ function openMatchModal(init){
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--s2);border:1px solid var(--border);border-radius:10px;margin-bottom:12px">
       <div>
-        <div style="font-weight:700;font-size:14px">📊 Estadísticas del rival</div>
-        <div style="font-size:12px;color:var(--td);margin-top:2px">Registrar stats jugador a jugador del equipo rival</div>
+        <div style="font-weight:700;font-size:14px">📊 Registrar datos del rival</div>
+        <div style="font-size:12px;color:var(--td);margin-top:2px">Actívalo para poder anotar también al rival en el partido en vivo — jugador a jugador si le añades plantilla, o solo totales de equipo si tienes activado "Solo stats del equipo" (abajo)</div>
       </div>
       <button id="${mid}-rse-btn" class="tswitch ${init?.rivalStatsEnabled?'on':''}" onclick="this.classList.toggle('on')"></button>
     </div>
@@ -6545,6 +6620,9 @@ function _convSetupHtml(m,t,step){
       </div>
     </div>
     <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán</div>
+    <div style="text-align:right;margin-bottom:8px">
+      <button onclick="openGuestPlayerModal({mode:'match'})" style="background:none;border:none;color:var(--orange);cursor:pointer;font-size:12px;font-weight:700;padding:4px 0">🔄 + Jugador puntual (sube de categoría / externo)</button>
+    </div>
     ${capBanner}
     <div class="card" style="margin-bottom:12px;max-height:42vh;overflow-y:auto">
       ${players.length===0
@@ -6619,10 +6697,11 @@ function _convGoStep(step){
 }
 // v1.7.6: render in-place de una fila (sin tocar el DOM completo, mantiene scroll)
 function _convRowInner(p,t,inConv,isTit,isCap){
+  const guestBadge=p.guest?'<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">🔄 PUNTUAL</span>':"";
   return`<div class="conv-cb ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
     <div style="flex:1">
-      <div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?'<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>':""}</div>
+      <div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?'<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>':""}${guestBadge}</div>
       <div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div>
     </div>
     ${inConv?`<div style="display:flex;gap:5px" onclick="event.stopPropagation()">
@@ -6751,6 +6830,10 @@ function _rivDel(id){
 function _convFinish(){
   // v1.7.7: validaciones en cadena (regresión de v1.6.0 restaurada).
   const m=mById(S.teamId,S.matchId);if(!m){save();return;}
+  // v1.8.32 · B-GUEST1: en modo "solo stats de equipo" no hay quinteto en
+  // pista ni sustituciones -- exigir convocatoria/titulares/capitán no
+  // aplica, así que nos saltamos toda la validación.
+  if(m.teamOnlyStats)return _convFinishDeferred();
   const conv=m.convocados||[];
   const tit=(m.titulares||[]).filter(id=>conv.includes(id));
   const cap=m.capitan;
@@ -7239,7 +7322,11 @@ function liveGame(){
   // ese botón no era la única puerta de entrada a esta pantalla. Repetimos
   // aquí la misma comprobación bloqueante, solo en la inicialización
   // (m.live aún no existe) para no interrumpir partidos ya en marcha.
-  if(!m.live&&convP.length<5){
+  // v1.8.32 · B-GUEST1: en modo "solo stats de equipo" no hay seguimiento
+  // individual (ni quinteto en pista, ni sustituciones) -- exigir 5
+  // convocados de la plantilla fija para poder empezar no tiene sentido, y
+  // menos si el partido se apoya en jugadores puntuales/invitados.
+  if(!m.live&&!m.teamOnlyStats&&convP.length<5){
     S.screen="matchDetail";render();
     _convValidationModal({
       icon:"⚠️",

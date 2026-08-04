@@ -3,6 +3,30 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Jugadores puntuales/invitados + arreglos del modo equipo (2026-08-04)
+
+### Añadido
+
+- **Jugadores puntuales/invitados**: para cuando un jugador de otra categoría sube puntualmente a jugar un partido o a entrenar, o viene un externo de forma excepcional. Se añaden desde "🔄 + Jugador puntual" en la convocatoria de un partido (queda convocado automáticamente) o desde "🔄 + Invitado puntual" en el pase de lista de un entreno (queda marcado presente ese día). No se pierden en la plantilla fija de golpe — se identifican con la insignia morada "🔄 PUNTUAL" en Jugadores, en la convocatoria y en el pase de lista — pero, como se decidió con el usuario, sus datos SÍ cuentan en las estadísticas de temporada del equipo igual que cualquier otro jugador (no hay una vía "aparte" con lógica duplicada). Respetan el mismo aviso de dorsal duplicado que un jugador normal.
+
+### Corregido
+
+- **B-GUEST1** — El modo "👥 Solo stats del equipo" ya no exige convocar a 5 jugadores de la plantilla para poder empezar el partido en vivo, ni exige convocatoria/titulares/capitán al pulsar "Listo — ir al partido". En ese modo no hay quinteto en pista ni sustituciones (todo se anota a nivel de equipo), así que la exigencia no tenía sentido — y menos si el partido se apoya en jugadores puntuales.
+- Reescrito el texto del switch "📊 Estadísticas del rival" (ahora "Registrar datos del rival") en el formulario de partido: antes sonaba a que solo servía para llevar stats jugador a jugador, pero también hay que activarlo para desbloquear el modo de solo-totales-de-equipo del rival si no le añades plantilla — la revisión de este switch venía pedida por el usuario.
+
+### Investigado
+
+- Se comprobó contra kortline-v2 que las estadísticas de equipo del rival (no solo puntos/faltas, sino rebotes, asistencias, robos, tapones y pérdidas) ya funcionan igual en kortline-v3 desde antes de esta sesión (`live.rivalTeamAgg`) — no hacía falta portar nada, solo arreglar el candado de convocatoria de arriba.
+
+### Probado (jsdom)
+
+- `tests/guest_players.test.js` (11 comprobaciones): alta de invitado desde convocatoria de partido (con convocatoria automática y guard de dorsal duplicado), alta de invitado desde pase de lista (marcado presente ese día), insignia visible en Jugadores, y que el modo equipo ya no bloquea por falta de convocados/titulares/capitán. Suite completa: 113/113 en 13 archivos.
+- CACHE_VERSION → dev.22
+
+### Nota
+
+- Como cualquier jugador nuevo añadido a media temporada (no es específico de los puntuales), el widget de asistencia media de la pantalla Equipo cuenta por defecto como "presente" las fechas de entrenamiento anteriores a que el jugador existiera, porque esa vista no guarda la fecha en la que se añadió cada uno. Es un comportamiento previo a este cambio, no se ha tocado — si se quiere afinar, es un trabajo aparte que tocaría bastantes pantallas de estadísticas de temporada.
+
 ## [Sin publicar] · kortline-v3 · Pantalla Hoy: orden cronológico + barra de próximo entreno (2026-08-04)
 
 ### Añadido
