@@ -3,6 +3,14 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Copia de pruebas aislada para probar desde el móvil (2026-08-04)
+
+### Añadido
+
+- Nueva copia de la app desplegada en `/test/`, para poder probar cosas desde el móvil sin tocar los datos reales del club. Usa un club de Firestore completamente distinto (`clubs/cbjaca-test` en vez de `clubs/cbjaca`) — las reglas de seguridad ya estaban preparadas para esto (`match /clubs/{clubId}/...`, cualquier clubId vale). Se entra con el **mismo PIN de siempre** porque el login es una única cuenta de Firebase Auth compartida, independiente del club — el PIN no cambia, solo cambian dónde se guardan los datos.
+- Instalable en el móvil como una app aparte ("Kortline TEST" en el icono), con su propia caché de Service Worker con nombre propio para no interferir nunca con la caché de la app real en el mismo móvil.
+- `scripts/build-test-deploy.sh`: regenera `/test/` a partir de `index.html`/`sw.js`/`manifest.json` de producción con una sustitución automática (CLUB_ID, nombre de caché, nombre del manifest). Hay que ejecutarlo después de cada cambio que se despliegue a producción para que `/test/` no se quede desactualizado — documentado en el README.
+
 ## [Sin publicar] · kortline-v3 · Simulación de temporada realista + auditoría de textos para compartir (2026-08-04)
 
 ### Investigado

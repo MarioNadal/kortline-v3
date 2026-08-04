@@ -76,3 +76,11 @@ Para el control de versiones y ramas, ver `ROADMAP.md`.
 ## Licencia
 
 © Mario Nadal Ara · CB Jaca. Uso interno del club.
+
+## Copia de pruebas (móvil)
+
+Además de la app real (`clubs/cbjaca`), hay una copia idéntica desplegada en `/test/` que usa un club de Firestore separado (`clubs/cbjaca-test`) — mismo PIN de siempre para entrar (la autenticación es una cuenta compartida, no depende del club), pero los datos están completamente aislados de los del club real. Sirve para probar desde el móvil sin ningún riesgo: crea equipos/jugadores/partidos de mentira, prueba jugadores puntuales, modo equipo, etc.
+
+- URL: `https://<usuario-github>.github.io/kortline-v3/test/`
+- Se puede instalar en el móvil como una app aparte (se llama "Kortline TEST" en el icono, para no confundirla con la real).
+- **Importante**: después de cualquier cambio en `index.html`/`sw.js` que se despliegue a producción, hay que regenerar esta copia con `bash scripts/build-test-deploy.sh` y subirla también — si no, `/test/` se queda con una versión vieja de la app (aunque los datos siguen aislados igual).
