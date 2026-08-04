@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: insignia BONUS de la cabecera un fallo antes de tiempo (2026-08-04)
+
+### Corregido
+
+- **B-BONUS1** — Se buscó el mismo patrón que causó el hueco de descalificado (misma comprobación reimplementada en varios sitios, y uno de ellos desincronizado): en el marcador de faltas de equipo/bonus había 3 implementaciones independientes del umbral de bonus (toast de aviso, insignia de la pestaña de cuarto, insignia de la cabecera del partido en vivo). Dos de ellas usaban correctamente la regla FIBA (bonus a partir de la **5ª falta de equipo**), pero la insignia "BONUS" de la cabecera usaba `teamFouls>=4` — mostraba bonus una falta antes de tiempo, lo que podía llevar a un entrenador a pensar (mirando solo la cabecera) que el rival ya tira 2 TL cuando en realidad falta una falta más.
+- Corregido a `teamFouls>=5`, alineado con el resto de la app.
+- Revisadas también las otras 3 zonas del mismo patrón (sistema de deshacer/reasignar del historial, registro de `live.log`, tracking de minutos en pista): comparten funciones centralizadas (`deleteLogEntry`, `_trackEnter`/`_trackExit`) y no se encontraron más discrepancias.
+
+### Probado (jsdom)
+
+- `tests/bonus_badge.test.js` (6 comprobaciones nuevas): la cabecera no muestra BONUS con 0 ni con 4 faltas, sí lo muestra con 5 y con más de 5, y el toast de aviso se dispara exactamente al cruzar a la 5ª falta. Suite completa: 95/95 en 11 archivos.
+- CACHE_VERSION → dev.20
+
 ## [Sin publicar] · kortline-v3 · Auditoría de deshacer/reasignar tiros libres en lote (2026-08-04)
 
 ### Probado (jsdom)

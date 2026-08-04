@@ -7276,7 +7276,7 @@ function liveGame(){
   const diffTxt=diff>0?"+"+diff:String(diff);
   const diffColor=diff>0?"#22c55e":diff<0?"#ef4444":"#f59e0b";
   const teamFouls=(live.teamFouls||[])[curQ-1]||0;
-  const bonus=teamFouls>=4;
+  const bonus=teamFouls>=5; // v1.8.30 · B-BONUS1: bonus FIBA empieza en la 5a falta de equipo, no la 4a
   const nQuarters=m.quarters||4;
   const _pLabel=nQuarters===4?"Q":"P";
   const _otCount=live.otCount||0;
