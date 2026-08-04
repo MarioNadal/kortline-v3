@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Simulación de temporada realista + auditoría de textos para compartir (2026-08-04)
+
+### Investigado
+
+- Se construyó una simulación completa de temporada (16 entrenamientos reales en 8 semanas, una lesión, un jugador puntual añadido en el último entreno, un evento de tecnificación, y 3 partidos de tipos distintos: individual con plantilla rival, modo equipo con el invitado convocado, y un partido en vivo) para poner a prueba de golpe todo lo tocado en los últimos cambios (B-ATT1, jugadores puntuales, modo equipo).
+- Se auditaron a fondo todos los textos que se comparten con padres y con otros entrenadores (`buildDailyText`, `buildWeeklyText`, `buildEventoText`, `mConvText` de convocatoria, `shareMatchResult`) buscando el mismo patrón de bug que B-ATT1. No se encontró ningún caso nuevo — coinciden entre sí, no aparece "undefined/NaN/null" en ningún texto, y los marcadores/resultados de partido (incluido un partido en modo equipo sin plantilla rival) se calculan bien.
+- Confirmado que `team()`, `equiposScreen()` y `statsHomeScreen()` dan exactamente el mismo % de asistencia entre sí en un escenario complejo (con lesión y jugador puntual incluidos), verificando que el arreglo de B-ATT1 aguanta con datos realistas.
+- `exportPDF()`/`exportExcel()` fallan en el entorno de pruebas (jsdom) solo en el último paso (descarga del archivo vía `URL.createObjectURL`, una API de navegador no implementada en jsdom) — todo el cálculo de datos previo se ejecuta sin errores, así que no es un bug de la app.
+
+### Probado (jsdom)
+
+- `tests/season_simulation.test.js` (25 comprobaciones): simulación de temporada de extremo a extremo descrita arriba. Suite completa: 149/149 en 15 archivos.
+- Sin cambios en `index.html`/`sw.js` — no hace falta subir CACHE_VERSION.
+
 ## [Sin publicar] · kortline-v3 · Bug real: la asistencia media ignoraba la fecha de alta de cada jugador (2026-08-04)
 
 ### Corregido
