@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Valoración por estrellas más usable + vista previa de foto (2026-08-05)
+
+### Corregido
+
+- **Bug real / queja de uso**: la valoración 1-10 (tanto la colectiva del equipo como la individual por jugador) se pedía tocando una de **10 estrellas diminutas** en fila — visualmente recargado y, sobre todo, difícil de acertar con el dedo en el número exacto en un móvil. Se sustituye por un **stepper "− número +"** con el número grande y coloreado (rojo/ámbar/verde según la valoración), mismo lenguaje visual que los contadores de marcador por cuarto que ya usa la app. Bajar desde 1 vuelve a "sin valorar" (0), así que no hace falta ningún botón de reset aparte. Las vistas de solo lectura (roster de temporada, Historial, texto de valoración enviado por WhatsApp) también se han limpiado: ya no repiten el carácter ★ una vez por punto (podía llegar a "★★★★★★★★★★"), ahora muestran "N/10" con una barra o insignia de color.
+- **Bug real**: la foto del entrenamiento **no se podía volver a ver una vez subida** — en el Historial solo aparecía un icono 📷 estático (sin vista previa ni al tocarlo), y dentro del propio pase de lista la imagen se recortaba a 180px sin ninguna forma de ampliarla. Además, si se desactivaba el interruptor "Foto del entrenamiento" en Ajustes **después** de haber subido fotos, esas fotos ya guardadas desaparecían por completo de la vista (aunque los datos seguían ahí). Ahora: (1) el Historial muestra una miniatura real de cada foto, tocable para abrir una vista previa a tamaño completo; (2) el pase de lista tiene un botón explícito "🔍 Ver tamaño completo"; (3) una foto ya guardada se sigue pudiendo ver aunque se apague el interruptor — solo deja de ofrecerse subir una nueva o borrarla desde ahí.
+
+### Probado (jsdom)
+
+- `tests/score_and_photo.test.js` (24 comprobaciones): stepper de valoración de equipo y de jugador (límites 0-10, sin negativos ni por encima de 10), ausencia total de los antiguos manejadores por-estrella, vista previa de foto accesible con el flag activado y desactivado, miniatura clicable en el Historial, aviso si no hay foto para una fecha. Suite completa: 212/212 en 19 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.27`. APP_VERSION sincronizada al mismo build.
+
 ## [Sin publicar] · kortline-v3 · Quitar copia de seguridad manual + fijar versión visible (2026-08-05)
 
 ### Quitado
