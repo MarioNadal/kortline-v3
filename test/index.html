@@ -268,9 +268,6 @@ body{font-family:var(--font-b);background:var(--bg);color:var(--tx);min-height:1
 .day-time-input:disabled{opacity:.3;cursor:not-allowed;}
 .day-time-input::-webkit-date-and-time-value{text-align:center;}
 /* ── Stars ── */
-.stars span{font-size:22px;cursor:pointer;line-height:1;transition:transform .1s;}
-.stars span:hover{transform:scale(1.2);}
-.stars-sm span{font-size:16px;cursor:pointer;line-height:1;}
 /* ── Photo ── */
 .photo-box{background:var(--s2);border:1.5px dashed var(--border);border-radius:10px;text-align:center;padding:14px;cursor:pointer;overflow:hidden;}
 .photo-box:hover{border-color:var(--orange);}
@@ -343,6 +340,19 @@ select.fi option{background:#0c1828;}
 .q-stepper-btn:active{background:var(--orange);border-color:var(--orange);color:white;opacity:1;}
 /* Extender área táctil a ~44px sin cambiar el visual — importante en Android */
 .q-stepper-btn::after{content:'';position:absolute;top:-11px;right:-11px;bottom:-11px;left:-11px;}
+/* v1.8.36 · B-SCORE1: sustituye la fila de 10 estrellas diminutas (dificil de
+   acertar con el dedo) por un stepper +/- con numero grande, mismo lenguaje
+   visual que .q-stepper pero mas grande (objetivo tactil recomendado ~40px).
+   .score-picker-sm es la variante compacta para caber en una fila de jugador. */
+.score-picker{display:flex;align-items:center;gap:10px;}
+.score-picker-btn{width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-size:19px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation;padding:0;}
+.score-picker-btn:active{background:var(--orange);border-color:var(--orange);color:white;}
+.score-picker-val{font-family:var(--font-d);font-weight:900;font-size:22px;min-width:34px;text-align:center;line-height:1;}
+.score-picker-sm{gap:6px;}
+.score-picker-sm .score-picker-btn{width:26px;height:26px;border-radius:7px;font-size:14px;}
+.score-picker-sm .score-picker-val{font-size:15px;min-width:22px;}
+.score-bar-track{height:6px;background:var(--s3);border-radius:3px;overflow:hidden;}
+.score-bar-fill{height:100%;border-radius:3px;transition:width .3s;}
 /* Select con flecha custom — Android no aplica ::-webkit-appearance bien */
 .fi select,.fi{background-image:none;}
 select.fi{padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a9cc8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
@@ -2040,6 +2050,13 @@ function cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):"";}
 function getJR(sess,pid){return sess[pid+"_jr"]||"";}
 function getJN(sess,pid){return sess[pid+"_jn"]||"";}
 function getPS(sess,pid){return sess[pid+"_score"]||0;}
+// v1.8.36 · B-SCORE1: etiqueta/color compartidos para cualquier valoracion
+// 1-10 (equipo o jugador), usados por el stepper interactivo y por todas las
+// vistas de solo-lectura (historial, roster, textos de compartir) para que
+// el mismo numero siempre se vea/describa igual en toda la app.
+const _SCORE_LABELS=["","Muy mal","Mal","Regular","Regular","Normal","Normal","Bien","Bien","Muy bien","Excelente"];
+function _scoreLabel(v){return _SCORE_LABELS[v]||"";}
+function _scoreColor(v){return v>=8?"#22c55e":v>=5?"#f59e0b":v>0?"#ef4444":"#2a4060";}
 function justShortLabel(sess,pid){const r=getJR(sess,pid),n=getJN(sess,pid);if(r){const f=JUST_REASONS.find(x=>x.id===r);return f?f.icon+" "+f.label+(n?" · "+n:""):n||"";}return n||"";}
 /* ═══════════════════════════════════════
    FIREBASE · BASE DE DATOS COMPARTIDA (kortline-v3)
@@ -2068,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.26";
+const APP_VERSION = "3.0.0-dev.27";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3727,7 +3744,11 @@ function att(){
             ${autoHint}
             ${st==="excused"?`<button class="just-pill ${jLabel?"filled":""}" onclick="openJustModal('${p.id}','${esc(p.name)}')">${jLabel?esc(jLabel):"+ Motivo"}</button>`:""}
           </div>
-          ${showScore?`<div class="stars-sm" style="margin-top:4px">${[1,2,3,4,5,6,7,8,9,10].map(i=>`<span onclick="setPlayerScore('${p.id}',${i})" style="font-size:13px;cursor:pointer;color:${i<=ps?"#f59e0b":"#2a4060"}">★</span>`).join("")}</div>`:""}
+          ${showScore?`<div class="score-picker score-picker-sm" style="margin-top:4px" onclick="event.stopPropagation()">
+            <button class="score-picker-btn" onclick="stepPlayerScore('${p.id}',-1)">−</button>
+            <span class="score-picker-val" style="color:${_scoreColor(ps)}">${ps||"–"}</span>
+            <button class="score-picker-btn" onclick="stepPlayerScore('${p.id}',1)">+</button>
+          </div>`:""}
         </div>
         <button onclick="cycleAtt('${p.id}')" style="width:40px;height:40px;border-radius:8px;border:1.5px solid ${v.c}55;background:${v.bg};color:${v.c};cursor:pointer;font-size:18px;flex-shrink:0">${v.i}</button>
       </div>`;
@@ -3737,14 +3758,26 @@ function att(){
   const draft=(S._attDraft&&S._attDraft.teamId===S.teamId&&S._attDraft.date===S.date)?S._attDraft:null;
   const notesVal=(draft&&draft.notes!=null)?draft.notes:(sess._notes||"");
   const exVal=(draft&&draft.ex!=null)?draft.ex:(sess._exercises||"");
-  const photoHtml=f.photos?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="document.getElementById('att-photo-input').click()">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">Toca para cambiar</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div><input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>${sess._photo?`<button onclick="removePhoto()" style="font-size:12px;color:#ef4444;background:none;border:none;cursor:pointer;margin-top:6px;display:block">✕ Quitar foto</button>`:""}</div>`:"";
+  // v1.8.36 · B-PHOTO1: antes esta caja entera solo se pintaba si el flag
+  // "photos" seguia activo (f.photos) -- si un entrenador lo desactivaba en
+  // Ajustes DESPUES de haber subido fotos, esas fotos ya guardadas
+  // desaparecian por completo de la vista (no habia forma de volver a
+  // verlas). Ahora la caja se muestra igual si la sesion YA tiene foto,
+  // solo que en modo solo-lectura (abre la vista previa en vez del selector
+  // de archivo) cuando el flag esta desactivado. Ademas se añade un boton
+  // explicito "Ver tamaño completo" (antes solo se veia recortada a 180px
+  // dentro de la caja, sin forma de ampliarla).
+  const photoHtml=(f.photos||sess._photo)?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="${f.photos?"document.getElementById('att-photo-input').click()":`openPhotoPreview('${S.teamId}','${S.date}')`}">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">${f.photos?"Toca para cambiar":"Toca para ver"}</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div>${f.photos?`<input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>`:""}${sess._photo?`<div style="display:flex;gap:14px;margin-top:6px"><button onclick="openPhotoPreview('${S.teamId}','${S.date}')" style="font-size:12px;color:var(--orange);background:none;border:none;cursor:pointer;padding:0">🔍 Ver tamaño completo</button>${f.photos?`<button onclick="removePhoto()" style="font-size:12px;color:#ef4444;background:none;border:none;cursor:pointer;padding:0">✕ Quitar foto</button>`:""}</div>`:""}</div>`:"";
   const exercisesHtml=f.exercises?`<div class="fg"><label class="fl">📋 Ejercicios del entrenamiento</label><textarea class="fi" id="att-exercises" rows="3" style="resize:none" oninput="_attAutoSave()">${esc(exVal)}</textarea></div>`:"";
-  const tsLabels=["","Muy mal","Mal","Regular","Regular","Normal","Normal","Bien","Bien","Muy bien","Excelente"];
   const isAutoMode=f.playerScore&&!sess._teamScoreManual;
   const hasIndivScores=f.playerScore&&players.some(p=>sess[p.id+"_score"]>0);
+  // v1.8.36 · B-SCORE1: la fila de 10 estrellas (dificil de ver de un vistazo
+  // y, en el modo manual, dificil de acertar con el dedo) se sustituye por
+  // un numero grande + stepper +/- (interactivo) o numero + barra (solo
+  // lectura en modo automatico).
   const teamScoreHtml=f.teamScore?(()=>{
     if(isAutoMode&&hasIndivScores){
-      // ── AUTO: media de valoraciones individuales ──
+      // ── AUTO: media de valoraciones individuales (solo lectura) ──
       const indivScores=players.map(p=>sess[p.id+"_score"]||0).filter(v=>v>0);
       const autoVal=indivScores.length?Math.round(indivScores.reduce((a,b)=>a+b,0)/indivScores.length):0;
       return`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
@@ -3752,8 +3785,11 @@ function att(){
           <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">⭐ Valoración colectiva</div>
           <span class="ts-auto-badge auto">🔗 Auto</span>
         </div>
-        <div class="stars">${[1,2,3,4,5,6,7,8,9,10].map(i=>`<span style="font-size:22px;color:${i<=autoVal?"#f59e0b":"#2a4060"}">★</span>`).join("")}</div>
-        ${autoVal>0?`<div style="font-size:12px;color:var(--td);margin-top:6px">${tsLabels[autoVal]} (${autoVal}/10) · media de ${indivScores.length} valoraciones</div>`:""}
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-family:var(--font-d);font-weight:900;font-size:28px;color:${_scoreColor(autoVal)}">${autoVal||"–"}<span style="font-size:13px;color:var(--td)">/10</span></div>
+          <div style="flex:1" class="score-bar-track"><div class="score-bar-fill" style="width:${autoVal*10}%;background:${_scoreColor(autoVal)}"></div></div>
+        </div>
+        ${autoVal>0?`<div style="font-size:12px;color:var(--td);margin-top:6px">${_scoreLabel(autoVal)} · media de ${indivScores.length} valoraciones</div>`:""}
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
           <div class="lp-ring" onpointerdown="_tsLongPressStart(this)" onpointerup="_tsLongPressEnd(this)" onpointerleave="_tsLongPressEnd(this)" onpointercancel="_tsLongPressEnd(this)">
             <svg class="lp-arc" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18"/></svg>
@@ -3763,14 +3799,18 @@ function att(){
         </div>
       </div>`;
     } else {
-      // ── MANUAL o sin valoraciones individuales ──
+      // ── MANUAL o sin valoraciones individuales (interactivo) ──
       return`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">⭐ Valoración colectiva</div>
           ${sess._teamScoreManual&&hasIndivScores?`<span class="ts-auto-badge manual">✏️ Manual</span>`:""}
         </div>
-        <div class="stars">${[1,2,3,4,5,6,7,8,9,10].map(i=>`<span onclick="setTeamScore(${i})" style="font-size:22px;cursor:pointer;color:${i<=ts?"#f59e0b":"#2a4060"}">★</span>`).join("")}</div>
-        ${ts>0?`<div style="font-size:12px;color:var(--td);margin-top:6px">${tsLabels[ts]} (${ts}/10)</div>`:""}
+        <div class="score-picker">
+          <button class="score-picker-btn" onclick="stepTeamScore(-1)">−</button>
+          <span class="score-picker-val" style="color:${_scoreColor(ts)}">${ts||"–"}<span style="font-size:12px;color:var(--td)">/10</span></span>
+          <button class="score-picker-btn" onclick="stepTeamScore(1)">+</button>
+        </div>
+        ${ts>0?`<div style="font-size:12px;color:var(--td);margin-top:6px">${_scoreLabel(ts)}</div>`:""}
         ${sess._teamScoreManual&&hasIndivScores?`<button onclick="revertTeamScoreAuto()" style="display:flex;align-items:center;gap:5px;margin-top:8px;padding:6px 10px;border-radius:7px;border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.08);color:#22c55e;cursor:pointer;font-size:12px;font-weight:700">🔗 Volver a modo automático</button>`:""}
       </div>`;
     }
@@ -3907,7 +3947,7 @@ function stats(){
       </div>
       ${injBox}
       ${!p.isInj&&p.streak>=2?`<div style="font-size:12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);border-radius:6px;padding:5px 8px;color:#ef4444;margin-bottom:6px">⚠️ ${p.streak} sesiones seguidas faltando</div>`:""}
-      ${feat.playerScore&&p.avgScore?`<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:6px"><span style="font-size:10px;color:var(--td);font-weight:700">⭐ VAL. MEDIA</span><span style="margin-left:auto;font-family:var(--font-d);font-weight:900;color:#f59e0b;font-size:18px">${p.avgScore}<span style="font-size:11px;color:var(--td)">/10</span></span><span style="font-size:12px">${[1,2,3,4,5,6,7,8,9,10].map(i=>`<span style="color:${i<=Math.round(p.avgScore)?"#f59e0b":"#2a4060"}">★</span>`).join("")}</span></div>`:""}
+      ${feat.playerScore&&p.avgScore?`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:6px"><span style="font-size:10px;color:var(--td);font-weight:700">⭐ VAL. MEDIA</span><div style="flex:1" class="score-bar-track"><div class="score-bar-fill" style="width:${p.avgScore*10}%;background:${_scoreColor(Math.round(p.avgScore))}"></div></div><span style="font-family:var(--font-d);font-weight:900;color:${_scoreColor(Math.round(p.avgScore))};font-size:18px">${p.avgScore}<span style="font-size:11px;color:var(--td)">/10</span></span></div>`:""}
     </div>`;
   }).join("")+(fil.length===0?`<div style="text-align:center;padding:20px;color:var(--tm);font-size:14px">Sin jugadores en esta categoría</div>`:"");
   // Overview stats bar — media ponderada por jugador-sesiones activas
@@ -4089,14 +4129,14 @@ function hist(){
       return`<div class="he" style="${i===entries.length-1?"border-bottom:none":""}">
         <div style="display:flex;align-items:center;gap:8px">
           <div onclick="S.date='${e.date}';navTo('att')" style="flex:1;cursor:pointer">
-            <div style="display:flex;align-items:center;gap:6px"><div style="font-family:var(--font-d);font-weight:700;font-size:16px">${fd(e.date,true)}</div>${ts?`<span style="color:#f59e0b;font-size:12px">${"★".repeat(ts)}</span>`:""}</div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="font-family:var(--font-d);font-weight:700;font-size:16px">${fd(e.date,true)}</div>${ts?`<span style="color:${_scoreColor(ts)};font-size:11px;font-weight:800;background:${_scoreColor(ts)}1a;border-radius:5px;padding:1px 6px">⭐ ${ts}/10</span>`:""}</div>
             ${e.data._exercises?`<div style="font-size:12px;color:var(--td);margin-top:2px">📋 ${esc(e.data._exercises.slice(0,60))}${e.data._exercises.length>60?"…":""}</div>`:""}
             ${e.data._notes?`<div style="font-size:12px;color:var(--tm);margin-top:1px">📝 ${esc(e.data._notes.slice(0,50))}${e.data._notes.length>50?"…":""}</div>`:""}
             <div style="display:flex;gap:10px;margin-top:5px">${[["✓ "+pr,"#22c55e"],["✗ "+ab,"#ef4444"],["⏱ "+la,"#f59e0b"],["◎ "+ex,"#6b7280"]].map(([tx,c2])=>`<span style="font-size:12px;color:${c2}">${tx}</span>`).join("")}</div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
             <div style="font-family:var(--font-d);color:${c};font-weight:900;font-size:20px">${p2}%</div>
-            ${e.data._photo?`<span style="font-size:13px" title="Tiene foto">📷</span>`:""}
+            ${e.data._photo?`<img src="${e.data._photo}" onclick="event.stopPropagation();openPhotoPreview('${S.teamId}','${e.date}')" style="width:36px;height:36px;border-radius:8px;object-fit:cover;cursor:pointer;border:1px solid var(--border)" title="Ver foto"/>`:""}
           </div>
           <button onclick="navTo('share',{date:'${e.date}'})" style="background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.3);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">📤</button>
           <button onclick="openDeleteConfirm('${S.teamId}','${e.date}')" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
@@ -4310,7 +4350,7 @@ function buildDailyText(tid,date,showMotivo,opts){
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
   coachesToShowD.forEach(c=>lines.push(`👟 ${c}`));
-  if(showMotivo&&sess._teamScore&&S.cfg.features.teamScore)lines.push(`⭐ Valoración equipo: ${"★".repeat(sess._teamScore)} (${sess._teamScore}/10)`);
+  if(showMotivo&&sess._teamScore&&S.cfg.features.teamScore)lines.push(`⭐ Valoración equipo: ${sess._teamScore}/10 (${_scoreLabel(sess._teamScore)})`);
   lines.push("");
   const sorted=[...players].sort((a,b)=>(a.number||99)-(b.number||99));
   const pr=sorted.filter(p=>(sess[p.id]||"present")==="present");
@@ -5764,10 +5804,14 @@ function toggleAttFilter(f){
   else{S.attFilter=f;}
   render();
 }
-function setTeamScore(v){
+// v1.8.36 · B-SCORE1: sustituye setTeamScore(v) (clic en una de 10 estrellas
+// diminutas, dificil de acertar) por un stepper +/- -- bajar desde 1 vuelve a
+// 0 (sin valorar), sin necesidad de un boton de reset aparte.
+function stepTeamScore(delta){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  sess._teamScore=(sess._teamScore===v?0:v);
+  const cur=sess._teamScore||0;
+  sess._teamScore=Math.max(0,Math.min(10,cur+delta));
   sess._teamScoreManual=true;
   S.sessions[k]=sess;save();render();
 }
@@ -5788,10 +5832,12 @@ function _autoTeamScore(k,sess){
   const scores=players.map(p=>sess[p.id+"_score"]||0).filter(v=>v>0);
   sess._teamScore=scores.length>0?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):0;
 }
-function setPlayerScore(pid,v){
+// v1.8.36 · B-SCORE1: idem, stepper +/- en vez de 10 estrellas diminutas.
+function stepPlayerScore(pid,delta){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  sess[pid+"_score"]=(sess[pid+"_score"]===v?0:v);
+  const cur=sess[pid+"_score"]||0;
+  sess[pid+"_score"]=Math.max(0,Math.min(10,cur+delta));
   _autoTeamScore(k,sess);
   S.sessions[k]=sess;save();render();
 }
@@ -6029,6 +6075,23 @@ async function handlePhoto(input){
   toast("📷 Foto guardada (~"+finalSize+" KB)");
 }
 function removePhoto(){const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};delete sess._photo;S.sessions[k]=sess;save();render();}
+// v1.8.36 · B-PHOTO1: vista previa a tamaño completo de la foto de una
+// sesion, accesible desde att() (foto del dia) y desde las miniaturas del
+// Historial (foto de un dia pasado). Recibe teamId+fecha en vez del propio
+// data-URI para no tener que duplicar la imagen entera (puede pesar
+// bastantes KB) dentro de cada atributo onclick.
+function openPhotoPreview(tid,date){
+  const sess=S.sessions[sk(tid,date)];
+  if(!sess||!sess._photo){toast("⚠️ No hay foto para esta sesión");return;}
+  document.getElementById("m-photo-preview")?.remove();
+  const el=document.createElement("div");
+  el.id="m-photo-preview";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.95);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
+  el.onclick=()=>el.remove();
+  el.innerHTML=`<img src="${sess._photo}" style="max-width:100%;max-height:78vh;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.6)"/>
+    <div style="color:var(--td);font-size:12px;margin-top:14px">📅 ${esc(fd(date,true))} · Toca en cualquier sitio para cerrar</div>`;
+  document.body.appendChild(el);
+}
 /* ═══════════════════════════════════════
    FAB AÑADIR ACTIVIDAD SORPRESA (HOY · v1.6.12)
    Permite crear un entrenamiento o partido para hoy fuera del horario
