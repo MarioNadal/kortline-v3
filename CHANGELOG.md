@@ -3,6 +3,17 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Verificación: estadísticas agregadas de valoración (2026-08-05)
+
+### Investigado
+
+- El usuario preguntó si las estadísticas de valoración (medias de temporada) estaban probadas, no solo el stepper que las registra. No lo estaban — se añade cobertura dedicada: `_autoTeamScore` (media de equipo calculada a partir de las valoraciones individuales de cada sesión), `stats()` (media de temporada por jugador y del equipo, con y sin filtro de mes), y `hist()` (media de equipo semanal/por rango). Se comprobó que `stats()` y `hist()` coinciden entre sí cuando no hay ningún filtro de mes aplicado — mismo tipo de comprobación cruzada que destapó el bug de asistencia B-ATT1. No se encontró ninguna discrepancia: los tres cálculos son correctos y consistentes entre pantallas.
+
+### Probado (jsdom)
+
+- `tests/score_stats_aggregation.test.js` (12 comprobaciones). Suite completa: 224/224 en 20 archivos.
+- Sin cambios en `index.html`/`sw.js` — no hace falta subir CACHE_VERSION.
+
 ## [Sin publicar] · kortline-v3 · Valoración por estrellas más usable + vista previa de foto (2026-08-05)
 
 ### Corregido
