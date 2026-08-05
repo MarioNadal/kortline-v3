@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Quitar copia de seguridad manual + fijar versión visible (2026-08-05)
+
+### Quitado
+
+- Se elimina toda la sección **"💾 Copia de seguridad"** de Ajustes (exportar/importar JSON manual, autobackup en `localStorage` y el aviso "sin backup reciente"). Era un resto de la época pre-Firestore (v1/v2, sin base de datos compartida) y, con el club ya usando Firestore como fuente de verdad en tiempo real, se había vuelto redundante — y potencialmente peligroso: restaurar un JSON exportado en un móvil podía sobrescribir datos más nuevos que hubiera metido otro entrenador desde otro dispositivo, sin ningún aviso de conflicto. Firestore ya da persistencia e historial propios sin que nadie tenga que acordarse de exportar nada.
+- Funciones eliminadas: `exportBackup`, `importBackup`, `shareBackupFile`, `autoBackup`, `_clearAutoBackup`, `restoreAutoBackup`, `checkBackupReminder` (y su llamada al arrancar la app). Los dos avisos de "almacenamiento lleno" que invitaban a "exportar backup" se reescriben para no mencionar una función que ya no existe.
+
+### Corregido
+
+- **La "Versión" mostrada en Ajustes → Acerca de estaba clavada en "1.0.0"** desde el esqueleto inicial del proyecto y nunca se había actualizado, a pesar de más de 20 releases reales desplegadas. Ahora sale de una única constante `APP_VERSION` (junto a `CLUB_ID`) que se bumpea a la vez que `CACHE_VERSION` en cada release — mismo número de build en los dos sitios, para que no se vuelvan a desincronizar. Primer valor sincronizado: `3.0.0-dev.26`.
+
+### Probado (jsdom)
+
+- `tests/version_and_backup_removal.test.js` (19 comprobaciones): la sección de backup ya no aparece en Ajustes, ninguna de sus funciones sigue existiendo, el resto de Ajustes sigue intacto, y `APP_VERSION`/`CACHE_VERSION` coinciden en número de build. Suite completa: 188/188 en 18 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.26`.
+
 ## [Sin publicar] · kortline-v3 · Mapa de tiro: separar el rival del nuestro (2026-08-04)
 
 ### Corregido
