@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: código del club sin teclado de letras + auditoría de Incidencias (2026-08-05)
+
+### Corregido
+
+- **Bug real** (reportado por el usuario): el campo del código de acceso del club forzaba el **teclado numérico** en el móvil (`inputmode="numeric"`) — pero ese código es literalmente la contraseña de la cuenta de Firebase Auth compartida y puede llevar letras. Con el teclado numérico forzado era **imposible escribir un código con letras**, sin ninguna forma de cambiar de teclado. Se quita la restricción; el campo sigue siendo `type="password"` (oculta lo que se escribe) pero ahora ofrece el teclado completo.
+
+### Investigado
+
+- Auditoría del sistema de **Incidencias** (⚠️), que no tenía ninguna cobertura de tests hasta ahora: escalado 1ª/2ª/3ª vez/reincidencia grave, que editar una incidencia no recalcula su nivel (quedó fijado a cuando se creó, por diseño), borrado y recuento de la insignia en el roster, y que funciona igual para un jugador puntual/invitado que para uno de plantilla fija. No se encontró ningún bug — el escalado y los recuentos son correctos.
+
+### Probado (jsdom)
+
+- `tests/pin_gate.test.js` (4 comprobaciones): el campo ya no fuerza teclado numérico, sigue siendo password, acepta letras/números/símbolos sin recortar.
+- `tests/incidents.test.js` (17 comprobaciones): escalado, edición sin recalcular nivel, borrado, insignia, jugador puntual.
+- Suite completa: 245/245 en 21 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.28`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Verificación: estadísticas agregadas de valoración (2026-08-05)
 
 ### Investigado
