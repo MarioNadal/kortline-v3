@@ -2085,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.27";
+const APP_VERSION = "3.0.0-dev.28";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2129,7 +2129,7 @@ function _showPinGate(){
   el.innerHTML=`<div style="width:100%;max-width:320px;text-align:center">
     <div style="font-size:22px;font-weight:900;color:#f0f4ff;margin-bottom:6px">🏀 Kortline</div>
     <div style="font-size:13px;color:#7a9cc8;margin-bottom:24px">Introduce el código del club para entrar</div>
-    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" placeholder="Código del club" style="width:100%;padding:14px;border-radius:10px;border:1.5px solid #1e3a5f;background:#0d1a2e;color:#f0f4ff;font-size:16px;text-align:center;letter-spacing:2px;margin-bottom:14px;box-sizing:border-box"/>
+    <input id="pin-input" type="password" autocomplete="off" placeholder="Código del club" style="width:100%;padding:14px;border-radius:10px;border:1.5px solid #1e3a5f;background:#0d1a2e;color:#f0f4ff;font-size:16px;text-align:center;letter-spacing:2px;margin-bottom:14px;box-sizing:border-box"/>
     <div id="pin-err" style="color:#ef4444;font-size:13px;margin-bottom:10px;min-height:18px"></div>
     <button id="pin-submit" style="width:100%;padding:14px;border:none;border-radius:10px;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#f97316,#c2410c);color:white">Entrar</button>
   </div>`;
