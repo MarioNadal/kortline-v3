@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real en "Quitar prórroga" (2026-08-06)
+
+### Corregido
+
+- **Bug real**: `removeLastOT()` (botón ✕ para quitar la última prórroga desde el marcador por cuartos) borraba la columna de esa prórroga en `m.q`/`live.qScores`, pero dejaba intactas las jugadas ya registradas en ella (`live.log`, `live.stats` por jugador, `live.teamAgg`). Si la prórroga se había jugado y anotado de verdad (no solo añadida por error), el resultado por cuartos dejaba de cuadrar con los totales de puntos de jugadores/equipo, sin ningún aviso. Ahora, si hay jugadas registradas con esa prórroga, se pide confirmación explícita explicando que el histórico y las estadísticas NO se van a borrar; si no hay ninguna jugada (el caso normal de "la añadí sin querer"), se sigue quitando al instante sin fricción.
+
+### Investigado
+
+- Auditoría del modo "solo equipo" (`m.teamOnlyStats`/`live.teamAgg`): el bug de agregación por partido ya se arregló en la sesión anterior (dev.31). El resto del modo (faltas de equipo, bonus, tiros libres de equipo) no mostró más bugs en esta pasada.
+
+### Probado (jsdom)
+
+- `tests/overtime_removal.test.js` (8 comprobaciones nuevas): con jugadas registradas pide confirmación y no borra nada del histórico al confirmar; sin jugadas se quita al instante como siempre.
+- Suite completa: 293/293 en 27 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.32`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Bug real en exportación PDF/Excel + mejoras de valoración/foto (2026-08-06)
 
 ### Corregido

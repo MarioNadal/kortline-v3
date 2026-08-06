@@ -2085,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.31";
+const APP_VERSION = "3.0.0-dev.32";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4800,10 +4800,26 @@ function removeLastOT(){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.otCount)return;
   // Limpiar los datos de esa OT antes de quitar
   const nQ=m.quarters||4;const otIdx=nQ+(m.live.otCount-1);
-  if(m.q){m.q[otIdx*2]=null;m.q[otIdx*2+1]=null;}
-  if(m.live.qScores)m.live.qScores[otIdx]=[0,0];
-  m.live.otCount=Math.max(0,m.live.otCount-1);
-  save();render();
+  const doRemove=()=>{
+    if(m.q){m.q[otIdx*2]=null;m.q[otIdx*2+1]=null;}
+    if(m.live.qScores)m.live.qScores[otIdx]=[0,0];
+    m.live.otCount=Math.max(0,m.live.otCount-1);
+    save();render();
+  };
+  // v3.0.0-dev · B-OT1: quitar la última prórroga solo borraba su columna
+  // del marcador (m.q / live.qScores) pero dejaba intactas las jugadas ya
+  // registradas en esa prórroga (live.log, live.stats/teamAgg) -- si de
+  // verdad se había jugado y anotado en esa OT, el resultado por cuartos
+  // dejaba de cuadrar con los totales de jugador/equipo (que siguen
+  // contando esos puntos) sin ningún aviso. Ahora, si hay jugadas
+  // registradas con q=otQNum, se avisa antes de quitarla.
+  const otQNum=otIdx+1;
+  const hasData=(m.live.log||[]).some(e=>e.q===otQNum);
+  if(hasData){
+    _confirm("Esta prórroga tiene jugadas registradas (canastas, faltas...). Quitar la columna del marcador <b>no las borra</b> del histórico ni de las estadísticas de los jugadores/equipo — solo dejará de verse en el resultado por cuartos. ¿Seguro que quieres quitarla?","🗑 Quitar de todos modos",doRemove);
+  } else {
+    doRemove();
+  }
 }
 function _showEndMatchOverlay(m,ourT,rivT,periodName){
   document.getElementById("m-endmatch")?.remove();
