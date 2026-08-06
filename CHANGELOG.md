@@ -3,6 +3,27 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Sanción 🪑 automática por incidencias + toast cortado en móvil (2026-08-06)
+
+### Añadido
+
+- El badge 🪑 de "minutos reducidos / banquillo" en la convocatoria **ya no es un botón manual de libre uso** — ahora se calcula automáticamente a partir del historial de Incidencias del jugador (`autoSanctionLevel()`): una incidencia de **2ª vez = minutos reducidos**, **3ª vez (o reincidencia grave) = banquillo**. La sanción aplica **solo al primer partido cronológicamente posterior a la fecha de esa incidencia** (comparando contra `S.matches[tid]` ordenados por fecha), nunca se arrastra indefinidamente a partidos futuros.
+- El entrenador puede **descartar** el aviso automático para un partido concreto (p.ej. si considera que ya no aplica) tocando el mismo botón 🪑 — se guarda en `m.reducedMinutesDismissed`, sin tocar el historial de incidencias del jugador.
+
+### Corregido
+
+- **Bug real** (reportado por el usuario): el toast de aviso "⛔ Está en pista ahora mismo — sustitúyelo antes de quitarlo de la convocatoria" (y cualquier otro toast largo) se veía **cortado por los bordes de la pantalla en móvil**. La clase `.toast` tenía `white-space:nowrap` sin ningún `max-width`, así que un mensaje largo simplemente se salía del viewport en vez de hacer salto de línea. Ahora tiene `max-width:min(92vw,420px)`, `white-space:normal` y texto centrado.
+
+### Quitado
+
+- `toggleReducedMinutes(pid)` (el toggle manual libre del 🪑) — sustituido por `toggleReducedMinutesDismiss(pid)`, que solo permite descartar/restaurar el aviso automático para el partido activo. El campo `m.reducedMinutes` deja de usarse (dato histórico inerte, no se migra); el nuevo campo es `m.reducedMinutesDismissed`.
+
+### Probado (jsdom)
+
+- `tests/chair_auto_sanction.test.js` (14 comprobaciones nuevas): sin incidencias no sanciona, una incidencia de 1ª vez no sanciona, una de 2ª vez sanciona solo el partido siguiente a su fecha (y no los posteriores), una de 3ª vez sanciona el partido siguiente a SU fecha con etiqueta "Banquillo", el descarte manual oculta el aviso sin borrar el nivel calculado, y `toggleReducedMinutesDismiss` togglea correctamente.
+- Suite completa: 259/259 en 23 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.29`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Bug real: código del club sin teclado de letras + auditoría de Incidencias (2026-08-05)
 
 ### Corregido

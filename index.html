@@ -225,7 +225,7 @@ body{font-family:var(--font-b);background:var(--bg);color:var(--tx);min-height:1
 /* ── Empty ── */
 .empty{text-align:center;padding:40px 16px;color:var(--tm);}
 /* ── Toast ── */
-.toast{position:fixed;top:68px;left:50%;transform:translateX(-50%);background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:14px;font-weight:600;z-index:9999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.6);font-family:var(--font-b);}
+.toast{position:fixed;top:68px;left:50%;transform:translateX(-50%);background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:14px;font-weight:600;z-index:9999;white-space:normal;max-width:min(92vw,420px);text-align:center;line-height:1.4;box-shadow:0 4px 20px rgba(0,0,0,.6);font-family:var(--font-b);}
 /* ── Toggles ── */
 .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);}
 .toggle-row:last-child{border-bottom:none;}
@@ -2085,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.28";
+const APP_VERSION = "3.0.0-dev.29";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2744,6 +2744,33 @@ const INCIDENT_LEVEL_COLOR={1:"#f59e0b",2:"#f97316",3:"#ef4444",4:"#dc2626"};
 function incidentCategoryLabel(k){return (INCIDENT_CATEGORIES.find(c=>c[0]===k)||[,k])[1]||k;}
 function playerIncidents(p){return Array.isArray(p&&p.incidents)?p.incidents:[];}
 function incidentCount(p){return playerIncidents(p).length;}
+// v3.0.0-dev · B-CHAIR1: sanción automática de "minutos reducidos / banquillo"
+// derivada del sistema de incidencias — YA NO es un toggle manual libre.
+// Una incidencia de nivel 2+ (Mandamientos_CBJaca) sanciona SOLO el primer
+// partido cronológicamente posterior a la fecha de esa incidencia, nunca
+// partidos futuros indefinidamente. Nivel 2 = minutos reducidos, nivel 3+ =
+// banquillo. Devuelve 0 si no aplica ninguna sanción a este partido.
+function autoSanctionLevel(p,tid,m){
+  if(!m||!m.date)return 0;
+  const matches=mlist(tid).filter(x=>x.date).slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.id||"").localeCompare(b.id||""));
+  let best=0;
+  playerIncidents(p).forEach(inc=>{
+    if(!inc.date)return;
+    const lvl=inc.level||1;
+    if(lvl<2)return; // 1ª vez = solo aviso verbal, no sanciona convocatoria
+    const target=matches.find(x=>x.date>=inc.date);
+    if(target&&target.id===m.id&&lvl>best)best=lvl;
+  });
+  return best;
+}
+// Info a mostrar en la fila de convocatoria (o null si no aplica / el
+// entrenador la descartó a mano para este partido concreto).
+function reducedMinutesInfo(p,tid,m){
+  const lvl=autoSanctionLevel(p,tid,m);
+  if(!lvl)return null;
+  if((m.reducedMinutesDismissed||[]).includes(p.id))return null;
+  return{level:lvl,label:(lvl>=3?"Banquillo":"Minutos reducidos")+" (según incidencia) — toca para descartar en este partido"};
+}
 // Backfill de sesiones del equipo: marca al jugador como 'excused' + _jr='injury'
 // en todas las sesiones dentro del rango [startDate..endDate]. Si noteText está,
 // lo escribe en _jn (útil para pase de lista y justificaciones). También limpia
@@ -6401,20 +6428,19 @@ function matchDetail(){
   // Convocatoria
   const convIds=m.convocados||[];
   const titIds=m.titulares||[];
-  const redIds=m.reducedMinutes||[];
   const convRows=sorted.map(p=>{
     const inConv=convIds.includes(p.id);
     const isTit=titIds.includes(p.id)&&inConv;
     const isCap=m.capitan===p.id&&inConv;
-    const isRed=redIds.includes(p.id)&&inConv;
+    const redInfo=inConv?reducedMinutesInfo(p,S.teamId,m):null;
     return`<div class="conv-player" data-conv-pid="${p.id}" onclick="toggleConvocado('${p.id}')">
       <div class="conv-check ${inConv?"on":""}">${inConv?"✓":""}</div>
       <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
-      <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${isRed?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="Minutos reducidos / banquillo">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
+      <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${redInfo?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="${redInfo.label}">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
       ${inConv?`<div style="display:flex;gap:6px">
         <button onclick="event.stopPropagation();toggleTitular('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
         <button onclick="event.stopPropagation();setCapitan('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
-        <button onclick="event.stopPropagation();toggleReducedMinutes('${p.id}')" title="Minutos reducidos / banquillo (según incidencia)" style="padding:4px 8px;border-radius:6px;border:1px solid ${isRed?"rgba(107,114,128,.5)":"var(--border)"};background:${isRed?"rgba(107,114,128,.2)":"var(--s2)"};color:${isRed?"#9ca3af":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">🪑</button>
+        ${redInfo?`<button onclick="event.stopPropagation();toggleReducedMinutesDismiss('${p.id}')" title="${redInfo.label}" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(107,114,128,.5);background:rgba(107,114,128,.2);color:#9ca3af;cursor:pointer;font-size:12px;font-weight:700">🪑</button>`:""}
       </div>`:""}
     </div>`;
   }).join("");
@@ -6745,7 +6771,7 @@ function _convToggle(pid){
   if(m.convocados.includes(pid)){
     m.convocados=m.convocados.filter(x=>x!==pid);
     m.titulares=(m.titulares||[]).filter(x=>x!==pid);
-    m.reducedMinutes=(m.reducedMinutes||[]).filter(x=>x!==pid);
+    m.reducedMinutesDismissed=(m.reducedMinutesDismissed||[]).filter(x=>x!==pid);
     if(m.capitan===pid)m.capitan=null;
   } else {
     if(m.convocados.length>=12)return toast("⚠️ Máximo 12 convocados (FIBA)");
@@ -7075,7 +7101,7 @@ function toggleConvocado(pid){
     }
     m.convocados=m.convocados.filter(x=>x!==pid);
     m.titulares=(m.titulares||[]).filter(x=>x!==pid);
-    m.reducedMinutes=(m.reducedMinutes||[]).filter(x=>x!==pid);
+    m.reducedMinutesDismissed=(m.reducedMinutesDismissed||[]).filter(x=>x!==pid);
     if(m.capitan===pid)m.capitan=null;
   } else {
     if(m.convocados.length>=12)return toast("⚠️ Máximo 12 convocados (FIBA)");
@@ -7092,26 +7118,26 @@ function toggleTitular(pid){
   _mdConvRefreshRow(pid);
   _mdConvRefreshSubtitle();
 }
-// Marca a un jugador para minutos reducidos / banquillo en este partido —
-// pensado como reflejo de una incidencia (Mandamientos_CBJaca: 2ª vez =
-// reducción de minutos, 3ª vez = banquillo). Es solo informativo, no
-// restringe nada automáticamente en el live game.
-function toggleReducedMinutes(pid){
+// v3.0.0-dev · B-CHAIR1: el aviso 🪑 ahora es automático (autoSanctionLevel),
+// esto solo permite descartarlo (o restaurarlo) para ESTE partido concreto —
+// no toca el historial de incidencias del jugador, solo lo oculta si el
+// entrenador considera que no aplica.
+function toggleReducedMinutesDismiss(pid){
   const m=mById(S.teamId,S.matchId);if(!m)return;
-  if(!m.reducedMinutes)m.reducedMinutes=[];
-  if(m.reducedMinutes.includes(pid)){m.reducedMinutes=m.reducedMinutes.filter(x=>x!==pid);}
-  else{m.reducedMinutes.push(pid);}
+  if(!m.reducedMinutesDismissed)m.reducedMinutesDismissed=[];
+  if(m.reducedMinutesDismissed.includes(pid)){m.reducedMinutesDismissed=m.reducedMinutesDismissed.filter(x=>x!==pid);}
+  else{m.reducedMinutesDismissed.push(pid);}
   save();
   _mdConvRefreshRow(pid);
 }
-function _mdConvRowHtml(p,t,inConv,isTit,isCap,isRed){
+function _mdConvRowHtml(p,t,inConv,isTit,isCap,redInfo){
   return`<div class="conv-check ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
-    <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${isRed?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="Minutos reducidos / banquillo">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
+    <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${redInfo?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="${redInfo.label}">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
     ${inConv?`<div style="display:flex;gap:6px" onclick="event.stopPropagation()">
       <button onclick="event.stopPropagation();toggleTitular('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
       <button onclick="event.stopPropagation();setCapitan('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
-      <button onclick="event.stopPropagation();toggleReducedMinutes('${p.id}')" title="Minutos reducidos / banquillo (según incidencia)" style="padding:4px 8px;border-radius:6px;border:1px solid ${isRed?"rgba(107,114,128,.5)":"var(--border)"};background:${isRed?"rgba(107,114,128,.2)":"var(--s2)"};color:${isRed?"#9ca3af":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">🪑</button>
+      ${redInfo?`<button onclick="event.stopPropagation();toggleReducedMinutesDismiss('${p.id}')" title="${redInfo.label}" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(107,114,128,.5);background:rgba(107,114,128,.2);color:#9ca3af;cursor:pointer;font-size:12px;font-weight:700">🪑</button>`:""}
     </div>`:""}`;
 }
 function _mdConvRefreshRow(pid){
@@ -7120,9 +7146,9 @@ function _mdConvRefreshRow(pid){
   const row=document.querySelector(`[data-conv-pid="${pid}"]`);if(!row)return;
   const p=pl(S.teamId).find(pp=>pp.id===pid);if(!p)return;
   const convIds=m.convocados||[];const titIds=m.titulares||[];
-  const redIds=m.reducedMinutes||[];
-  const inConv=convIds.includes(pid);const isTit=titIds.includes(pid)&&inConv;const isCap=m.capitan===pid&&inConv;const isRed=redIds.includes(pid)&&inConv;
-  row.innerHTML=_mdConvRowHtml(p,t,inConv,isTit,isCap,isRed);
+  const inConv=convIds.includes(pid);const isTit=titIds.includes(pid)&&inConv;const isCap=m.capitan===pid&&inConv;
+  const redInfo=inConv?reducedMinutesInfo(p,S.teamId,m):null;
+  row.innerHTML=_mdConvRowHtml(p,t,inConv,isTit,isCap,redInfo);
 }
 function _mdConvRefreshSubtitle(){
   const m=mById(S.teamId,S.matchId);if(!m)return;
