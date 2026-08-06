@@ -3,6 +3,24 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real en exportación PDF/Excel + mejoras de valoración/foto (2026-08-06)
+
+### Corregido
+
+- **Bug real**: tanto la pestaña "Partidos" en pantalla (`stats()`) como `_matchAggRows()` (usada por `exportMatchesPDF`/`exportMatchesExcel`) hacían `Object.entries(mm.live.stats)` sin comprobar antes que existiera. Un partido jugado en modo **"solo equipo"** (`m.teamOnlyStats`) pasa `_hasMatchStats()` por tener `live.teamAgg`, pero **nunca** rellena `live.stats[pid]` (no hay desglose por jugador, por diseño). En cuanto un equipo tenía un solo partido así en la temporada — mezclado con partidos normales con seguimiento por jugador — tanto la pantalla de Stats como las dos exportaciones (PDF y Excel) reventaban con `Cannot convert undefined or null to object` para **todo el equipo**, no solo para ese partido. Ahora ese partido se salta sin más en la agregación por jugador (no tiene nada que aportar ahí; sí aporta a las KPIs de equipo vía `computeTeamKPIs`/`live.teamAgg`, que ya funcionaba bien).
+- El resto de exportaciones (`exportPDF`, `exportExcel`, `exportTeamKPIsPDF/Excel`) se auditaron con datos límite (equipo sin jugadores/sesiones, filtros de riesgo/racha sin resultados, dorsal 0, nombre vacío, nombre de club con símbolos raros) sin encontrar más bugs — ya estaban bien defendidos.
+
+### Añadido
+
+- En Asistencia, la valoración individual de cada jugador (stepper +/-) mostraba solo un número pelado (ej. "7"), sin nada que indicara que era una valoración — se añade ⭐ delante y "/10" detrás, igual que ya tenía la valoración colectiva del equipo.
+- La miniatura de la foto de entrenamiento pasa de 180px a 220px de alto, y "🔍 Ver tamaño completo" / "✕ Quitar" dejan de ser enlaces de texto sueltos para ser botones reales (fondo, borde, más fáciles de tocar).
+
+### Probado (jsdom)
+
+- `tests/export_edge_cases.test.js` (15 comprobaciones nuevas): el bug del partido "solo equipo" mezclado (pantalla + PDF + Excel), que el partido normal sigue agregándose bien, y los casos límite generales de exportación.
+- Suite completa: 285/285 en 26 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.31`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Auditoría de textos de WhatsApp: bug real en 3 de las 5 funciones (2026-08-06)
 
 ### Investigado

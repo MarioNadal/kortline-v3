@@ -271,7 +271,7 @@ body{font-family:var(--font-b);background:var(--bg);color:var(--tx);min-height:1
 /* ── Photo ── */
 .photo-box{background:var(--s2);border:1.5px dashed var(--border);border-radius:10px;text-align:center;padding:14px;cursor:pointer;overflow:hidden;}
 .photo-box:hover{border-color:var(--orange);}
-.photo-box img{width:100%;border-radius:8px;max-height:180px;object-fit:cover;}
+.photo-box img{width:100%;border-radius:8px;max-height:220px;object-fit:cover;}
 /* ── Dorsal controls ── */
 .dorsal-wrap{display:flex;gap:6px;align-items:stretch;}
 .dorsal-btn{background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--tx);font-size:20px;font-weight:700;width:40px;min-width:40px;cursor:pointer;padding:0;line-height:1;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
@@ -2085,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.30";
+const APP_VERSION = "3.0.0-dev.31";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3162,8 +3162,17 @@ function exportExcel(){
 function _matchAggRows(){
   const players=pl(S.teamId);
   const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+  // v3.0.0-dev · B-MAGG1: los partidos "solo equipo" (m.teamOnlyStats) pasan
+  // _hasMatchStats() por tener live.teamAgg, pero nunca rellenan
+  // live.stats[pid] (no hay desglose por jugador, por diseño) -- se saltan
+  // aquí sin más (no aportan nada a la agregación POR JUGADOR; sí aportan a
+  // las KPIs de equipo vía computeTeamKPIs/live.teamAgg). Antes de este fix,
+  // Object.entries(mm.live.stats) sin comprobar reventaba esta pantalla Y la
+  // exportación a PDF/Excel para TODO el equipo en cuanto hubiera un solo
+  // partido "solo equipo" en la temporada, aunque el resto sí tuviera
+  // seguimiento por jugador.
   const matchAgg={};
-  matchList.forEach(mm=>{Object.entries(mm.live.stats).forEach(([pid,st])=>{
+  matchList.forEach(mm=>{if(!mm.live.stats)return;Object.entries(mm.live.stats).forEach(([pid,st])=>{
     if(!matchAgg[pid])matchAgg[pid]={pj:0,pts:0,p2m:0,p2a:0,p3m:0,p3a:0,p1m:0,p1a:0,ro:0,rd:0,ast:0,foul:0,frecv:0,stl:0,blk:0,to:0,minSec:0,eff:0};
     const a=matchAgg[pid];
     a.pj++;a.pts+=(st.p2m||0)*2+(st.p3m||0)*3+(st.p1m||0);
@@ -3773,7 +3782,7 @@ function att(){
           </div>
           ${showScore?`<div class="score-picker score-picker-sm" style="margin-top:4px" onclick="event.stopPropagation()">
             <button class="score-picker-btn" onclick="stepPlayerScore('${p.id}',-1)">−</button>
-            <span class="score-picker-val" style="color:${_scoreColor(ps)}">${ps||"–"}</span>
+            <span class="score-picker-val" style="color:${_scoreColor(ps)}" title="Valoración del jugador (1-10)">⭐ ${ps||"–"}<span style="font-size:10px;font-weight:700;color:var(--td)">/10</span></span>
             <button class="score-picker-btn" onclick="stepPlayerScore('${p.id}',1)">+</button>
           </div>`:""}
         </div>
@@ -3794,7 +3803,7 @@ function att(){
   // de archivo) cuando el flag esta desactivado. Ademas se añade un boton
   // explicito "Ver tamaño completo" (antes solo se veia recortada a 180px
   // dentro de la caja, sin forma de ampliarla).
-  const photoHtml=(f.photos||sess._photo)?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="${f.photos?"document.getElementById('att-photo-input').click()":`openPhotoPreview('${S.teamId}','${S.date}')`}">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">${f.photos?"Toca para cambiar":"Toca para ver"}</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div>${f.photos?`<input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>`:""}${sess._photo?`<div style="display:flex;gap:14px;margin-top:6px"><button onclick="openPhotoPreview('${S.teamId}','${S.date}')" style="font-size:12px;color:var(--orange);background:none;border:none;cursor:pointer;padding:0">🔍 Ver tamaño completo</button>${f.photos?`<button onclick="removePhoto()" style="font-size:12px;color:#ef4444;background:none;border:none;cursor:pointer;padding:0">✕ Quitar foto</button>`:""}</div>`:""}</div>`:"";
+  const photoHtml=(f.photos||sess._photo)?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="${f.photos?"document.getElementById('att-photo-input').click()":`openPhotoPreview('${S.teamId}','${S.date}')`}">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">${f.photos?"Toca para cambiar":"Toca para ver"}</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div>${f.photos?`<input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>`:""}${sess._photo?`<div style="display:flex;gap:8px;margin-top:8px"><button onclick="openPhotoPreview('${S.teamId}','${S.date}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:8px 10px">🔍 Ver tamaño completo</button>${f.photos?`<button onclick="removePhoto()" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:8px 12px">✕ Quitar</button>`:""}</div>`:""}</div>`:"";
   const exercisesHtml=f.exercises?`<div class="fg"><label class="fl">📋 Ejercicios del entrenamiento</label><textarea class="fi" id="att-exercises" rows="3" style="resize:none" oninput="_attAutoSave()">${esc(exVal)}</textarea></div>`:"";
   const isAutoMode=f.playerScore&&!sess._teamScoreManual;
   const hasIndivScores=f.playerScore&&players.some(p=>sess[p.id+"_score"]>0);
@@ -3983,8 +3992,17 @@ function stats(){
   const avgAll=pc(sumPr,sumPs);
   // Estadísticas de partidos — agregado por jugador
   const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+  // v3.0.0-dev · B-MAGG1: los partidos "solo equipo" (m.teamOnlyStats) pasan
+  // _hasMatchStats() por tener live.teamAgg, pero nunca rellenan
+  // live.stats[pid] (no hay desglose por jugador, por diseño) -- se saltan
+  // aquí sin más (no aportan nada a la agregación POR JUGADOR; sí aportan a
+  // las KPIs de equipo vía computeTeamKPIs/live.teamAgg). Antes de este fix,
+  // Object.entries(mm.live.stats) sin comprobar reventaba esta pantalla Y la
+  // exportación a PDF/Excel para TODO el equipo en cuanto hubiera un solo
+  // partido "solo equipo" en la temporada, aunque el resto sí tuviera
+  // seguimiento por jugador.
   const matchAgg={};
-  matchList.forEach(mm=>{Object.entries(mm.live.stats).forEach(([pid,st])=>{
+  matchList.forEach(mm=>{if(!mm.live.stats)return;Object.entries(mm.live.stats).forEach(([pid,st])=>{
     if(!matchAgg[pid])matchAgg[pid]={pj:0,pts:0,p2m:0,p2a:0,p3m:0,p3a:0,p1m:0,p1a:0,ro:0,rd:0,ast:0,foul:0,frecv:0,stl:0,blk:0,to:0,minSec:0,eff:0};
     const a=matchAgg[pid];
     a.pj++;a.pts+=(st.p2m||0)*2+(st.p3m||0)*3+(st.p1m||0);
