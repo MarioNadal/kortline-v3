@@ -2085,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.29";
+const APP_VERSION = "3.0.0-dev.30";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4372,7 +4372,8 @@ function team(){
 ═══════════════════════════════════════ */
 function buildDailyText(tid,date,showMotivo,opts){
   const {coachNames=null}=opts||{};
-  const t=S.teams.find(x=>x.id===tid);const players=pl(tid);const sess=so(tid,date);
+  const t=S.teams.find(x=>x.id===tid);if(!t)return"";
+  const players=pl(tid);const sess=so(tid,date);
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
@@ -4398,7 +4399,8 @@ function buildDailyText(tid,date,showMotivo,opts){
 }
 function buildWeeklyText(tid,showMotivo,opts){
   const {coachNames=null}=opts||{};
-  const t=S.teams.find(x=>x.id===tid);const players=pl(tid);
+  const t=S.teams.find(x=>x.id===tid);if(!t)return null;
+  const players=pl(tid);
   const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([k,v])=>({date:k.replace(tid+"_",""),data:v})).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,7);
   if(!allSess.length)return null;
   const allCoaches=(t.coaches||[]).filter(Boolean);
@@ -6262,7 +6264,7 @@ function mSeasonStats(tid){
 }
 function mConvText(tid,mid,internal,opts){
   const {coachNames=null}=opts||{};
-  const t=S.teams.find(x=>x.id===tid);const m=mById(tid,mid);if(!m)return"";
+  const t=S.teams.find(x=>x.id===tid);const m=mById(tid,mid);if(!t||!m)return"";
   const players=pl(tid);
   const allCoachesM=(t.coaches||[]).filter(Boolean);
   const convP=players.filter(p=>(m.convocados||[]).includes(p.id)).sort((a,b)=>(a.number||99)-(b.number||99));

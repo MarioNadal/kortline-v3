@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Auditoría de textos de WhatsApp: bug real en 3 de las 5 funciones (2026-08-06)
+
+### Investigado
+
+- Auditoría a fondo de las 5 funciones que generan los textos que se comparten por WhatsApp (`buildDailyText`, `buildWeeklyText`, `buildEventoText`, `mConvText`, `shareMatchResult`), pendiente desde que se añadieron jugadores puntuales/invitados, valoración con stepper y foto de entrenamiento. Esas tres funcionalidades SÍ se reflejan correctamente en los textos (jugadores puntuales aparecen igual que el resto en asistencia/convocatoria, la valoración media de equipo en modo automático se persiste en `sess._teamScore` y se comparte bien, las fotos no afectan al texto por diseño).
+
+### Corregido
+
+- **Bug real**: `buildDailyText`, `buildWeeklyText` y `mConvText` leían `t.coaches` sin comprobar antes que el equipo (`t`) existiera de verdad — a diferencia de `buildEventoText` y `shareMatchResult`, que sí hacen `if(!t||...)return`. Con ~5 entrenadores compartiendo la misma base de datos en tiempo real, si un equipo desaparece (borrado desde otro móvil, o una carrera de sincronización) mientras alguien tiene abierta la pantalla de "Compartir" en el suyo, esto lanzaba `Cannot read properties of undefined (reading 'coaches')` y rompía la pantalla. Ahora las 5 funciones son consistentes: devuelven vacío (`""` o `null`, según el contrato ya existente de cada una) en vez de lanzar.
+- De paso, código muerto detectado en `shareMatchResult()`: las variables `headCoachSR`/`asstsSR`/`window._srCoachLines` construían un formato especial "entrenador principal + Ayudante(s): X, Y" que nunca se llega a usar — la vista previa real se genera con el mismo patrón `_coachToggleHtml`/`_getSelectedCoaches`/`_refreshSRPrev` que las demás pantallas de compartir (una línea `👟 Nombre` por cada entrenador marcado). No afecta al resultado (no hay bug visible), se deja documentado por si se quiere limpiar en otra sesión.
+
+### Probado (jsdom)
+
+- `tests/whatsapp_texts_missing_team.test.js` (11 comprobaciones nuevas): las 5 funciones ya no lanzan si el equipo no existe, `buildDailyText`/`mConvText` devuelven `""` y `buildWeeklyText` devuelve `null` (mismo contrato que su caso existente de "sin sesiones"), y las 3 funciones arregladas siguen devolviendo el texto real de siempre cuando el equipo sí existe.
+- Suite completa: 270/270 en 24 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.30`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Sanción 🪑 automática por incidencias + toast cortado en móvil (2026-08-06)
 
 ### Añadido
