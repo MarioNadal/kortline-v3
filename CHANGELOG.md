@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: puntual de partido contaminaba asistencia de entrenamientos (2026-08-06)
+
+### Corregido
+
+- **Bug real** (reportado por el usuario): un jugador puntual añadido para un **partido** (botón "🔄 + Jugador puntual" desde la convocatoria) se guardaba exactamente igual que uno añadido desde un **entrenamiento** — con `addedAt` de ese día y sin ninguna distinción — así que a partir de esa fecha empezaba a aparecer también en el pase de lista de **todos los entrenamientos siguientes**, contando como "presente" por defecto en sesiones a las que nunca fue convocado. Esto contradice el propio texto del modal de alta ("No se queda en la plantilla fija — solo para este partido"). Ahora los puntuales de partido llevan `matchOnly:true` y se excluyen de todo lo relacionado con asistencia a entrenamientos: pase de lista (`att()`), resumen "Hoy", textos de WhatsApp (diario y semanal), tabla/gráfico de la pestaña Jugadores en Stats, y las exportaciones PDF/Excel de asistencia de temporada (hojas "Jugadores" y "Sesiones"). Siguen contando exactamente igual que antes en todo lo relacionado con **partidos** (convocatoria, estadísticas de partido, pestaña Partidos, exportación de partidos) — ahí sí jugaron. Un puntual añadido desde un entrenamiento (mode="att") no cambia: sigue apareciendo en los entrenamientos siguientes como hasta ahora.
+- Si un puntual acaba subiendo de categoría de verdad, eso sigue siendo una acción aparte (editarlo para quitarle `matchOnly`, o añadirlo como jugador normal en ese momento) — no se ha automatizado, tal y como se habló.
+
+### Probado (jsdom)
+
+- `tests/guest_matchonly.test.js` (7 comprobaciones nuevas): un puntual de partido no aparece en el pase de lista ni en los textos de asistencia, no infla los totales, `_countAtt` le da siempre `tot:0`, y un puntual de entrenamiento (sin `matchOnly`) se sigue comportando exactamente igual que antes.
+- Suite completa: 300/300 en 29 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.33`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Bug real en "Quitar prórroga" (2026-08-06)
 
 ### Corregido

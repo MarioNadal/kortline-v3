@@ -2085,7 +2085,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.32";
+const APP_VERSION = "3.0.0-dev.33";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2639,6 +2639,11 @@ function _sessForPlayer(p,sessList){
 }
 // Cuenta estados de asistencia aplicando el filtro de alta del jugador.
 function _countAtt(p,sessList){
+  // v3.0.0-dev · B-GUEST2: un puntual de partido (matchOnly) no entrena con
+  // el equipo -- nunca tiene sesiones de entrenamiento "relevantes", así que
+  // no cuenta para nada de asistencia (tot:0 == mismo estado que "sin datos
+  // todavía", que el resto del código ya sabe mostrar como "—").
+  if(p&&p.matchOnly)return{pr:0,ab:0,la:0,ex:0,tot:0};
   const rel=_sessForPlayer(p,sessList);
   let pr=0,ab=0,la=0,ex=0;
   rel.forEach(s=>{
@@ -2925,7 +2930,10 @@ function exportPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
   const {jsPDF}=window.jspdf;
   const t=S.teams.find(x=>x.id===S.teamId);
-  const players=pl(S.teamId);
+  // v3.0.0-dev · B-GUEST2: informe de asistencia de TEMPORADA -- los
+  // puntuales de partido (matchOnly) no entrenan, no pintan nada aquí
+  // (ellos salen en la exportación de partidos, no en la de asistencia).
+  const players=pl(S.teamId).filter(p=>!p.matchOnly);
   const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).sort((a,b)=>a.date.localeCompare(b.date));
   const thr=S.cfg.riskThreshold;
   const sf=S.sf||"all";
@@ -3049,7 +3057,9 @@ function exportPDF(){
 function exportExcel(){
   if(typeof XLSX==="undefined"){toast("⚠️ Excel no disponible (cargando...)");return;}
   const t=S.teams.find(x=>x.id===S.teamId);
-  const players=pl(S.teamId);
+  // v3.0.0-dev · B-GUEST2: idem exportPDF -- los puntuales de partido no
+  // entrenan, se excluyen de las hojas de asistencia de temporada.
+  const players=pl(S.teamId).filter(p=>!p.matchOnly);
   const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).sort((a,b)=>a.date.localeCompare(b.date));
   const thr=S.cfg.riskThreshold;
   const sf=S.sf||"all";
@@ -3625,7 +3635,10 @@ function hoy(){
   const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
     const time=t.schedule[ti];
     const sess=so(t.id,today);
-    const players=pl(t.id);
+    // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
+    // partido (no entrenan) del resumen "Hoy" para no contarlos como
+    // presentes por defecto en un entrenamiento al que no van.
+    const players=pl(t.id).filter(p=>!p.matchOnly);
     const marked=players.filter(p=>sess[p.id]).length;
     const done=players.length>0&&marked>0;
     const pr=players.filter(p=>(sess[p.id]||"present")==="present").length;
@@ -3712,7 +3725,10 @@ function hoy(){
 ═══════════════════════════════════════ */
 function att(){
   const t=S.teams.find(x=>x.id===S.teamId);
-  const players=pl(S.teamId);
+  // v3.0.0-dev · B-GUEST2: los puntuales de partido (matchOnly) no aparecen
+  // en el pase de lista de entrenamientos -- solo cuentan para el partido
+  // en el que se convocaron.
+  const players=pl(S.teamId).filter(p=>!p.matchOnly);
   const sess=so(S.teamId,S.date);
   const f=S.cfg.features;
   // Auto-justifica lesionados en la fecha en curso: si no hay estado explícito
@@ -3888,6 +3904,12 @@ function att(){
 function stats(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const players=pl(S.teamId);
+  // v3.0.0-dev · B-GUEST2: la tabla/gráfico de asistencia (pestaña
+  // Jugadores) es sobre entrenamientos -- los puntuales de PARTIDO
+  // (matchOnly) no entrenan, así que no pintan aquí (sí siguen apareciendo,
+  // sin tocar, en la pestaña Partidos más abajo -- esa usa `players` sin
+  // filtrar a propósito, porque ahí sí jugaron).
+  const attPlayers=players.filter(p=>!p.matchOnly);
   const sessList=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
   const thr=S.cfg.riskThreshold;
   const feat=S.cfg.features;
@@ -3907,7 +3929,7 @@ function stats(){
   <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm);margin-bottom:14px">Sin sesiones aún.<br/>Pasa lista primero.</div><button class="btn-p" style="max-width:240px;margin:0 auto" onclick="navTo('att',{date:td()})">✅ Pasar lista ahora</button></div></div>
   ${navBar()}`;
   const sortedSess=[...filteredSess].sort((a,b)=>b.date.localeCompare(a.date));
-  const pst=players.map(p=>{
+  const pst=attPlayers.map(p=>{
     const c=_countAtt(p,filteredSess);
     let streak=0;
     for(const s of sortedSess){const v=s.data[p.id]||"present";if(v==="absent")streak++;else break;}
@@ -3935,7 +3957,7 @@ function stats(){
     </div>
     <div class="chart-card">
       <div class="chart-title">👤 Asistencia por jugador</div>
-      <div class="chart-wrap" style="height:${Math.max(180,players.length*38+30)}px"><canvas id="ch-players"></canvas></div>
+      <div class="chart-wrap" style="height:${Math.max(180,attPlayers.length*38+30)}px"><canvas id="ch-players"></canvas></div>
     </div>
     <div class="chart-grid-2">
       <div class="chart-card">
@@ -4391,7 +4413,11 @@ function team(){
 function buildDailyText(tid,date,showMotivo,opts){
   const {coachNames=null}=opts||{};
   const t=S.teams.find(x=>x.id===tid);if(!t)return"";
-  const players=pl(tid);const sess=so(tid,date);
+  // v3.0.0-dev · B-GUEST2: los puntuales de partido (matchOnly) no entrenan
+  // -- nunca están en sess[], así que sin este filtro "sess[p.id]||present"
+  // los mostraba como PRESENTES por defecto en un entrenamiento al que
+  // nunca fueron.
+  const players=pl(tid).filter(p=>!p.matchOnly);const sess=so(tid,date);
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
@@ -4418,7 +4444,9 @@ function buildDailyText(tid,date,showMotivo,opts){
 function buildWeeklyText(tid,showMotivo,opts){
   const {coachNames=null}=opts||{};
   const t=S.teams.find(x=>x.id===tid);if(!t)return null;
-  const players=pl(tid);
+  // v3.0.0-dev · B-GUEST2: idem buildDailyText -- los puntuales de partido
+  // no entrenan, se excluyen del resumen semanal de asistencia.
+  const players=pl(tid).filter(p=>!p.matchOnly);
   const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([k,v])=>({date:k.replace(tid+"_",""),data:v})).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,7);
   if(!allSess.length)return null;
   const allCoaches=(t.coaches||[]).filter(Boolean);
@@ -5759,7 +5787,18 @@ function _guestPlayerCommit(mode){
   const note=(document.getElementById("gp-note")?.value||"").trim();
   if(!S.players[S.teamId])S.players[S.teamId]=[];
   const id=uid();
-  S.players[S.teamId].push({id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt:td()});
+  // v3.0.0-dev · B-GUEST2: un puntual añadido para un PARTIDO (mode="match")
+  // se guardaba igual que uno añadido desde un entrenamiento (mode="att"),
+  // así que a partir de esa fecha (addedAt) empezaba a aparecer también en
+  // el pase de lista de TODOS los entrenamientos siguientes -- contradice
+  // el propio texto del modal ("solo para este partido") y no tiene
+  // sentido: alguien convocado puntualmente para un partido no entrena con
+  // el equipo. matchOnly:true lo excluye del pase de lista y de las
+  // estadísticas de asistencia (sigue contando igual en las estadísticas
+  // DEL PARTIDO). Si el jugador acaba subiendo de categoría de verdad, eso
+  // se gestiona aparte (editarlo para quitarle matchOnly, o añadirlo como
+  // jugador normal en ese momento).
+  S.players[S.teamId].push({id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt:td(),matchOnly:mode==="match"});
   if(mode==="match"){
     const m=mById(S.teamId,S.matchId);
     if(m){
