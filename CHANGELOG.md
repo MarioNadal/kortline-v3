@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · CI, reporte de errores y catálogo de ejercicios (2026-08-08)
+
+### Añadido
+
+- **CI en GitHub Actions** (`.github/workflows/tests.yml`): corre `tests/run-all.js` y `npm audit` en cada push/PR a `main`. Antes el deploy dependía de que quien tocase `index.html` se acordara de correr la suite a mano — ahora un cambio con tests en rojo queda marcado en GitHub antes de llegar a producción (no bloquea el deploy en sí, GitHub Pages sigue sirviendo `main` igual, pero el fallo es visible).
+- **Reporte de errores en producción** (`_logClientError`, B-ERRLOG1): cualquier error de JavaScript no capturado (`window.onerror`) o promesa rechazada sin manejar (`unhandledrejection`) se registra ahora en `console.error` y, si el dispositivo tiene sesión real (`_fbUser`), se sube a Firestore (`clubs/{clubId}/errorLogs`) con mensaje, stack, pantalla, nombre del entrenador de ese móvil y versión de la app. Limitado a 20 envíos por sesión de navegador para no inundar Firestore si algo entra en bucle. Visor nuevo en Ajustes → Acerca de → "🐞 Ver errores recientes" (últimos 20, cualquier dispositivo del club). Antes, un error en el móvil de un entrenador durante un partido no dejaba ningún rastro salvo que lo reportara a mano.
+- **Catálogo de ejercicios reutilizables** (`S.drills`, B-DRILL1): planificación de entrenamientos v1 acotada. Cada equipo tiene su propio catálogo de ejercicios (nombre, categoría — calentamiento/manejo de balón/tiro/defensa/ataque-táctica/físico/partido-situaciones/otro —, duración en minutos y notas opcionales), sincronizado en tiempo real igual que jugadores/partidos/eventos. Desde el pase de lista (solo si el flag "📋 Ejercicios de la sesión" está activo en Ajustes), se pueden adjuntar ejercicios del catálogo a la sesión de hoy como chips, sin escribirlos a mano cada vez; el campo de texto libre "Ejercicios del entrenamiento" sigue existiendo igual que antes, sin cambios — el catálogo es un complemento, no lo sustituye. Al adjuntar un ejercicio a una sesión se guarda una copia (nombre/categoría/minutos), no solo el id: si el ejercicio se edita o se borra del catálogo más adelante, el historial de esa sesión conserva lo que de verdad se hizo ese día. Los ejercicios adjuntados aparecen también en el resumen diario de WhatsApp cuando corresponde.
+
+### Probado (jsdom)
+
+- `tests/error_logging.test.js` (12 comprobaciones nuevas): `_logClientError` no lanza nunca, respeta el límite de 20 envíos por sesión, no intenta escribir en Firestore sin sesión real (`_fbUser`), los listeners de `window.onerror`/`unhandledrejection` están enganchados de verdad, y el visor de Ajustes no revienta sin conexión a la nube.
+- `tests/drills.test.js` (22 comprobaciones nuevas): alta/edición/borrado de ejercicios en el catálogo, validación de nombre vacío, adjuntar/quitar de la sesión de hoy, que el borrado del catálogo no borra el historial de sesiones que ya lo usaron, que aparece en el texto de WhatsApp diario, y que `S.drills` viaja por el pipeline de sincronización (`_snapshotState`).
+- Suite completa: 334/334 en 31 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.34`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Bug real: puntual de partido contaminaba asistencia de entrenamientos (2026-08-06)
 
 ### Corregido

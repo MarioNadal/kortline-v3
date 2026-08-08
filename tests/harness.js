@@ -20,7 +20,8 @@ const EXPOSED_GLOBALS = [
 // con un getter/setter en vez de una simple asignacion.
 const EXPOSED_LIVE_BINDINGS = [
   "_liveHeartbeatMatchId",
-  "_cloudEnabled"
+  "_cloudEnabled",
+  "_errorLogCount"
 ];
 
 function buildBridgeScript() {
