@@ -89,6 +89,28 @@ async function run() {
   const snap = win._snapshotState();
   report.assert(Array.isArray(snap.drills.t1) && snap.drills.t1.length === 1, "_snapshotState() incluye S.drills para que el sync saliente lo suba a Firestore");
 
+  // ── v3.0.0-dev.35 · B-DRILL2: acceso al catálogo desde la pantalla Equipo ──
+  // (independiente de estar en el pase de lista de un día concreto).
+  win.S.screen = "team";
+  const teamHtml = win.team();
+  report.assert(teamHtml.includes("openDrillLibraryModal()"), "la pantalla Equipo incluye un botón que abre el catálogo de ejercicios");
+  report.assert(/1 ejercicio\b/.test(teamHtml), "el botón muestra cuántos ejercicios hay guardados para el equipo actual");
+
+  win.openDrillLibraryModal();
+  report.assert(!!document.getElementById("m-drill-library"), "openDrillLibraryModal() abre el modal del catálogo");
+  const libraryHtml = document.getElementById("drill-library-list")?.innerHTML || "";
+  report.assert(libraryHtml.includes("Defensa 1c1"), "el catálogo lista los ejercicios existentes del equipo");
+  report.assert(!/toggleSessionDrill/.test(libraryHtml), "la vista de gestión no mezcla el toggle de adjuntar a la sesión de hoy (eso es cosa del picker)");
+
+  // Añadir uno nuevo desde el modal de gestión debe reflejarse ahí mismo.
+  win.openDrillModal();
+  document.getElementById("m-add-drill-name").value = "Transición 3c2";
+  document.getElementById("m-add-drill-cat").value = "offense";
+  win.saveDrill("m-add-drill", "");
+  const libraryHtmlAfter = document.getElementById("drill-library-list")?.innerHTML || "";
+  report.assert(libraryHtmlAfter.includes("Transición 3c2"), "un ejercicio añadido desde el catálogo aparece ahí sin tener que reabrir el modal");
+  document.getElementById("m-drill-library")?.remove();
+
   return report.summary();
 }
 

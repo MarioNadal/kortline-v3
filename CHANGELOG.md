@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Acceso al catálogo de ejercicios desde Equipo (2026-08-08)
+
+### Añadido
+
+- **B-DRILL2**: el catálogo de ejercicios (B-DRILL1, dev.34) solo era accesible desde el pase de lista de un día concreto — no había forma de añadir ideas o repasar el catálogo del equipo sin estar "dentro" de una sesión de entrenamiento. Ahora la pantalla Equipo tiene un botón propio "🗂️ CATÁLOGO DE EJERCICIOS" (junto a "Eventos y convocatorias") que abre una vista de gestión pura: listar, añadir y editar ejercicios del equipo, sin el toggle de "adjuntar a hoy" que sí tiene el picker del pase de lista. Ambas vistas comparten los mismos datos (`S.drills`) y se refrescan entre sí al guardar/borrar.
+
+### Probado (jsdom)
+
+- `tests/drills.test.js` (+6 comprobaciones): la pantalla Equipo incluye el botón con el contador de ejercicios, `openDrillLibraryModal()` abre y lista el catálogo, la vista de gestión no mezcla el toggle de sesión, y un ejercicio añadido desde ahí aparece sin reabrir el modal.
+- Suite completa: 340/340 en 31 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.35`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · CI, reporte de errores y catálogo de ejercicios (2026-08-08)
 
 ### Añadido
