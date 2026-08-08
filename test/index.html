@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.39";
+const APP_VERSION = "3.0.0-dev.40";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4415,8 +4415,18 @@ function team(){
   const ts=Object.keys(S.sessions).filter(k=>k.startsWith(S.teamId+"_")).length;
   const ti=todayIdx(),trainsToday=t.schedule&&t.schedule.hasOwnProperty(ti);
   const coaches=(t.coaches||[]).filter(Boolean);
-  const prows=players.length===0?`<div class="empty"><div style="font-size:36px;margin-bottom:10px;opacity:.4">👤</div><div style="font-size:14px;color:var(--tm)">Sin jugadores aún.</div></div>`:
-    `<div class="card">${[...players].sort((a,b)=>{const an=a.number==null?999:a.number;const bn=b.number==null?999:b.number;return an-bn;}).map(p=>{
+  // v3.0.0-dev.40 · B-ROSTER1: la Plantilla mezclaba jugadores fijos y
+  // puntuales/invitados en la misma lista, ordenados solo por dorsal -- un
+  // puntual con dorsal bajo (o sin dorsal, que cae al final por el 999 de
+  // relleno pero podia intercalarse igualmente segun el resto de dorsales)
+  // podia aparecer en mitad de la plantilla fija, dificultando distinguir
+  // "quien es de verdad del equipo" de un vistazo aunque llevara la
+  // etiqueta 🔄 PUNTUAL. Ahora se pintan en dos bloques separados: primero
+  // la plantilla fija (por dorsal), y debajo -- solo si hay alguno -- un
+  // segundo bloque de puntuales/invitados bajo su propio separador, con el
+  // mismo orden por dorsal dentro de cada bloque.
+  const _byNumber=(a,b)=>{const an=a.number==null?999:a.number;const bn=b.number==null?999:b.number;return an-bn;};
+  const _playerRowHtml=p=>{
       const isInj=isInjured(p);
       const iStart=injuryStart(p);
       const iDays=iStart?injuryDays(iStart):0;
@@ -4440,7 +4450,12 @@ function team(){
       const incBadge=incCount>0?`<span class="injury-badge" style="background:#f59e0b" title="${incCount} incidencia${incCount===1?"":"s"}">${incCount}</span>`:"";
       const incBtn=S.cfg.features.incidents?`<button onclick="openIncidentModal('${p.id}')" title="Incidencias" style="position:relative;padding:5px 9px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:4px;${incBtnStyle}">⚠️${incBadge}</button>`:"";
       return `<div class="pr">${pnum}${avatar}<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${badge}${guestBadge}</div><div style="font-size:12px;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subLine)}</div></div><button onclick="openPlayerModal(${JSON.stringify({...p,id:p.id}).replace(/"/g,'&quot;')})" title="Editar datos" style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:13px;margin-right:4px">✏️</button>${injBtn}${incBtn}<button onclick="delPlayer('${p.id}')" title="Eliminar" style="padding:5px 9px;border-radius:6px;border:none;background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-size:13px">🗑</button></div>`;
-    }).join("")}</div>`;
+  };
+  const _fixedP=players.filter(p=>!p.guest).sort(_byNumber);
+  const _guestP=players.filter(p=>p.guest).sort(_byNumber);
+  const _guestSectionHtml=_guestP.length===0?"":`<div style="display:flex;align-items:center;gap:10px;margin:16px 0 8px"><div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);white-space:nowrap">🔄 Puntuales / invitados (${_guestP.length})</div><div style="flex:1;height:1px;background:var(--border)"></div></div><div class="card">${_guestP.map(_playerRowHtml).join("")}</div>`;
+  const prows=players.length===0?`<div class="empty"><div style="font-size:36px;margin-bottom:10px;opacity:.4">👤</div><div style="font-size:14px;color:var(--tm)">Sin jugadores aún.</div></div>`:
+    (_fixedP.length?`<div class="card">${_fixedP.map(_playerRowHtml).join("")}</div>`:"")+_guestSectionHtml;
   const schedRows=t.schedule&&Object.keys(t.schedule).length?Object.entries(t.schedule).sort((a,b)=>+a[0]-+b[0]).map(([i,time])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600;font-size:14px">${DAYSF[i]}</div><div style="color:var(--orange);font-family:var(--font-d);font-weight:700;font-size:15px">${time||"—"}</div></div>`).join(""):`<div style="font-size:13px;color:var(--tm);padding:8px 0">Sin horario</div>`;
   // Attendance stats bar
   // v1.8.33 · B-ATT1: usaba present-por-defecto sin respetar la fecha de
@@ -8289,8 +8304,17 @@ function liveGame(){
     ?'<div style="display:flex;align-items:center;justify-content:center;gap:2px;margin-top:4px">'
       +_tmDots(_rivTMused,_tmLimit,"#ef4444")
       +'<span style="font-size:9px;font-weight:700;color:var(--td);min-width:26px;text-align:center;text-transform:uppercase">T.M.</span></div>':"";
-  const _ourName=esc(t.name.length>12?t.name.slice(0,11)+"…":t.name);
-  const _rivName=esc((m.rival||"Rival").length>12?(m.rival||"Rival").slice(0,11)+"…":(m.rival||"Rival"));
+  // v3.0.0-dev.40 . B-FULLNAME1: el marcador en vivo cortaba el nombre de
+  // cualquier equipo (nuestro o rival) a 12 caracteres + "..." por JS, sin
+  // importar si cabia entero en pantalla -- con nombres de club largos
+  // (habitual en categorias inferiores) quedaba ilegible y dificultaba
+  // saber quien era quien, justo lo que reporto el usuario. El contenedor
+  // ya tiene overflow:hidden + text-overflow:ellipsis + white-space:nowrap
+  // (mas abajo), asi que el propio CSS recorta con "..." SOLO si de verdad
+  // no cabe en el ancho disponible -- quitamos el corte fijo en JS y
+  // mostramos el nombre completo siempre que quepa.
+  const _ourName=esc(t.name);
+  const _rivName=esc(m.rival||"Rival");
   const _ourLoc=m.location==="home"?"🏠 Local":"✈️ Visit.";
   const _rivLoc=m.location==="away"?"🏠 Local":"✈️ Visit.";
   // v1.8.8: cuando jugamos de visitante, el rival (local) va a la izquierda
@@ -8352,12 +8376,12 @@ function liveGame(){
     '<div class="live-scoreboard">'
     // ── Team names ──
     +'<div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:4px;margin-bottom:6px">'
-      +'<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">'
+      +'<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0" title="'+_lName+'">'
         +'<div style="font-size:11px;font-weight:800;color:'+_lNameColor+';text-transform:uppercase;letter-spacing:.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_lName+'</div>'
         +'<div style="font-size:9px;color:var(--td)">'+_lLoc+'</div>'
       +'</div>'
       +'<div style="text-align:center;padding:0 4px;flex-shrink:0"><div class="live-diff" style="background:'+diffColor+'22;color:'+diffColor+';border:1px solid '+diffColor+'44">'+diffTxt+'</div></div>'
-      +'<div style="text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">'
+      +'<div style="text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0" title="'+_rName+'">'
         +'<div style="font-size:11px;font-weight:800;color:'+_rNameColor+';text-transform:uppercase;letter-spacing:.5px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_rName+'</div>'
         +'<div style="font-size:9px;color:var(--td);text-align:center">'+_rLoc+'</div>'
       +'</div>'
