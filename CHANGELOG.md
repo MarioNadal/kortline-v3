@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Cuartos manuales vuelven a orden Local/Visitante real, igual que el marcador (2026-08-08)
+
+### Corregido
+
+- **B-QSCORE2** (decisión explícita del usuario, tras aclarar B-STATSLOC1): la sección de anotación manual por cuartos en el detalle de partido llevaba desde B-QSCORE1 (dev.34) el criterio "arriba siempre nuestro equipo, abajo siempre el rival" — pensado para no confundirse al anotar en directo, pero distinto del orden Local/Visitante real que ya usa el marcador de arriba (`scoreboardHtml`). Preguntado explícitamente si prefería que las estadísticas copiaran el orden real del marcador (Local siempre primero, sea quien sea) o que su equipo estuviera siempre a la izquierda, el usuario eligió lo primero. Se deshace el criterio de B-QSCORE1: las cajas de cada cuarto vuelven a ir en orden real **Local / Visitante**, con los mismos colores que usa el marcador (`homeColor`/`awayColor`) — jugando fuera, el rival (local) vuelve a aparecer arriba y nuestro equipo abajo, exactamente como ya ocurre en el marcador. El título de la sección, que decía "(Nosotros / Rival)" desde B-STATSLOC1 (dev.39), vuelve a decir **"(Local / Visitante)"** — y esta vez sin contradicción, porque es literalmente lo que se ve.
+- No afecta a las etiquetas Local/Visitante del marcador de arriba (que ya funcionaban bien y no se han tocado), ni a los textos de WhatsApp de resultado (que mantienen su propio criterio "nuestro equipo primero", pensado para mensajes al propio equipo, no para el acta).
+
+### Probado (jsdom)
+
+- `tests/qscore_order.test.js` (10 comprobaciones, reescrito completo): en casa el primer stepper sigue siendo local/nosotros (sin cambio visual); jugando fuera el primer stepper pasa a ser el índice local (ahora el rival, antes nosotros); el valor mostrado arriba jugando fuera es el del rival (antes el nuestro); el título de la sección vuelve a decir "(Local / Visitante)" en ambos casos y ya no queda el título intermedio "(Nosotros / Rival)"; las cajas llevan `title="Local"` / `title="Visitante"`.
+- Suite completa: 400/400 en 36 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.41`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Plantilla ordenada (puntuales aparte) + nombres completos en el marcador en vivo (2026-08-08)
 
 ### Corregido

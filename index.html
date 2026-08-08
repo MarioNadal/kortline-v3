@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.40";
+const APP_VERSION = "3.0.0-dev.41";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6794,35 +6794,40 @@ function matchDetail(){
   </div>`;
   // Quarters input -- grid dinamico que se ajusta al numero de columnas
   // v1.8.34 . B-QSCORE1: los steppers de cada cuarto se ordenaban por el
-  // indice local/visitante "en crudo" de m.q (local siempre arriba), asi
-  // que jugando en casa arriba salia nuestro equipo pero jugando fuera
-  // arriba salia el rival -- el orden se invertia de un partido a otro y
-  // confundia al anotar en directo. Ahora arriba SIEMPRE es nuestro equipo
-  // y abajo SIEMPRE el rival (con su color de siempre), sea cual sea el
-  // campo; el marcador de arriba (scoreboardHtml) sigue mostrando
-  // correctamente quien es Local/Visitante, que es lo que importa de cara
-  // al acta -- esto solo cambia el orden de ENTRADA de datos.
-  const isAwayD=m.location==="away";
+  // indice local/visitante "en crudo" de m.q, asi que jugando en casa
+  // arriba salia nuestro equipo pero jugando fuera arriba salia el rival
+  // -- eso confundia al anotar en directo, y se cambio a "arriba SIEMPRE
+  // nuestro equipo, abajo SIEMPRE el rival", a costa de que el titulo de
+  // esta seccion (que decia "Local / Visitante") dejara de describir el
+  // orden real de las cajas.
+  // v3.0.0-dev.40 . B-QSCORE2: el usuario report o esa contradiccion
+  // (ver B-STATSLOC1, dev.39) y, preguntado explicitamente, eligio que
+  // esta seccion sea IGUAL que el marcador de arriba en vez de al reves:
+  // Local siempre arriba/primero, Visitante siempre abajo/segundo, sea
+  // cual sea nuestro campo -- exactamente como ya hacia scoreboardHtml
+  // (mismas variables homeTeam/awayTeam/homeColor/awayColor). Esto
+  // deshace el criterio de B-QSCORE1: jugando fuera, el rival (local)
+  // vuelve a aparecer arriba y nuestro equipo abajo, pero ahora sin
+  // ninguna contradiccion con el marcador ni con el titulo de la seccion.
   const quartersHtml=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px">
     ${qlabels.map((ql,qi)=>{
       const hi=qi*2,ai=qi*2+1;
-      const ourI=isAwayD?ai:hi,rivI=isAwayD?hi:ai;
-      const ourV=q[ourI]!==null&&q[ourI]!==undefined?q[ourI]:"";
-      const rivV=q[rivI]!==null&&q[rivI]!==undefined?q[rivI]:"";
+      const hV=q[hi]!==null&&q[hi]!==undefined?q[hi]:"";
+      const aV=q[ai]!==null&&q[ai]!==undefined?q[ai]:"";
       const isOT=qi>=nQuarters;
       return`<div style="background:var(--s2);border:1px solid ${isOT?"rgba(245,158,11,.4)":"var(--border)"};border-radius:8px;padding:5px 2px;text-align:center;position:relative">
         ${isOT&&qi===qlabels.length-1?`<button onclick="removeLastOT()" style="position:absolute;top:2px;right:2px;background:none;border:none;color:var(--tm);cursor:pointer;font-size:10px;line-height:1;padding:1px 3px" title="Quitar">✕</button>`:""}
         <div style="font-size:10px;font-weight:700;color:${isOT?"#f59e0b":"var(--td)"};margin-bottom:5px">${ql}</div>
-        <div class="q-stepper" style="margin-bottom:4px" title="Nosotros">
-          <button class="q-stepper-btn" onclick="_qStep(${ourI},-1)">−</button>
-          <span class="q-stepper-val" id="qv-${ourI}" onclick="_qInlineEdit(${ourI})" title="Toca para editar" style="cursor:pointer;color:${t.color}">${ourV!==""?ourV:"—"}</span>
-          <button class="q-stepper-btn" onclick="_qStep(${ourI},1)">+</button>
+        <div class="q-stepper" style="margin-bottom:4px" title="Local">
+          <button class="q-stepper-btn" onclick="_qStep(${hi},-1)">−</button>
+          <span class="q-stepper-val" id="qv-${hi}" onclick="_qInlineEdit(${hi})" title="Toca para editar" style="cursor:pointer;color:${homeColor}">${hV!==""?hV:"—"}</span>
+          <button class="q-stepper-btn" onclick="_qStep(${hi},1)">+</button>
         </div>
         <div style="font-size:9px;color:var(--tm);margin:2px 0">vs</div>
-        <div class="q-stepper" title="Rival">
-          <button class="q-stepper-btn" onclick="_qStep(${rivI},-1)">−</button>
-          <span class="q-stepper-val" id="qv-${rivI}" onclick="_qInlineEdit(${rivI})" title="Toca para editar" style="cursor:pointer;color:#ef4444">${rivV!==""?rivV:"—"}</span>
-          <button class="q-stepper-btn" onclick="_qStep(${rivI},1)">+</button>
+        <div class="q-stepper" title="Visitante">
+          <button class="q-stepper-btn" onclick="_qStep(${ai},-1)">−</button>
+          <span class="q-stepper-val" id="qv-${ai}" onclick="_qInlineEdit(${ai})" title="Toca para editar" style="cursor:pointer;color:${awayColor}">${aV!==""?aV:"—"}</span>
+          <button class="q-stepper-btn" onclick="_qStep(${ai},1)">+</button>
         </div>
       </div>`;
     }).join("")}
@@ -6869,7 +6874,7 @@ function matchDetail(){
     </div>
     ${scoreboardHtml}
     <div style="margin-bottom:8px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">Marcador por cuartos (Nosotros / Rival)</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">Marcador por cuartos (Local / Visitante)</div>
     </div>
     ${quartersHtml}
     <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
