@@ -2016,6 +2016,21 @@ const ASTS=["present","absent","late","excused"];
 const AV={present:{l:"Presente",c:"#22c55e",bg:"rgba(34,197,94,.15)",i:"✓"},absent:{l:"Ausente",c:"#ef4444",bg:"rgba(239,68,68,.15)",i:"✗"},late:{l:"Tarde",c:"#f59e0b",bg:"rgba(245,158,11,.15)",i:"⏱"},excused:{l:"Justif.",c:"#6b7280",bg:"rgba(107,114,128,.15)",i:"◎"}};
 const JUST_REASONS=[{id:"sick",label:"Enfermo/a",icon:"🤒"},{id:"injury",label:"Lesionado/a",icon:"🤕"},{id:"study",label:"Examen/Estudio",icon:"📚"},{id:"vacation",label:"Vacaciones",icon:"🏖️"},{id:"travel",label:"Viaje",icon:"✈️"},{id:"family",label:"Familia",icon:"👪"},{id:"punishment",label:"Castigado/a",icon:"😤"},{id:"other",label:"Otro",icon:"📝"}];
 const DEFAULT_CFG={riskThreshold:75,features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
+// v3.0.0-dev.34 · B-DRILL1: catalogo de ejercicios reutilizables por equipo
+// (planificacion de entrenamientos, v1 acotada). No sustituye al campo libre
+// "Ejercicios del entrenamiento" (f.exercises) -- es un catalogo aparte,
+// opcional, para no reescribir a mano el mismo ejercicio sesion tras sesion.
+const DRILL_CATS=[
+  {id:"warmup",label:"Calentamiento",icon:"🔥"},
+  {id:"ballhandling",label:"Manejo de balón",icon:"🤾"},
+  {id:"shooting",label:"Tiro",icon:"🎯"},
+  {id:"defense",label:"Defensa",icon:"🛡️"},
+  {id:"offense",label:"Ataque / Táctica",icon:"♟️"},
+  {id:"conditioning",label:"Físico",icon:"💪"},
+  {id:"scrimmage",label:"Partido / Situaciones",icon:"🏀"},
+  {id:"other",label:"Otro",icon:"📌"}
+];
+function _drillCat(id){ return DRILL_CATS.find(c=>c.id===id)||DRILL_CATS[DRILL_CATS.length-1]; }
 /* ═══════════════════════════════════════
    FEATURE FLAGS (v1.0.0)
 ═══════════════════════════════════════ */
@@ -2031,7 +2046,7 @@ const FEATURE_LIVE_GAME = true;
 /* ═══════════════════════════════════════
    STATE
 ═══════════════════════════════════════ */
-let S={screen:"hoy",teamId:null,date:td(),teams:[],players:{},sessions:{},matches:{},events:{},sf:"all",histMonth:null,statsMonth:null,clubLogo:null,clubName:"Kortline",clubAbrev:"",clubLema:"",cfg:{...DEFAULT_CFG},statsView:"table",matchId:null,eventId:null,navStack:[]};
+let S={screen:"hoy",teamId:null,date:td(),teams:[],players:{},sessions:{},matches:{},events:{},drills:{},sf:"all",histMonth:null,statsMonth:null,clubLogo:null,clubName:"Kortline",clubAbrev:"",clubLema:"",cfg:{...DEFAULT_CFG},statsView:"table",matchId:null,eventId:null,navStack:[]};
 let shareOpen={parents:true,internal:false};
 /* ═══════════════════════════════════════
    UTILS
@@ -2085,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.33";
+const APP_VERSION = "3.0.0-dev.34";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2116,6 +2131,47 @@ function _fsRestore(val){
 }
 function _clubDocRef(){ return firebase.firestore().collection("clubs").doc(CLUB_ID); }
 function _teamDocRef(tid){ return _clubDocRef().collection("teams").doc(tid); }
+
+// v3.0.0-dev.34 · B-ERRLOG1: captura errores en produccion. La app se usa
+// en pleno partido en el movil de un entrenador -- si algo revienta ahi,
+// antes nadie se enteraba salvo que el entrenador lo reportase a mano.
+// Ahora cualquier error de JS o promesa no atrapada se manda (best-effort,
+// nunca bloqueante) a Firestore para poder revisarlo despues desde Ajustes.
+let _errorLogCount = 0;
+const _ERROR_LOG_MAX_PER_SESSION = 20; // corta si algo entra en bucle de errores
+function _logClientError(err, context){
+  try{
+    if(_errorLogCount >= _ERROR_LOG_MAX_PER_SESSION) return;
+    _errorLogCount++;
+    const rawMsg = (err && (err.message || String(err))) || "Error desconocido";
+    const doc = {
+      message: String(rawMsg).slice(0, 500),
+      stack: (err && err.stack) ? String(err.stack).slice(0, 2000) : "",
+      context: context || "",
+      screen: (typeof S !== "undefined" && S && S.screen) || "",
+      coachName: (typeof _getCoachName === "function" && _getCoachName()) || "",
+      appVersion: (typeof APP_VERSION !== "undefined") ? APP_VERSION : "",
+      userAgent: (typeof navigator !== "undefined") ? navigator.userAgent : "",
+      url: (typeof location !== "undefined") ? location.href : "",
+      ts: new Date().toISOString()
+    };
+    // console.error siempre, para que quede en la consola del dispositivo
+    // aunque no haya nube disponible en ese momento.
+    console.error("[Kortline]", context || "error", err);
+    // Solo se manda si hay sesion real (mismo guard que _runCloudSync) --
+    // sin _fbUser las reglas de Firestore rechazarian la escritura de
+    // todos modos, y evita que tests/desarrollo local disparen escrituras
+    // de verdad contra el proyecto de Firebase real.
+    if(!_cloudEnabled || !_fbUser || typeof firebase === "undefined") return;
+    _clubDocRef().collection("errorLogs").add(doc).catch(()=>{});
+  }catch(e){ /* el logger de errores nunca debe lanzar otro error */ }
+}
+window.addEventListener("error", function(ev){
+  _logClientError(ev.error || {message: ev.message}, "window.onerror");
+});
+window.addEventListener("unhandledrejection", function(ev){
+  _logClientError(ev.reason || {message: "unhandledrejection"}, "unhandledrejection");
+});
 
 // ── Puerta de acceso: código único del club (= contraseña de una única
 //    cuenta de Firebase Auth compartida). Sin cuentas individuales, pero la
@@ -2203,7 +2259,7 @@ function _scheduleCloudSync(){
 function _snapshotState(){
   return JSON.parse(JSON.stringify({
     club:{clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg},
-    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions
+    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills
   }));
 }
 // v3 · B-live-clock: el reloj del partido cambia m.live.clockSec una vez
@@ -2268,6 +2324,8 @@ async function _runCloudSync(){
     for(const tid of teamIds2) n+=_diffArrayById(batch, _teamDocRef(tid).collection("matches"), cur.matches[tid]||[], prev?.matches?.[tid], _matchCmpView);
     const teamIds3=new Set([...Object.keys(cur.events||{}), ...Object.keys(prev?.events||{})]);
     for(const tid of teamIds3) n+=_diffArrayById(batch, _teamDocRef(tid).collection("events"), cur.events[tid]||[], prev?.events?.[tid]);
+    const teamIds4=new Set([...Object.keys(cur.drills||{}), ...Object.keys(prev?.drills||{})]);
+    for(const tid of teamIds4) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drills"), cur.drills[tid]||[], prev?.drills?.[tid]);
     n+=_diffSessions(batch, cur.sessions, prev?.sessions);
     if(n>0) await batch.commit();
     _lastSyncedSnapshot=cur;
@@ -2279,7 +2337,7 @@ let _clubUnsubs=[],_teamUnsubs=[],_lastListenedTeamId=undefined;
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
-  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:logo",S.clubLogo);
+  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:logo",S.clubLogo);
   lsSet("cbj:name",S.clubName);lsSet("cbj:cabrev",S.clubAbrev);lsSet("cbj:clema",S.clubLema);lsSet("cbj:cfg",S.cfg);
   // Referencia al día para que el próximo sync saliente no reenvíe lo que
   // acabamos de recibir de otro entrenador.
@@ -2349,6 +2407,12 @@ function _attachTeamListeners(tid){
     _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
+  _teamUnsubs.push(teamRef.collection("drills").onSnapshot(snap=>{
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.drills[tid]||[]))return;
+    _applyingRemote=true;if(!S.drills)S.drills={};S.drills[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
   _teamUnsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
     let changed=false;
     _applyingRemote=true;
@@ -2400,7 +2464,7 @@ function toggleTeamsReorder(){
   render();
 }
 function load(){
-  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};
+  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};
   _sortTeams();
   S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
   const sc=lsGet("cbj:cfg");
@@ -3821,6 +3885,18 @@ function att(){
   // dentro de la caja, sin forma de ampliarla).
   const photoHtml=(f.photos||sess._photo)?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="${f.photos?"document.getElementById('att-photo-input').click()":`openPhotoPreview('${S.teamId}','${S.date}')`}">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">${f.photos?"Toca para cambiar":"Toca para ver"}</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div>${f.photos?`<input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>`:""}${sess._photo?`<div style="display:flex;gap:8px;margin-top:8px"><button onclick="openPhotoPreview('${S.teamId}','${S.date}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:8px 10px">🔍 Ver tamaño completo</button>${f.photos?`<button onclick="removePhoto()" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:8px 12px">✕ Quitar</button>`:""}</div>`:""}</div>`:"";
   const exercisesHtml=f.exercises?`<div class="fg"><label class="fl">📋 Ejercicios del entrenamiento</label><textarea class="fi" id="att-exercises" rows="3" style="resize:none" oninput="_attAutoSave()">${esc(exVal)}</textarea></div>`:"";
+  // v3.0.0-dev.34 · B-DRILL1: chips de ejercicios del catálogo adjuntados a
+  // la sesión de hoy. Visible junto al campo libre de arriba (mismo flag
+  // f.exercises), como una forma más rápida de registrar ejercicios
+  // repetidos sin escribirlos a mano cada vez.
+  const sessDrills=f.exercises?_sessionDrills():[];
+  const drillsChipsHtml=f.exercises?`<div class="fg">
+    <label class="fl">🗂️ Del catálogo <span style="color:var(--tm)">(opcional)</span></label>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+      ${sessDrills.map(d=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(240,99,24,.12);color:var(--orange);border:1px solid rgba(240,99,24,.3)">${_drillCat(d.category).icon} ${esc(d.name)}<button onclick="toggleSessionDrill('${d.id}')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;line-height:1">✕</button></span>`).join("")}
+      <button onclick="openDrillPickerModal()" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;background:var(--s2);color:var(--td);border:1px dashed var(--border);cursor:pointer">+ Añadir</button>
+    </div>
+  </div>`:"";
   const isAutoMode=f.playerScore&&!sess._teamScoreManual;
   const hasIndivScores=f.playerScore&&players.some(p=>sess[p.id+"_score"]>0);
   // v1.8.36 · B-SCORE1: la fila de 10 estrellas (dificil de ver de un vistazo
@@ -3886,7 +3962,7 @@ function att(){
     <div style="text-align:center;margin:8px 0 12px">
       <button onclick="openGuestPlayerModal({mode:'att'})" style="background:none;border:1px dashed var(--border);color:var(--td);cursor:pointer;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;width:100%">🔄 + Invitado puntual (jugador de otra categoría / externo)</button>
     </div>
-    ${exercisesHtml}${photoHtml}${teamScoreHtml}
+    ${exercisesHtml}${drillsChipsHtml}${photoHtml}${teamScoreHtml}
     <div class="fg"><label class="fl">📝 Notas del entrenador</label><input class="fi" id="att-notes" value="${esc(notesVal)}" placeholder="Solo visibles para el entrenador..." oninput="_attAutoSave()"/></div>
     <div style="display:flex;gap:8px;align-items:stretch">
       ${!sessionExists
@@ -4435,6 +4511,7 @@ function buildDailyText(tid,date,showMotivo,opts){
   if(ex.length){lines.push(`\n📋 *Justificados (${ex.length}):*`);ex.forEach(p=>{const jl=showMotivo?justShortLabel(sess,p.id):"";lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}${jl?" — "+jl:""}`);}); }
   lines.push(`\n📊 ${pc(pr.length+la.length,players.length)}% asistencia (${pr.length+la.length}/${players.length})`);
   if(showMotivo&&sess._exercises&&S.cfg.features.exercises)lines.push(`\n📋 Ejercicios: ${sess._exercises}`);
+  if(showMotivo&&(sess.drills||[]).length&&S.cfg.features.exercises)lines.push(`🗂️ Del catálogo: ${sess.drills.map(d=>d.name).join(", ")}`);
   if(sess._notes&&showMotivo)lines.push(`📝 (Interno) ${sess._notes}`);
   const realClub=S.clubName&&S.clubName!=="Kortline"?S.clubName:"";
   const footerName=realClub||t.name;
@@ -4963,6 +5040,7 @@ function openClubSettings(){
       <div style="text-align:center;padding:18px 0 6px">
         <img src="${_FULL_SVG_URL}" style="height:36px;max-width:100%;opacity:0.9;margin-bottom:10px"/>
         <div style="font-size:11px;color:var(--tm);line-height:1.7">Versión ${APP_VERSION} · Desarrollada por <b style="color:var(--td)">Mario Nadal Ara</b></div>
+        <button type="button" class="btn-s" onclick="openErrorLogsModal()" style="margin-top:12px;font-size:12px;padding:8px 14px;width:auto">🐞 Ver errores recientes</button>
       </div>
     </div>
     <button class="btn-p" onclick="saveClubSettings()">Guardar configuración</button>
@@ -4970,6 +5048,164 @@ function openClubSettings(){
   </div>`;
   document.body.appendChild(el);
   _attachModalDirtyTracking("m-club-settings", saveClubSettings, "Ajustes del club");
+}
+// v3.0.0-dev.34 · B-ERRLOG1: visor de los errores capturados por
+// _logClientError (ver seccion Firebase). Consulta puntual (no listener en
+// tiempo real -- no hace falta, es para revisar de vez en cuando).
+async function openErrorLogsModal(){
+  document.getElementById("m-error-logs")?.remove();
+  const el=document.createElement("div");el.id="m-error-logs";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:80vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🐞 Errores recientes</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">Últimos errores de JavaScript capturados en cualquier dispositivo del club (máx. 20).</div>
+    <div id="error-logs-list" style="font-size:12px;color:var(--tm)">Cargando…</div>
+    <button class="btn-s" onclick="document.getElementById('m-error-logs').remove()" style="margin-top:12px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+  const list=document.getElementById("error-logs-list");
+  if(!_cloudEnabled){ list.textContent="Sin conexión a la nube en este dispositivo — no se pueden consultar los errores de otros dispositivos."; return; }
+  try{
+    const snap=await _clubDocRef().collection("errorLogs").orderBy("ts","desc").limit(20).get();
+    if(snap.empty){ list.textContent="Sin errores registrados. 🎉"; return; }
+    list.innerHTML=snap.docs.map(d=>{
+      const x=d.data()||{};
+      const when=x.ts?new Date(x.ts).toLocaleString("es-ES"):"";
+      return `<div style="border-bottom:1px solid var(--border);padding:8px 0"><div style="font-weight:700;color:var(--tx)">${esc(x.message||"Error")}</div><div style="margin-top:2px">${esc(when)} · ${esc(x.coachName||"?")} · pantalla: ${esc(x.screen||"?")} · v${esc(x.appVersion||"?")}</div></div>`;
+    }).join("");
+  }catch(e){ list.textContent="No se pudieron cargar los errores (revisa la conexión)."; }
+}
+/* ═══════════════════════════════════════
+   CATALOGO DE EJERCICIOS (v3.0.0-dev.34 · B-DRILL1)
+   Planificacion de entrenamientos, v1 acotada: catalogo de ejercicios
+   reutilizables por equipo (nombre/categoria/duracion/notas) + adjuntarlos
+   a la sesion del dia desde el pase de lista. Complementa al campo libre
+   "Ejercicios del entrenamiento" (f.exercises), no lo sustituye.
+═══════════════════════════════════════ */
+function _teamDrills(tid){ return (S.drills&&S.drills[tid])||[]; }
+function _sessionDrills(){
+  const k=sk(S.teamId,S.date);
+  return (S.sessions[k]&&S.sessions[k].drills)||[];
+}
+// Adjunta/quita un ejercicio del catalogo a la sesion de HOY. Es una accion
+// discreta (como marcar asistencia), se guarda al instante -- no usa el
+// mismo debounce que las notas/ejercicios en texto libre.
+function toggleSessionDrill(drillId){
+  const k=sk(S.teamId,S.date);
+  const sess={...S.sessions[k]||{}};
+  const cur=sess.drills?[...sess.drills]:[];
+  const idx=cur.findIndex(d=>d.id===drillId);
+  if(idx>=0){
+    cur.splice(idx,1);
+  }else{
+    const lib=_teamDrills(S.teamId).find(d=>d.id===drillId);
+    if(!lib)return;
+    // Se guarda una copia (nombre/categoria/minutos) en vez de solo el id:
+    // si el ejercicio se edita o se borra del catalogo mas adelante, el
+    // historial de esa sesion sigue mostrando lo que de verdad se hizo ese dia.
+    cur.push({id:lib.id,name:lib.name,category:lib.category,minutes:lib.minutes||null});
+  }
+  sess.drills=cur;
+  S.sessions[k]=sess;
+  save();
+  render();
+  _refreshDrillPickerList();
+}
+function _drillPickerListHtml(){
+  const lib=_teamDrills(S.teamId);
+  const chosen=new Set(_sessionDrills().map(d=>d.id));
+  if(!lib.length){
+    return `<div class="empty" style="padding:20px 0"><div style="font-size:36px;margin-bottom:8px;opacity:.4">🗂️</div><div style="font-size:13px;color:var(--tm)">Catálogo vacío. Añade tu primer ejercicio abajo.</div></div>`;
+  }
+  return lib.map(d=>{
+    const cat=_drillCat(d.category);
+    const on=chosen.has(d.id);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.1)":"var(--s2)"};border-radius:10px;margin-bottom:8px">
+      <button onclick="toggleSessionDrill('${d.id}')" style="flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;cursor:pointer;padding:0">
+        <span style="font-size:18px">${on?"✅":cat.icon}</span>
+        <span style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}</div>
+          <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}</div>
+        </span>
+      </button>
+      <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
+    </div>`;
+  }).join("");
+}
+function _refreshDrillPickerList(){
+  const list=document.getElementById("drill-picker-list");
+  if(list)list.innerHTML=_drillPickerListHtml();
+}
+function openDrillPickerModal(){
+  document.getElementById("m-drill-picker")?.remove();
+  const el=document.createElement("div");el.id="m-drill-picker";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🗂️ Ejercicios de la sesión</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 12px">Elige del catálogo del equipo. Los cambios se guardan al momento.</div>
+    <div id="drill-picker-list">${_drillPickerListHtml()}</div>
+    <button class="btn-s" onclick="openDrillModal()" style="margin:4px 0 10px">+ Nuevo ejercicio en el catálogo</button>
+    <button class="btn-p" onclick="document.getElementById('m-drill-picker').remove();render()">Listo</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function openDrillModal(init){
+  const id=init?"m-edit-drill":"m-add-drill";
+  document.getElementById(id)?.remove();
+  const el=document.createElement("div");el.id=id;
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:10000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)_closeModal(id);};
+  const catsHtml=DRILL_CATS.map(c=>`<option value="${c.id}" ${(init?.category||"warmup")===c.id?"selected":""}>${c.icon} ${c.label}</option>`).join("");
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">${init?"Editar ejercicio":"Nuevo ejercicio"}</div>
+    <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-name" value="${esc(init?.name||"")}" placeholder="ej. Rueda de tiro exterior" maxlength="60"/></div>
+    <div class="fg"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
+    <div class="fg"><label class="fl">Duración (min) <span style="color:var(--tm)">(opcional)</span></label><input class="fi" id="${id}-min" type="number" min="1" max="120" value="${init?.minutes||""}" placeholder="ej. 10"/></div>
+    <div class="fg"><label class="fl">Notas <span style="color:var(--tm)">(opcional)</span></label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Descripción, variantes, material...">${esc(init?.notes||"")}</textarea></div>
+    <button class="btn-p" onclick="saveDrill('${id}','${init?.id||""}')">${init?"Guardar":"Añadir al catálogo"}</button>
+    ${init?`<button class="btn-s" onclick="deleteDrill('${init.id}')" style="color:#ef4444">🗑 Eliminar del catálogo</button>`:""}
+    <button class="btn-s" onclick="_closeModal('${id}')">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+  _attachModalDirtyTracking(id, ()=>saveDrill(id, init?.id||""), init?"Editar ejercicio":"Nuevo ejercicio");
+}
+function saveDrill(modalId,drillId){
+  const name=(document.getElementById(modalId+"-name")?.value||"").trim();
+  if(!name){toast("⚠️ Ponle un nombre al ejercicio");return false;}
+  const category=document.getElementById(modalId+"-cat")?.value||"other";
+  const minRaw=document.getElementById(modalId+"-min")?.value;
+  const minutes=minRaw?Math.max(1,Math.min(120,parseInt(minRaw)||0)):null;
+  const notes=(document.getElementById(modalId+"-notes")?.value||"").trim();
+  if(!S.drills)S.drills={};
+  if(!S.drills[S.teamId])S.drills[S.teamId]=[];
+  const list=S.drills[S.teamId];
+  if(drillId){
+    const idx=list.findIndex(d=>d.id===drillId);
+    if(idx>=0)list[idx]={...list[idx],name,category,minutes,notes};
+  }else{
+    list.push({id:"dr_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),name,category,minutes,notes});
+  }
+  save();
+  clearDirty();
+  document.getElementById(modalId)?.remove();
+  toast(drillId?"✅ Ejercicio actualizado":"✅ Añadido al catálogo");
+  _refreshDrillPickerList();
+  return true;
+}
+function deleteDrill(drillId){
+  _confirm("¿Eliminar este ejercicio del catálogo?<br><span style='font-size:12px;color:var(--td)'>Las sesiones pasadas que ya lo usaron conservan su nombre — solo desaparece del catálogo para sesiones nuevas.</span>","🗑 Eliminar",()=>{
+    if(!S.drills||!S.drills[S.teamId])return;
+    S.drills[S.teamId]=S.drills[S.teamId].filter(d=>d.id!==drillId);
+    save();
+    document.getElementById("m-edit-drill")?.remove();
+    toast("🗑 Eliminado del catálogo");
+    _refreshDrillPickerList();
+  });
 }
 function dayScheduleRows(mid,initSched){
   const sc=initSched||{};
