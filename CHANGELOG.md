@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Plantilla ordenada (puntuales aparte) + nombres completos en el marcador en vivo (2026-08-08)
+
+### Corregido
+
+- **B-ROSTER1** (reportado por el usuario): la pantalla "Plantilla" (dentro de Equipo) mezclaba jugadores fijos y puntuales/invitados en una única lista ordenada solo por dorsal — un puntual con dorsal bajo (o sin dorsal) podía intercalarse en mitad de la plantilla fija, dificultando ver de un vistazo quién es del equipo de verdad, aunque cada fila ya llevara su etiqueta morada "🔄 PUNTUAL". Ahora se pintan en dos bloques: la plantilla fija arriba (por dorsal, como siempre), y — solo si existe alguno — un segundo bloque de puntuales/invitados debajo, bajo un separador con contador ("🔄 Puntuales / invitados (N)"), también ordenado por dorsal dentro de su propio bloque.
+- **B-FULLNAME1** (reportado por el usuario): el marcador de la pantalla de partido en vivo cortaba el nombre de cualquier equipo (nuestro o el rival) a 12 caracteres + "…" por JavaScript, sin importar si el nombre real cabía perfectamente en pantalla — con nombres de club largos (habitual en categorías inferiores) el resultado era ilegible y dificultaba saber quién era quién, justo lo que reportó el usuario ("deben salir los nombres completos... si no no se entiende bien"). El contenedor ya llevaba `overflow:hidden` + `text-overflow:ellipsis` + `white-space:nowrap`, así que se ha quitado el corte fijo en JS: ahora se muestra el nombre completo siempre que quepa, y es el propio CSS el que recorta visualmente con "…" solo si de verdad no hay espacio (con `title` añadido para poder ver el nombre completo si el navegador lo recorta). No toca la asignación de qué lado (izquierda/derecha) le corresponde a cada equipo, que sigue como estaba.
+
+### Probado (jsdom)
+
+- `tests/roster_order.test.js` (12 comprobaciones nuevas): los fijos van primero por dorsal, el separador de puntuales aparece después de todos los fijos (nunca intercalado), cuenta correctamente el número de puntuales, un puntual con dorsal más bajo que todos los fijos no se cuela arriba, no aparece separador vacío si no hay puntuales, y no aparece el mensaje de "plantilla vacía" si solo hay puntuales.
+- `tests/live_scoreboard_fullname.test.js` (5 comprobaciones nuevas): nombres largos (nuestro y rival) aparecen completos en el marcador en vivo tanto jugando en casa como fuera, ya no se corta a 11-12 caracteres, y el contenedor conserva el recorte por CSS como red de seguridad.
+- Suite completa: 400/400 en 36 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.40`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Bug real: titulo de cuartos prometia orden Local/Visitante que no cumplia (2026-08-08)
 
 ### Corregido
