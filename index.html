@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.38";
+const APP_VERSION = "3.0.0-dev.39";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6854,7 +6854,7 @@ function matchDetail(){
     </div>
     ${scoreboardHtml}
     <div style="margin-bottom:8px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">Marcador por cuartos (Local / Visitante)</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">Marcador por cuartos (Nosotros / Rival)</div>
     </div>
     ${quartersHtml}
     <div style="display:flex;justify-content:flex-end;margin-bottom:16px">

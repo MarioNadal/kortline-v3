@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: titulo de cuartos prometia orden Local/Visitante que no cumplia (2026-08-08)
+
+### Corregido
+
+- **B-STATSLOC1** (reportado por el usuario): "Cuando tu equipo es Visitante en el marcador sale bien pero en las estadisticas sale al reves, siempre primero tu equipo". En el detalle de partido (`matchDetail()`), el marcador de arriba (`scoreboardHtml`) ya etiqueta y ordena correctamente Local/Visitante según `m.location` (esto viene de antes y funciona bien). Pero justo debajo, la sección de anotación manual por cuartos llevaba el título **"Marcador por cuartos (Local / Visitante)"**, mientras que las cajas de esa misma sección van SIEMPRE en orden **Nosotros / Rival** — a propósito, desde el fix de B-QSCORE1 (dev.34), para que anotar en directo sea más rápido sin tener que pensar en quién es local cada partido. El título nunca se actualizó tras aquel cambio, así que jugando fuera de casa el usuario veía el marcador correcto arriba (rival primero, por ser el local) y justo debajo un título que decía "(Local / Visitante)" sobre unas cajas que en realidad mostraban su propio equipo primero — la contradicción exacta que reportó como "sale al revés". No había ningún dato mal calculado ni mal guardado: el orden de las cajas siempre fue intencional (ver test `qscore_order.test.js`), el problema era solo que el título prometía un orden distinto al real. Corregido el título a **"Marcador por cuartos (Nosotros / Rival)"**, que ahora sí describe lo que se ve, tanto jugando en casa como fuera.
+
+### Probado (jsdom)
+
+- `tests/qscore_order.test.js` (4 comprobaciones nuevas, extendiendo la suite existente de B-QSCORE1): el título ya no contiene el texto "Local / Visitante" (ni en casa ni fuera) y sí contiene "Nosotros / Rival", coincidiendo con el orden real de las cajas en ambos escenarios.
+- Suite completa: 383/383 en 34 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.39`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Bug real: acciones del rival se podían apuntar al equipo propio (2026-08-08)
 
 ### Corregido

@@ -46,6 +46,19 @@ async function run() {
   // ── El marcador (scoreboard) sigue etiquetando Local/Visitante correctamente ──
   assert(htmlAway2.includes(">Local<") && htmlAway2.includes(">Visitante<"), "el marcador de arriba sigue mostrando las etiquetas Local/Visitante");
 
+  // ── v3.0.0-dev.39 · B-STATSLOC1: el titulo de la seccion de cuartos
+  // decia "(Local / Visitante)" pero las cajas de debajo (quartersHtml)
+  // van SIEMPRE en orden Nosotros/Rival (a proposito, ver comentario de
+  // B-QSCORE1 mas arriba) -- el usuario reporto que, jugando FUERA, el
+  // marcador de arriba salia bien pero "en las estadisticas sale al reves,
+  // siempre primero tu equipo" -- exactamente esta contradiccion entre lo
+  // que decia el titulo y lo que se veia debajo. El titulo ahora describe
+  // el orden real (Nosotros / Rival), tanto en casa como fuera.
+  assert(!htmlHome.includes("Local / Visitante"), "en casa, el titulo de cuartos ya no promete un orden Local/Visitante que las cajas no cumplen");
+  assert(!htmlAway2.includes("Local / Visitante"), "fuera, el titulo de cuartos ya no promete un orden Local/Visitante que las cajas no cumplen");
+  assert(htmlHome.includes("Nosotros / Rival"), "en casa, el titulo de cuartos ahora dice (Nosotros / Rival), que es el orden real de las cajas");
+  assert(htmlAway2.includes("Nosotros / Rival"), "fuera, el titulo de cuartos ahora dice (Nosotros / Rival), que es el orden real de las cajas -- coincide con lo que ve el usuario (su equipo siempre arriba)");
+
   return report.summary();
 }
 
