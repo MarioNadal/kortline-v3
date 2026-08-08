@@ -58,7 +58,11 @@ function loadApp() {
   const win = dom.window;
   return new Promise((resolve, reject) => {
     const start = Date.now();
-    const TIMEOUT_MS = 8000;
+    // v3.0.0-dev.39 · el limite de 8s a veces se quedaba corto en el
+    // runner de GitHub Actions (mas lento/compartido que el entorno local),
+    // dando un fallo intermitente al cargar index.html en jsdom sin que
+    // hubiera ningun bug real de por medio -- se amplia el margen.
+    const TIMEOUT_MS = 15000;
     (function poll() {
       if (typeof win.S !== "undefined") { resolve(win); return; }
       if (Date.now() - start > TIMEOUT_MS) {
