@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.34";
+const APP_VERSION = "3.0.0-dev.35";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4474,6 +4474,7 @@ function team(){
       <button class="qb" onclick="navTo('hist')"><div style="font-size:22px">📋</div><div style="font-size:10px;font-weight:700;margin-top:4px;color:var(--td)">HISTORIAL</div><div style="font-family:var(--font-d);font-size:14px;color:var(--tm);margin-top:2px">${ts}</div></button>
     </div>
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
+    <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     ${mvpCard(t)}
     ${attBar}
     <div class="card" style="margin-bottom:14px"><div style="padding:4px 14px 8px"><div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);padding-top:10px;margin-bottom:4px">📅 Horario</div>${schedRows}</div></div>
@@ -5111,7 +5112,7 @@ function toggleSessionDrill(drillId){
   S.sessions[k]=sess;
   save();
   render();
-  _refreshDrillPickerList();
+  _refreshDrillPickerList();_refreshDrillLibraryList();
 }
 function _drillPickerListHtml(){
   const lib=_teamDrills(S.teamId);
@@ -5150,6 +5151,48 @@ function openDrillPickerModal(){
     <div id="drill-picker-list">${_drillPickerListHtml()}</div>
     <button class="btn-s" onclick="openDrillModal()" style="margin:4px 0 10px">+ Nuevo ejercicio en el catálogo</button>
     <button class="btn-p" onclick="document.getElementById('m-drill-picker').remove();render()">Listo</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+// v3.0.0-dev.35 · B-DRILL2: acceso al catálogo desde la pantalla Equipo,
+// para poder ir añadiendo/editando ejercicios cuando se te ocurra una idea,
+// sin depender de estar en el pase de lista de un día concreto. Es la
+// misma lista de datos que el picker de sesión (_teamDrills), solo que
+// aquí no hay toggle de "adjuntar a hoy" -- es gestión pura del catálogo.
+function _drillLibraryRowsHtml(){
+  const lib=_teamDrills(S.teamId);
+  if(!lib.length){
+    return `<div class="empty" style="padding:20px 0"><div style="font-size:36px;margin-bottom:8px;opacity:.4">🗂️</div><div style="font-size:13px;color:var(--tm)">Catálogo vacío todavía.<br/>Añade tu primer ejercicio abajo — luego podrás adjuntarlo a cualquier sesión desde el pase de lista.</div></div>`;
+  }
+  return lib.map(d=>{
+    const cat=_drillCat(d.category);
+    const notesPreview=d.notes?` · ${esc(d.notes.slice(0,40))}${d.notes.length>40?"…":""}`:"";
+    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
+      <span style="font-size:18px">${cat.icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}</div>
+        <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}${notesPreview}</div>
+      </div>
+      <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
+    </div>`;
+  }).join("");
+}
+function _refreshDrillLibraryList(){
+  const list=document.getElementById("drill-library-list");
+  if(list)list.innerHTML=_drillLibraryRowsHtml();
+}
+function openDrillLibraryModal(){
+  document.getElementById("m-drill-library")?.remove();
+  const el=document.createElement("div");el.id="m-drill-library";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🗂️ Catálogo de ejercicios</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 12px">Ejercicios reutilizables de este equipo. Para usarlos en un entrenamiento concreto, adjúntalos desde el pase de lista (📋 Ejercicios de la sesión).</div>
+    <div id="drill-library-list">${_drillLibraryRowsHtml()}</div>
+    <button class="btn-p" onclick="openDrillModal()" style="margin-top:4px">+ Nuevo ejercicio</button>
+    <button class="btn-s" onclick="document.getElementById('m-drill-library').remove()">Cerrar</button>
   </div>`;
   document.body.appendChild(el);
 }
@@ -5194,7 +5237,7 @@ function saveDrill(modalId,drillId){
   clearDirty();
   document.getElementById(modalId)?.remove();
   toast(drillId?"✅ Ejercicio actualizado":"✅ Añadido al catálogo");
-  _refreshDrillPickerList();
+  _refreshDrillPickerList();_refreshDrillLibraryList();
   return true;
 }
 function deleteDrill(drillId){
@@ -5204,7 +5247,7 @@ function deleteDrill(drillId){
     save();
     document.getElementById("m-edit-drill")?.remove();
     toast("🗑 Eliminado del catálogo");
-    _refreshDrillPickerList();
+    _refreshDrillPickerList();_refreshDrillLibraryList();
   });
 }
 function dayScheduleRows(mid,initSched){
