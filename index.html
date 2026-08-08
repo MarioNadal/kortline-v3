@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.36";
+const APP_VERSION = "3.0.0-dev.37";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2695,11 +2695,27 @@ function _playerStartDate(p,sessList){
   }
   return first;
 }
+// v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
+// en el entrenamiento de una fecha dada. Antes esta misma comprobación (¿ya
+// estaba de alta ese día?) estaba reimplementada suelta en media docena de
+// sitios (activeIn de las gráficas, hist(), buildWeeklyText, exportExcel,
+// la tarjeta de "Hoy", el propio pase de lista...) -- justo el patrón de
+// bug más caro que tiene esta app según CONTINUATION.md: una copia se
+// actualiza y las demás se quedan desincronizadas. Ahora todas pasan por
+// aquí, incluyendo el caso nuevo de puntual de ENTRENAMIENTO (attOnly):
+// a diferencia de un alta real a media temporada (activo desde addedAt en
+// ADELANTE), un puntual de entrenamiento solo cuenta el día exacto para el
+// que se dio de alta -- no se convierte en plantilla fija desde ese día.
+function _isPlayerActiveOn(p,date,sessList){
+  if(!p)return false;
+  if(p.matchOnly)return false; // puntual de partido: nunca entrena
+  if(p.attOnly)return p.addedAt===date; // puntual de entreno: solo ese día
+  const start=_playerStartDate(p,sessList);
+  return !start||date>=start;
+}
 // Filtra la lista de sesiones a las que un jugador ya estaba en plantilla.
 function _sessForPlayer(p,sessList){
-  const start=_playerStartDate(p,sessList);
-  if(!start)return sessList;
-  return sessList.filter(s=>s.date>=start);
+  return sessList.filter(s=>_isPlayerActiveOn(p,s.date,sessList));
 }
 // Cuenta estados de asistencia aplicando el filtro de alta del jugador.
 function _countAtt(p,sessList){
@@ -2903,10 +2919,7 @@ function _buildStatsCharts(){
   // Shared layout to prevent overflow
   const layoutCfg={padding:{left:0,right:0,top:4,bottom:4}};
   // Helper: jugadores activos en una sesión concreta (según su alta)
-  const activeIn=(s)=>players.filter(p=>{
-    const start=_playerStartDate(p,allSess);
-    return !start||s.date>=start;
-  });
+  const activeIn=(s)=>players.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
   // 1 — Attendance trend line
   const trendEl=document.getElementById("ch-trend");
   if(trendEl){
@@ -3160,21 +3173,19 @@ function exportExcel(){
   for(let r=1;r<=range.e.r;r++){const cell=ws1[XLSX.utils.encode_cell({r,c:8})];if(cell)cell.z="0%";}
   XLSX.utils.book_append_sheet(wb,ws1,sf==="risk"?"Riesgo":sf==="str"?"Racha":"Jugadores");
   // ── Sheet 2: Session attendance — N/A si el jugador no estaba de alta
+  // (o, para un puntual de entrenamiento, si esta sesión no es su día)
   const sortedP=[...players].sort((a,b)=>((a.number==null?999:a.number)-(b.number==null?999:b.number)));
-  const startByP={};
-  sortedP.forEach(p=>{startByP[p.id]=_playerStartDate(p,allSess);});
   const sHeader=["Fecha","Día",...sortedP.map(p=>`#${p.number!=null?p.number:"?"} ${p.name}`),"% Asistencia","Notas","Ejercicios"];
   const sRows=[sHeader];
   allSess.forEach(s=>{
     const d=new Date(s.date+"T12:00:00");
     const dayName=d.toLocaleDateString("es-ES",{weekday:"long"});
     const cells=sortedP.map(p=>{
-      const st=startByP[p.id];
-      if(st&&s.date<st)return "N/A";
+      if(!_isPlayerActiveOn(p,s.date,allSess))return "N/A";
       const v=s.data[p.id]||"present";
       return{present:"P",absent:"A",late:"T",excused:"J"}[v]||"P";
     });
-    const activeP=sortedP.filter(p=>!startByP[p.id]||s.date>=startByP[p.id]);
+    const activeP=sortedP.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
     const pr=activeP.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
     const pct=activeP.length?pc(pr,activeP.length)/100:0;
     sRows.push([s.date,dayName,...cells,pct,s.data._notes||"",s.data._exercises||""]);
@@ -3192,8 +3203,7 @@ function exportExcel(){
     if(!byM[m])byM[m]={sesiones:0,sumPr:0,sumPs:0};
     byM[m].sesiones++;
     sortedP.forEach(p=>{
-      const st=startByP[p.id];
-      if(st&&s.date<st)return;
+      if(!_isPlayerActiveOn(p,s.date,allSess))return;
       byM[m].sumPs++;
       const v=s.data[p.id]||"present";
       if(v==="present"||v==="late")byM[m].sumPr++;
@@ -3702,7 +3712,7 @@ function hoy(){
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
     // partido (no entrenan) del resumen "Hoy" para no contarlos como
     // presentes por defecto en un entrenamiento al que no van.
-    const players=pl(t.id).filter(p=>!p.matchOnly);
+    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===today));
     const marked=players.filter(p=>sess[p.id]).length;
     const done=players.length>0&&marked>0;
     const pr=players.filter(p=>(sess[p.id]||"present")==="present").length;
@@ -3792,7 +3802,10 @@ function att(){
   // v3.0.0-dev · B-GUEST2: los puntuales de partido (matchOnly) no aparecen
   // en el pase de lista de entrenamientos -- solo cuentan para el partido
   // en el que se convocaron.
-  const players=pl(S.teamId).filter(p=>!p.matchOnly);
+  // v3.0.0-dev.37 · B-GUEST3: un puntual de ENTRENAMIENTO (attOnly) solo
+  // aparece en el pase de lista del día exacto para el que se dio de alta
+  // -- antes se quedaba para siempre como si fuera plantilla fija.
+  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===S.date));
   const sess=so(S.teamId,S.date);
   const f=S.cfg.features;
   // Auto-justifica lesionados en la fecha en curso: si no hay estado explícito
@@ -4243,8 +4256,7 @@ function hist(){
     let sumPr=0,sumPs=0;
     entries.forEach(e=>{
       players.forEach(p=>{
-        const start=_playerStartDate(p,allEntries);
-        if(start&&e.date<start)return;
+        if(!_isPlayerActiveOn(p,e.date,allEntries))return;
         sumPs++;
         const v=e.data[p.id]||"present";
         if(v==="present"||v==="late")sumPr++;
@@ -4262,7 +4274,7 @@ function hist(){
   const rows=entries.length===0?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📅</div><div style="font-size:14px;color:var(--tm)">Sin entrenamientos ${S.histMonth?"este mes":""}</div></div>`:
     `<div class="card">${entries.map((e,i)=>{
       // Solo cuenta jugadores de alta en la fecha de la sesión
-      const activeP=players.filter(p=>{const start=_playerStartDate(p,allEntries);return !start||e.date>=start;});
+      const activeP=players.filter(p=>_isPlayerActiveOn(p,e.date,allEntries));
       const pr=activeP.filter(p=>(e.data[p.id]||"present")==="present").length;
       const ab=activeP.filter(p=>e.data[p.id]==="absent").length;
       const la=activeP.filter(p=>e.data[p.id]==="late").length;
@@ -4494,7 +4506,7 @@ function buildDailyText(tid,date,showMotivo,opts){
   // -- nunca están en sess[], así que sin este filtro "sess[p.id]||present"
   // los mostraba como PRESENTES por defecto en un entrenamiento al que
   // nunca fueron.
-  const players=pl(tid).filter(p=>!p.matchOnly);const sess=so(tid,date);
+  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===date));const sess=so(tid,date);
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
@@ -4537,7 +4549,7 @@ function buildWeeklyText(tid,showMotivo,opts){
   // alta ese día (mismo patrón que hist()) -- si no, un jugador recién
   // añadido aparecía "presente" en entrenamientos previos a que existiera.
   allSess.forEach(s=>{
-    const activeP=players.filter(p=>{const start=_playerStartDate(p,allSess);return !start||s.date>=start;});
+    const activeP=players.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
     const pr2=activeP.filter(p=>(s.data[p.id]||"present")==="present").length;
     const la2=activeP.filter(p=>s.data[p.id]==="late").length;
     const pv=activeP.length?pc(pr2+la2,activeP.length):0;const ts2=s.data._teamScore;
@@ -4764,7 +4776,9 @@ function _evtAutoSuggest(tid,eid){
 function delEvento(eid){_confirm("¿Eliminar este evento y su convocatoria?","🗑 Eliminar",()=>{S.events[S.teamId]=(S.events[S.teamId]||[]).filter(e=>e.id!==eid);save();render();toast("🗑 Evento eliminado");});}
 function openEventoConvModal(){
   const eid=S.eventId;if(!eid)return;const t=S.teams.find(x=>x.id===S.teamId);const e=evtById(S.teamId,eid);if(!e){render();return;}
-  const players=[...pl(S.teamId)].sort((a,b)=>(a.number||99)-(b.number||99));
+  // v3.0.0-dev.37 · B-GUEST3: idem convocatoria de partido -- un puntual de
+  // entrenamiento no es convocable a un evento.
+  const players=[...pl(S.teamId)].filter(p=>!p.attOnly).sort((a,b)=>(a.number||99)-(b.number||99));
   function convRows(cids){
     if(!players.length)return'<div style="padding:20px;text-align:center;color:var(--tm);font-size:13px">Sin jugadores en la plantilla.</div>';
     // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
@@ -4790,7 +4804,7 @@ function openEventoConvModal(){
 function evtTogglePlayer(pid){
   const e=evtById(S.teamId,S.eventId);if(!e)return;if(!e.convocados)e.convocados=[];
   if(e.convocados.includes(pid)){e.convocados=e.convocados.filter(x=>x!==pid);}else{e.convocados.push(pid);}save();
-  const t=S.teams.find(x=>x.id===S.teamId);const players=[...pl(S.teamId)].sort((a,b)=>(a.number||99)-(b.number||99));
+  const t=S.teams.find(x=>x.id===S.teamId);const players=[...pl(S.teamId)].filter(p=>!p.attOnly).sort((a,b)=>(a.number||99)-(b.number||99));
   // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
   const cids=e.convocados;const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
   const list=document.getElementById("ev-conv-list");
@@ -4799,7 +4813,7 @@ function evtTogglePlayer(pid){
   }).join("");}
   const cnt=document.getElementById("ev-conv-count");if(cnt)cnt.textContent=cids.length+" convocado"+(cids.length!==1?"s":"");
 }
-function evtConvAll(){const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=pl(S.teamId).map(p=>p.id);save();openEventoConvModal();}
+function evtConvAll(){const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=pl(S.teamId).filter(p=>!p.attOnly).map(p=>p.id);save();openEventoConvModal();}
 function evtConvNone(){const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=[];save();openEventoConvModal();}
 function _refreshSRPrev(){
   const t=S.teams.find(x=>x.id===S.teamId);
@@ -6077,7 +6091,18 @@ function _guestPlayerCommit(mode){
   // DEL PARTIDO). Si el jugador acaba subiendo de categoría de verdad, eso
   // se gestiona aparte (editarlo para quitarle matchOnly, o añadirlo como
   // jugador normal en ese momento).
-  S.players[S.teamId].push({id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt:td(),matchOnly:mode==="match"});
+  // v3.0.0-dev.37 · B-GUEST3: idem matchOnly pero al reves -- un puntual
+  // añadido desde un ENTRENAMIENTO (mode="att") lleva attOnly:true, para
+  // que _isPlayerActiveOn() lo cuente solo el día exacto (addedAt) y quede
+  // excluido de toda convocatoria de partidos/eventos (nunca "sube" solo
+  // por haberse dado de alta un día).
+  // v3.0.0-dev.37 · B-GUEST3: para un puntual de entreno, addedAt tiene que
+  // ser la fecha de la SESIÓN que se está pasando lista (S.date), no la
+  // fecha real de hoy (td()) -- si el entrenador añade el puntual pasando
+  // lista de un día atrasado (flujo habitual, "ayer se me olvidó apuntar
+  // esto"), td() y S.date no coinciden y el puntual desaparecería incluso
+  // del día para el que se le dio de alta.
+  S.players[S.teamId].push({id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt:mode==="att"?S.date:td(),matchOnly:mode==="match",attOnly:mode==="att"});
   if(mode==="match"){
     const m=mById(S.teamId,S.matchId);
     if(m){
@@ -6977,7 +7002,10 @@ function openConvSetup(){
   document.body.appendChild(el);
 }
 function _convSetupHtml(m,t,step){
-  const players=[...pl(S.teamId)].sort((a,b)=>(a.number||99)-(b.number||99));
+  // v3.0.0-dev.37 · B-GUEST3: un puntual de ENTRENAMIENTO (attOnly) no es
+  // convocable a un partido -- eso es justo lo que promete el modal al
+  // añadirlo ("solo para este entrenamiento").
+  const players=[...pl(S.teamId)].filter(p=>!p.attOnly).sort((a,b)=>(a.number||99)-(b.number||99));
   const convIds=m.convocados||[];
   const titIds=m.titulares||[];
   const rivalStatsEnabled=m.rivalStatsEnabled||false;
@@ -7167,7 +7195,9 @@ function _convCapitan(pid){
 }
 function _convSelectAll(){
   const m=mById(S.teamId,S.matchId);if(!m)return;
-  const players=pl(S.teamId);
+  // v3.0.0-dev.37 · B-GUEST3: "Todos" tampoco debe convocar a un puntual de
+  // entrenamiento (attOnly) -- mismo criterio que _convSetupHtml.
+  const players=pl(S.teamId).filter(p=>!p.attOnly);
   m.convocados=players.map(p=>p.id).slice(0,12);
   save();
   const t=S.teams.find(x=>x.id===S.teamId);

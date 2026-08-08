@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: puntual de entrenamiento se quedaba como plantilla fija (2026-08-08)
+
+### Corregido
+
+- **B-GUEST3** (reportado por el usuario): un jugador puntual añadido desde el pase de lista de un **entrenamiento** (mode="att" en el modal "🔄 Jugador puntual") prometía en el propio texto del modal *"No se queda en la plantilla fija — solo para este entrenamiento"*, pero en la práctica se guardaba exactamente igual que un jugador normal de plantilla, sin ninguna distinción. Efecto real: aparecía en el pase de lista de **todos los entrenamientos siguientes** (contando como "presente" por defecto en sesiones a las que nunca fue), y también era convocable a **partidos y eventos**, para los que nunca se dio de alta. Es el mismo bug que B-GUEST2 (dev.33) pero en el sentido contrario — aquel arregló los puntuales de partido colándose en entrenamientos; este arregla los puntuales de entrenamiento colándose en el resto de la temporada.
+- Los puntuales de entrenamiento llevan ahora `attOnly:true` y cuentan **solo el día exacto** para el que se dieron de alta (`addedAt`), no "desde ese día en adelante" como un alta real a media temporada. Quedan excluidos de: el pase de lista de cualquier otro día, la tarjeta "Hoy" de otros días, el resumen diario/semanal de WhatsApp de otros días, y de toda convocatoria de partidos y eventos (wizard de convocatoria, botón "Todos"). Siguen contando con normalidad, igual que antes, en las estadísticas de asistencia del día concreto para el que se les dio de alta.
+- Corregido también un desajuste de fecha en el propio alta: `addedAt` se guardaba con la fecha real de "hoy" (`td()`) en vez de con la fecha de la sesión que se estaba pasando lista (`S.date`) — si un entrenador añadía el puntual pasando lista de un día atrasado (flujo habitual), el puntual podía llegar a desaparecer incluso del día para el que se le dio de alta. Ahora usa `S.date`.
+- **Deuda técnica de paso**: la comprobación "¿este jugador ya estaba de alta en esta fecha?" estaba reimplementada suelta en 6 sitios distintos del archivo (gráficas de Stats, historial, resumen semanal de WhatsApp, exportación a Excel — 3 veces). Se centralizó en una única función `_isPlayerActiveOn(jugador, fecha, sesiones)` y se reemplazaron las 6 copias — exactamente el patrón de bug que `CONTINUATION.md` señala como el más caro de esta app (una copia se corrige y las demás se quedan desincronizadas).
+
+### Probado (jsdom)
+
+- `tests/guest_att_only.test.js` (21 comprobaciones nuevas): el puntual de entreno solo aparece el día exacto de alta (ni antes ni después), `addedAt` usa la fecha de sesión y no la de hoy real, queda excluido de la convocatoria de partidos y eventos (incluyendo los botones "Todos" de ambos), y el helper `_isPlayerActiveOn` responde correctamente en los tres casos (mismo día / día siguiente / día anterior).
+- Resto de la suite sin regresiones tras centralizar la lógica de fecha de alta (gráficas, historial, WhatsApp semanal, exportación Excel).
+- Suite completa: 362/362 en 33 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.37`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Stepper de valoración individual da la vuelta a 10 (2026-08-08)
 
 ### Corregido
