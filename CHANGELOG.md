@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: acciones del rival se podían apuntar al equipo propio (2026-08-08)
+
+### Corregido
+
+- **B-RIVAL1** (reportado por el usuario): en el marcador en vivo, si el rival no tenía plantilla registrada (o tenía menos del mínimo de 5 jugadores que exige FIBA para un quinteto), al cambiar a la pestaña **Rival** la app seguía ofreciendo el panel de acciones **individuales** ("¿Quién?"), que solo conoce la plantilla propia — así que una canasta o falta del rival se podía acabar apuntando por error a uno de nuestros jugadores. Ahora, en cuanto el lado que se está viendo (nuestro/rival) no llega a 5 jugadores registrados, esa pestaña pasa a **modo equipo** genérico (mismo mecanismo ya usado y probado para "solo estadísticas de equipo"), que sí respeta correctamente a qué lado pertenece cada acción. Cubre tanto el caso de 0 jugadores del rival como el de plantilla parcial (1-4).
+- El resumen de estadísticas en vivo (panel lateral y modal 📊) mostraba "Sin jugadores del rival registrados" en este caso, **aunque sí hubiera estadísticas de equipo registradas** — ahora muestra la tabla agregada (puntos, faltas, tiros...) igual que ya hacía para el modo "solo equipo" global.
+- **No es una regresión de un bug anterior**: si el rival tiene su plantilla completa (5+ jugadores), el seguimiento individual por jugador sigue funcionando exactamente igual que antes.
+
+### Probado (jsdom)
+
+- `tests/rival_team_mode.test.js` (17 comprobaciones nuevas): rival sin jugadores y con plantilla parcial (3/5) fuerzan modo equipo y atribuyen correctamente al marcador/estadísticas del RIVAL sin tocar las nuestras; rival con plantilla completa (5+) conserva el modo individual sin regresión; nuestro propio equipo (siempre ≥5 convocados) nunca se ve afectado; el resumen de stats en vivo refleja el agregado en vez de decir "sin jugadores".
+- Suite completa: 379/379 en 34 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.38`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Bug real: puntual de entrenamiento se quedaba como plantilla fija (2026-08-08)
 
 ### Corregido
