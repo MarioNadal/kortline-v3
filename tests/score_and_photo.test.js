@@ -37,12 +37,16 @@ async function run() {
   assert(win.S.sessions[k].p1_score === 3, "3 pulsaciones de '+' suben la valoración del jugador a 3");
   win.stepPlayerScore("p1", -1);
   assert(win.S.sessions[k].p1_score === 2, "'-' baja la valoración en 1 (2)");
-  // bajar hasta 0 y comprobar que no baja de 0
-  win.stepPlayerScore("p1", -1); win.stepPlayerScore("p1", -1); win.stepPlayerScore("p1", -1);
-  assert(win.S.sessions[k].p1_score === 0, "bajar por debajo de 1 deja la valoración en 0 (sin valorar), no negativa");
-  // subir hasta 10 y comprobar que no sube de 10
+  // v3.0.0-dev.36 · B-SCORE2: bajar hasta 0 y seguir bajando da la vuelta a 10
+  // (atajo rápido), en vez de quedarse clavado en 0 como antes.
+  win.stepPlayerScore("p1", -1); win.stepPlayerScore("p1", -1);
+  assert(win.S.sessions[k].p1_score === 0, "bajar hasta 0 (sin valorar) se queda en 0, no negativa");
+  win.stepPlayerScore("p1", -1);
+  assert(win.S.sessions[k].p1_score === 10, "pulsar '-' estando en 0 da la vuelta directa a 10, no se queda clavado");
+  // subir hasta 10 y comprobar que no sube de 10 (al alza sigue topando, no da la vuelta a 0)
+  win.S.sessions[k].p1_score = 8;
   for (let i = 0; i < 15; i++) win.stepPlayerScore("p1", 1);
-  assert(win.S.sessions[k].p1_score === 10, "subir por encima de 10 se limita a 10 (tope FIBA de la escala)");
+  assert(win.S.sessions[k].p1_score === 10, "subir por encima de 10 se limita a 10 (no da la vuelta a 0, para no perder una valoración sin querer)");
 
   // ── Valoracion de equipo (modo manual): stepper en vez de 10 estrellas ──
   win.S.sessions[k] = { p1: "present", _teamScoreManual: true };

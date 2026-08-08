@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Stepper de valoración individual da la vuelta a 10 (2026-08-08)
+
+### Corregido
+
+- **B-SCORE2** (pedido real de uso): en la valoración individual del jugador (pase de lista), pulsar "−" estando en 0 (sin valorar) se quedaba clavado en 0. Ahora da la vuelta directa a 10 — más rápido y vistoso para valorar cuando la nota que quieres poner está cerca del máximo, sin tener que pulsar "+" diez veces. Al alza sigue topando en 10 igual que antes (no da la vuelta a 0), para no perder sin querer una valoración ya puesta con un toque de más. Solo afecta a la valoración por jugador — la valoración colectiva de equipo (`stepTeamScore`) no se ha tocado.
+
+### Probado (jsdom)
+
+- `tests/score_and_photo.test.js` (actualizado): pulsar "−" en 0 da la vuelta a 10; subir por encima de 10 sigue topando en 10 (no da la vuelta a 0).
+- Suite completa: 341/341 en 31 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.36`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Acceso al catálogo de ejercicios desde Equipo (2026-08-08)
 
 ### Añadido
