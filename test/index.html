@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.35";
+const APP_VERSION = "3.0.0-dev.36";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6214,11 +6214,20 @@ function _autoTeamScore(k,sess){
   sess._teamScore=scores.length>0?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):0;
 }
 // v1.8.36 · B-SCORE1: idem, stepper +/- en vez de 10 estrellas diminutas.
+// v3.0.0-dev.36 · B-SCORE2: pedido real de uso -- pulsar "-" estando en 0
+// (sin valorar) se quedaba clavado en 0. Ahora da la vuelta directa a 10:
+// más rápido para valorar de un vistazo cuando la nota que quieres poner
+// está cerca del máximo, sin tener que darle a "+" diez veces. Al alza
+// sigue tope en 10 igual que antes (no da la vuelta a 0, para no perder
+// sin querer una valoración ya puesta).
 function stepPlayerScore(pid,delta){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   const cur=sess[pid+"_score"]||0;
-  sess[pid+"_score"]=Math.max(0,Math.min(10,cur+delta));
+  let next=cur+delta;
+  if(next<0)next=10;
+  else if(next>10)next=10;
+  sess[pid+"_score"]=next;
   _autoTeamScore(k,sess);
   S.sessions[k]=sess;save();render();
 }
