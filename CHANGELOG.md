@@ -3,6 +3,24 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Partido en vivo: marcador manual de solo lectura, orden Local/Visitante en los selectores, y dos bugs de faltas del rival (2026-08-08)
+
+### Corregido
+
+- **B-LIVESYNC1** (reportado por el usuario): "cuando un partido se inicia en vivo no sé si se debería poder tocar el marcador normal... cuando uno gana como visitante y toca cualquier punto se pone derrota, esto está fatal". Causa raíz confirmada: `matchDetail()` solo sincronizaba el marcador manual (`m.q`) desde el partido en vivo (`live.qScores`) **una vez**, la primera vez que se abría esa pantalla con el marcador manual vacío — a partir de ahí quedaba **congelado** en esa foto, aunque el partido en vivo siguiera avanzando en otra pantalla. Si luego se volvía a `matchDetail()` y se tocaba cualquier "+"/"−", se estaba editando esa foto vieja, no el partido real — así que un equipo que iba perdiendo en el momento de la foto podía seguir viendo "Derrota" mucho después de haber remontado y ganado de verdad. Con seguimiento en vivo iniciado, el marcador por cuartos ahora se **resincroniza siempre** desde el partido en vivo (nunca una foto vieja) y pasa a ser **de solo lectura** — sin steppers ni edición táctil, con un aviso explicando que se edita desde 🔴 Seguimiento en vivo. Los partidos sin seguimiento en vivo (anotados a mano de principio a fin) conservan la edición de siempre, sin cambios.
+- **B-TOGGLE1** (reportado por el usuario): los 4 selectores de "a qué equipo le estoy anotando" dentro del partido en vivo — el toggle grande equipo/rival, las pestañas de la tabla de stats inline, el modal 📊 de stats, y la vista a pantalla completa en horizontal — ponían siempre nuestro equipo primero (izquierda), sin importar el campo. Ahora siguen el mismo criterio ya acordado con el usuario para el resto de la pantalla (marcador, cuartos): Local siempre primero — jugando fuera, el rival (que es local) aparece primero/izquierda y nuestro equipo segundo/derecha.
+- **B-FOULBTN1** (bug previo a esta sesión, no introducido por B-QSCORE2/B-BONUS2 — confirmado por diff de esos commits): el botón +/- manual para sumar faltas de equipo al rival a mano se mostraba siempre, incluso con seguimiento individual del rival activo — a diferencia del +/- manual del marcador del rival, que correctamente solo aparece sin seguimiento individual. Con jugadores rivales registrados, las faltas ya se anotan jugador a jugador desde el panel de acciones; tener también visible el botón manual invitaba a sumar una falta de equipo sin atribuirla a nadie, descuadrando las estadísticas individuales del rival frente al total de faltas de equipo. Ahora sigue el mismo criterio que el marcador.
+- **B-BONUS3** (bug previo a esta sesión): la insignia de cabecera "BONUS" solo avisaba de nuestras propias faltas de equipo (el rival tira libres a partir de la 5ª); no había ningún aviso persistente para cuando es el **rival** el que llega a 5 faltas de equipo (nosotros tirando libres a partir de ahí) — solo existía un aviso puntual dentro del modal al anotar esa falta concreta. Se añade la insignia "BONUS A FAVOR" en la cabecera, simétrica a la existente.
+
+### Probado (jsdom)
+
+- `tests/live_score_readonly.test.js` (11 comprobaciones nuevas): reproduce el escenario exacto del bug (visitante remontando en vivo) y confirma que el resultado ya no se queda pegado a una foto vieja; confirma que no hay steppers ni edición táctil con seguimiento en vivo; confirma que sin seguimiento en vivo todo sigue exactamente igual que antes.
+- `tests/live_team_order.test.js` (16 comprobaciones nuevas): los 4 selectores ponen nuestro equipo primero en casa y al rival primero fuera, en ambos casos.
+- `tests/rival_foul_manual.test.js` (7 comprobaciones nuevas): el +/- manual de faltas del rival desaparece con seguimiento individual activo y sigue disponible sin él; la insignia "BONUS A FAVOR" aparece con 5 faltas de equipo del rival y no antes; la insignia "BONUS" propia sigue funcionando sin regresión; ambas pueden convivir.
+- Suite completa: 442/442 en 40 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.43`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Marcador en vivo: máximo 4 bolos de falta de equipo, como un marcador real (2026-08-08)
 
 ### Corregido

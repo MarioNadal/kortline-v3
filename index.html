@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.42";
+const APP_VERSION = "3.0.0-dev.43";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6765,9 +6765,24 @@ function matchDetail(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const m=mById(S.teamId,S.matchId);
   if(!t||!m){S.screen="matchList";render();return"";}
-  // v1.8.12 · B-11: auto-sync live→manual si m.q está vacío y hay datos live
-  const _hasLiveQ=!!(m.live?.qScores?.some(q=>(q[0]||0)+(q[1]||0)>0));
-  if(_hasLiveQ&&!_hasManualQ(m)){if(_syncQFromLive(m))save();}
+  // v1.7.9 · R2: basta con que se haya entrado al live game una vez (live inicializado)
+  const hasLive=!!m.live;
+  // v1.8.12 · B-11: auto-sync live→manual si m.q está vacío y hay datos live.
+  // v3.0.0-dev.43 · B-LIVESYNC1 (reportado por el usuario): esa sincronización
+  // solo se disparaba UNA vez (mientras m.q estuviera vacío) -- en cuanto
+  // ocurría una vez, m.q "dejaba de estar vacío" y quedaba CONGELADO en la
+  // foto del marcador de ese momento, aunque el partido en vivo siguiera
+  // avanzando y live.qScores cambiara constantemente después. Si luego se
+  // volvía a esta pantalla y se tocaba cualquier "+"/"−" del marcador
+  // manual, se estaba editando esa foto vieja, no el partido real -- así
+  // que un equipo que llevaba una machacada como visitante podía ver
+  // "Derrota" si la foto congelada era de un momento en el que iba
+  // perdiendo. Con seguimiento en vivo iniciado (hasLive), el marcador por
+  // cuartos deja de ser "editable a mano": se resincroniza desde
+  // live.qScores en CADA render (siempre al día, nunca una foto vieja) y
+  // las cajas de abajo pasan a ser de solo lectura -- el partido en vivo
+  // es la única fuente de verdad mientras exista.
+  if(hasLive){if(_syncQFromLive(m))save();}
   const players=pl(S.teamId);
   const sorted=[...players].sort((a,b)=>(a.number||99)-(b.number||99));
   const sc=mScore(m);const r=mResult(m);
@@ -6809,6 +6824,13 @@ function matchDetail(){
   // deshace el criterio de B-QSCORE1: jugando fuera, el rival (local)
   // vuelve a aparecer arriba y nuestro equipo abajo, pero ahora sin
   // ninguna contradiccion con el marcador ni con el titulo de la seccion.
+  // v3.0.0-dev.43 · B-LIVESYNC1 (reportado por el usuario): con
+  // seguimiento en vivo iniciado (hasLive), estas cajas dejan de llevar
+  // steppers/edición táctil -- se recalculan siempre desde live.qScores
+  // (ver sync más arriba) y se muestran de solo lectura, con una nota que
+  // remite al seguimiento en vivo. Solo los partidos SIN seguimiento en
+  // vivo (anotados a mano de principio a fin) conservan los steppers +/-
+  // y la edición táctil de siempre.
   const quartersHtml=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px">
     ${qlabels.map((ql,qi)=>{
       const hi=qi*2,ai=qi*2+1;
@@ -6816,8 +6838,13 @@ function matchDetail(){
       const aV=q[ai]!==null&&q[ai]!==undefined?q[ai]:"";
       const isOT=qi>=nQuarters;
       return`<div style="background:var(--s2);border:1px solid ${isOT?"rgba(245,158,11,.4)":"var(--border)"};border-radius:8px;padding:5px 2px;text-align:center;position:relative">
-        ${isOT&&qi===qlabels.length-1?`<button onclick="removeLastOT()" style="position:absolute;top:2px;right:2px;background:none;border:none;color:var(--tm);cursor:pointer;font-size:10px;line-height:1;padding:1px 3px" title="Quitar">✕</button>`:""}
+        ${(!hasLive&&isOT&&qi===qlabels.length-1)?`<button onclick="removeLastOT()" style="position:absolute;top:2px;right:2px;background:none;border:none;color:var(--tm);cursor:pointer;font-size:10px;line-height:1;padding:1px 3px" title="Quitar">✕</button>`:""}
         <div style="font-size:10px;font-weight:700;color:${isOT?"#f59e0b":"var(--td)"};margin-bottom:5px">${ql}</div>
+        ${hasLive?`
+        <div style="padding:2px 0" title="Local"><span style="font-family:var(--font-d);font-weight:900;font-size:18px;color:${homeColor}">${hV!==""?hV:"—"}</span></div>
+        <div style="font-size:9px;color:var(--tm);margin:2px 0">vs</div>
+        <div style="padding:2px 0" title="Visitante"><span style="font-family:var(--font-d);font-weight:900;font-size:18px;color:${awayColor}">${aV!==""?aV:"—"}</span></div>
+        `:`
         <div class="q-stepper" style="margin-bottom:4px" title="Local">
           <button class="q-stepper-btn" onclick="_qStep(${hi},-1)">−</button>
           <span class="q-stepper-val" id="qv-${hi}" onclick="_qInlineEdit(${hi})" title="Toca para editar" style="cursor:pointer;color:${homeColor}">${hV!==""?hV:"—"}</span>
@@ -6829,10 +6856,13 @@ function matchDetail(){
           <span class="q-stepper-val" id="qv-${ai}" onclick="_qInlineEdit(${ai})" title="Toca para editar" style="cursor:pointer;color:${awayColor}">${aV!==""?aV:"—"}</span>
           <button class="q-stepper-btn" onclick="_qStep(${ai},1)">+</button>
         </div>
+        `}
       </div>`;
     }).join("")}
   </div>
-  <button onclick="addManualOT()" style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:14px">＋ Añadir ${_otCountD===0?"prórroga":_otCountD===1?"OT2":"OT"+(_otCountD+1)}</button>`;
+  ${hasLive
+    ?`<div style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-size:11px;font-weight:600;margin-bottom:14px">🔒 Marcador de solo lectura mientras haya seguimiento en vivo — se edita desde 🔴 Seguimiento en vivo</div>`
+    :`<button onclick="addManualOT()" style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:14px">＋ Añadir ${_otCountD===0?"prórroga":_otCountD===1?"OT2":"OT"+(_otCountD+1)}</button>`}`;
   // Convocatoria
   const convIds=m.convocados||[];
   const titIds=m.titulares||[];
@@ -6856,8 +6886,6 @@ function matchDetail(){
   const titCount=titIds.length;
   // Result badge
   const resultBadge=sc?`<span id="match-result-badge" class="result-pill ${r}" style="font-size:15px;padding:4px 14px">${r==="W"?"🏆 Victoria":r==="L"?"❌ Derrota":"🤝 Empate"} ${our}–${their}</span>`:`<span id="match-result-badge" class="result-pill P" style="font-size:13px;padding:3px 10px">⏳ Pendiente</span>`;
-  // v1.7.9 · R2: basta con que se haya entrado al live game una vez (live inicializado)
-  const hasLive=!!m.live;
   return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1">
@@ -7839,6 +7867,15 @@ function liveGame(){
   const diffColor=diff>0?"#22c55e":diff<0?"#ef4444":"#f59e0b";
   const teamFouls=(live.teamFouls||[])[curQ-1]||0;
   const bonus=teamFouls>=5; // v1.8.30 · B-BONUS1: bonus FIBA empieza en la 5a falta de equipo, no la 4a
+  // v3.0.0-dev.43 · B-BONUS3 (reportado por el usuario): la insignia de
+  // cabecera "BONUS" solo reflejaba NUESTRAS faltas de equipo (si
+  // nosotros llegamos a 5, el rival tira libres) -- pero cuando es el
+  // RIVAL el que llega a 5 faltas de equipo (y somos NOSOTROS quienes
+  // tiramos libres a partir de ahi), no habia ningun aviso persistente en
+  // la cabecera, solo el banner puntual dentro del modal al anotar esa
+  // falta concreta. Se añade el mismo indicador para el lado rival.
+  const rivalFoulsQ=(live.rivalFouls||[])[curQ-1]||0;
+  const rivalBonus=rivalFoulsQ>=5;
   const nQuarters=m.quarters||4;
   const _pLabel=nQuarters===4?"Q":"P";
   const _otCount=live.otCount||0;
@@ -8386,12 +8423,26 @@ function liveGame(){
       +'</div>';
     }
   }
+  // v3.0.0-dev.43 · B-FOULBTN1 (reportado por el usuario, "han vuelto las
+  // faltas manuales"): _rivalFoulBtns (el +/- manual para sumar faltas de
+  // equipo al rival a mano) se pasaba SIEMPRE a _foulCell del lado rival,
+  // sin importar si rivalEnabled estaba activo -- a diferencia de
+  // _rivalScoreBtns (el +/- manual del MARCADOR rival, unas líneas más
+  // arriba), que sí solo aparece cuando "!rivalEnabled" (sin seguimiento
+  // individual del rival). Con jugadores rivales registrados, las faltas
+  // ya se anotan jugador a jugador desde el panel de acciones (eso SÍ
+  // suma bien a live.rivalFouls, ver líneas ~9519/9825) -- tener también
+  // el botón manual visible invitaba a sumar una falta de equipo sin
+  // atribuirla a ningún jugador, descuadrando las estadísticas
+  // individuales del rival frente al total de faltas de equipo. Ahora
+  // sigue el mismo criterio que el marcador: el +/- manual de faltas del
+  // rival solo aparece si NO hay seguimiento individual (!rivalEnabled).
   const _lFoulEl=_isAway
-    ?_foulCell(_rivF,"#ef4444",_rivFwarn,_rivTMrowL,false,_rivalFoulBtns)
+    ?_foulCell(_rivF,"#ef4444",_rivFwarn,_rivTMrowL,false,rivalEnabled?"":_rivalFoulBtns)
     :_foulCell(_ourF,_tc,_ourFwarn,_ourTMrow,false,"");
   const _rFoulEl=_isAway
     ?_foulCell(_ourF,_tc,_ourFwarn,_ourTMrowR,true,"")
-    :_foulCell(_rivF,"#ef4444",_rivFwarn,_rivTMrow,true,_rivalFoulBtns);
+    :_foulCell(_rivF,"#ef4444",_rivFwarn,_rivTMrow,true,rivalEnabled?"":_rivalFoulBtns);
   const scoreboardHtml=
     '<div class="live-scoreboard">'
     // ── Team names ──
@@ -8467,6 +8518,7 @@ function liveGame(){
     </div>
     <div style="display:flex;gap:5px;align-items:center">
       ${bonus?`<span style="background:rgba(245,158,11,.25);color:#f59e0b;border:1px solid rgba(245,158,11,.4);border-radius:6px;font-size:10px;font-weight:800;padding:2px 6px">BONUS</span>`:""}
+      ${rivalBonus?`<span title="El rival está en bonus: cualquier falta suya tira 2 TL a nuestro favor" style="background:rgba(34,197,94,.2);color:#22c55e;border:1px solid rgba(34,197,94,.4);border-radius:6px;font-size:10px;font-weight:800;padding:2px 6px">BONUS A FAVOR</span>`:""}
       ${m.shotChart?`<button onclick="navTo('shotMap')" style="width:32px;height:32px;border-radius:7px;background:rgba(240,99,24,.15);border:1px solid rgba(240,99,24,.4);color:var(--orange);cursor:pointer;font-size:14px;font-weight:900" title="Mapa de tiros">📍</button>`:""}
       <button class="live-stats-btn" onclick="openLiveStatsModal()" style="width:32px;height:32px;border-radius:7px;background:rgba(99,179,237,.15);border:1px solid rgba(99,179,237,.4);color:#63b3ed;cursor:pointer;font-size:15px" title="Ver estadísticas">📊</button>
       <button onclick="shareMatchResult()" style="width:32px;height:32px;border-radius:7px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:15px" title="Compartir marcador">📤</button>
@@ -8491,17 +8543,26 @@ function liveGame(){
     <!-- (puesto antes de stats-wrap → en portrait sale entre marcador y stats) -->
     <div class="live-col-r">
       <!-- Team toggle (only when rival stats enabled) · v1.8.5 · F4c -->
-      ${rivalEnabled?`
-    <div style="display:flex;gap:4px;margin-bottom:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:4px">
-      <button onclick="setActiveTeam('our')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 6px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:800;transition:all .15s;background:${live.activeTeam!=='rival'?t.color:'transparent'};color:${live.activeTeam!=='rival'?'white':'var(--td)'};min-width:0">
+      <!-- v3.0.0-dev.43 · B-TOGGLE1 (reportado por el usuario): este
+           selector ponia SIEMPRE nuestro equipo a la izquierda y el rival a
+           la derecha, sea cual sea el campo -- distinto del marcador
+           (Local siempre a la izquierda, ver B-QSCORE2) que el usuario ya
+           habia confirmado como el criterio a seguir en TODA la pantalla
+           de partido en vivo, incluidos los botones para elegir a que
+           equipo se le anotan las estadisticas. Ahora, jugando fuera, el
+           boton del rival (que es local) va primero/izquierda y el
+           nuestro segundo/derecha -- igual que el marcador de arriba. -->
+      ${rivalEnabled?(()=>{
+        const _ourToggleBtn=`<button onclick="setActiveTeam('our')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 6px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:800;transition:all .15s;background:${live.activeTeam!=='rival'?t.color:'transparent'};color:${live.activeTeam!=='rival'?'white':'var(--td)'};min-width:0">
         <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${t.color};box-shadow:0 0 0 1.5px ${live.activeTeam!=='rival'?'rgba(255,255,255,.6)':'transparent'};flex-shrink:0"></span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(_teamShort(S.clubAbrev||t.name,14))}</span>
-      </button>
-      <button onclick="setActiveTeam('rival')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 6px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:800;transition:all .15s;background:${live.activeTeam==='rival'?'#ef4444':'transparent'};color:${live.activeTeam==='rival'?'white':'var(--td)'};min-width:0">
+      </button>`;
+        const _rivalToggleBtn=`<button onclick="setActiveTeam('rival')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 6px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:800;transition:all .15s;background:${live.activeTeam==='rival'?'#ef4444':'transparent'};color:${live.activeTeam==='rival'?'white':'var(--td)'};min-width:0">
         <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ef4444;box-shadow:0 0 0 1.5px ${live.activeTeam==='rival'?'rgba(255,255,255,.6)':'transparent'};flex-shrink:0"></span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${esc(_teamShort(m.rivalAbrev||m.rival||'Rival',14))}</span>
-      </button>
-    </div>`:""}
+      </button>`;
+        return`<div style="display:flex;gap:4px;margin-bottom:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:4px">${_isAway?_rivalToggleBtn+_ourToggleBtn:_ourToggleBtn+_rivalToggleBtn}</div>`;
+      })():""}
       <!-- On Court -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:${live.activeTeam==='rival'?'#ef4444':t.color}">▶ EN PISTA (${live.activeTeam==='rival'?rivalCourtP.length:courtP.length}/5)</div>
@@ -8518,11 +8579,14 @@ function liveGame(){
     <!-- STATS (izq-abajo en landscape, abajo del todo en portrait) ───────── -->
     <div class="live-stats-wrap">
       <!-- Stats (selector equipo + tabla) -->
-      ${rivalEnabled?`
-    <div style="display:flex;gap:4px;margin-bottom:8px;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:3px">
-      <button onclick="setStatsView('our')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${(live.statsView||'our')!=='rival'?t.color:'transparent'};color:${(live.statsView||'our')!=='rival'?'white':'var(--td)'}">${esc(t.name.length>14?t.name.slice(0,13)+"…":t.name)}</button>
-      <button onclick="setStatsView('rival')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${live.statsView==='rival'?'#ef4444':'transparent'};color:${live.statsView==='rival'?'white':'var(--td)'}">${esc((m.rival||'Rival').length>14?(m.rival||'Rival').slice(0,13)+'…':m.rival||'Rival')}</button>
-    </div>`:""}
+      <!-- v3.0.0-dev.43 · B-TOGGLE1: mismo criterio que el selector de
+           equipo activo -- jugando fuera, la pestaña del rival (local) va
+           primero/izquierda y la nuestra segunda/derecha. -->
+      ${rivalEnabled?(()=>{
+        const _ourStatsTab=`<button onclick="setStatsView('our')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${(live.statsView||'our')!=='rival'?t.color:'transparent'};color:${(live.statsView||'our')!=='rival'?'white':'var(--td)'}">${esc(t.name.length>14?t.name.slice(0,13)+"…":t.name)}</button>`;
+        const _rivalStatsTab=`<button onclick="setStatsView('rival')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${live.statsView==='rival'?'#ef4444':'transparent'};color:${live.statsView==='rival'?'white':'var(--td)'}">${esc((m.rival||'Rival').length>14?(m.rival||'Rival').slice(0,13)+'…':m.rival||'Rival')}</button>`;
+        return`<div style="display:flex;gap:4px;margin-bottom:8px;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:3px">${_isAway?_rivalStatsTab+_ourStatsTab:_ourStatsTab+_rivalStatsTab}</div>`;
+      })():""}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">Estadísticas del partido</div>
         <!-- v1.8.24: pista "🔄 gira para ver completa" eliminada. En portrait
@@ -8897,11 +8961,13 @@ function openLiveStatsModal(){
   const initContent=isLandscape
     ?_buildLiveStatsCards(S.teamId,S.matchId,view)
     :(view==='rival'?rival:ours);
+  // v3.0.0-dev.43 · B-TOGGLE1: mismo criterio que en liveGame() -- jugando
+  // fuera, la pestaña del rival (local) va primero/izquierda.
+  const _isAwayLS=m.location==="away";
+  const _ourStatsTabLS=`<button class="lstg-btn" onclick="_refreshLiveStatsModal('our')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${view!=='rival'?tc:'transparent'};color:${view!=='rival'?'white':'var(--td)'}">${tName}</button>`;
+  const _rivalStatsTabLS=`<button class="lstg-btn" onclick="_refreshLiveStatsModal('rival')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${view==='rival'?'#ef4444':'transparent'};color:${view==='rival'?'white':'var(--td)'}">${rName}</button>`;
   const toggleHtml=rivalEnabled
-    ?`<div style="display:flex;gap:4px;margin-bottom:10px;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:3px">
-        <button class="lstg-btn" onclick="_refreshLiveStatsModal('our')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${view!=='rival'?tc:'transparent'};color:${view!=='rival'?'white':'var(--td)'}">${tName}</button>
-        <button class="lstg-btn" onclick="_refreshLiveStatsModal('rival')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:800;background:${view==='rival'?'#ef4444':'transparent'};color:${view==='rival'?'white':'var(--td)'}">${rName}</button>
-      </div>`:'';
+    ?`<div style="display:flex;gap:4px;margin-bottom:10px;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:3px">${_isAwayLS?_rivalStatsTabLS+_ourStatsTabLS:_ourStatsTabLS+_rivalStatsTabLS}</div>`:'';
   // Vista cards/tabla toggle (solo en landscape)
   const modeToggle=isLandscape
     ?`<div style="display:flex;gap:3px;background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:2px">
@@ -10922,10 +10988,14 @@ function openLandscapeStats(){
         <div style="background:${diffColor}22;border:1px solid ${diffColor}44;border-radius:6px;padding:2px 8px;font-family:var(--font-d);font-weight:900;font-size:14px;color:${diffColor}">${diffStr}</div>
         <div style="flex:1;font-size:11px;color:var(--td)">${esc(t?.name||"")} vs ${esc(m.rival||"Rival")}</div>
       </div>
-      ${rivalEnabled?`<div style="display:flex;gap:4px">
-        <button id="ls-tab-our" onclick="lsTab('our')" style="padding:4px 10px;border-radius:6px;border:none;font-weight:800;font-size:12px;cursor:pointer;background:${(live.statsView||'our')==='our'?(t?.color||'var(--orange)'):'var(--s2)'};color:${(live.statsView||'our')==='our'?'white':'var(--td)'}">${(t?.name||"Nuestro").split(" ")[0]}</button>
-        <button id="ls-tab-riv" onclick="lsTab('rival')" style="padding:4px 10px;border-radius:6px;border:none;font-weight:800;font-size:12px;cursor:pointer;background:${live.statsView==='rival'?'#ef4444':'var(--s2)'};color:${live.statsView==='rival'?'white':'var(--td)'}">${(m.rival||"Rival").length>10?(m.rival||"Rival").slice(0,8)+"…":m.rival||"Rival"}</button>
-      </div>`:""}
+      ${rivalEnabled?(()=>{
+        const _isAwayLand=m.location==="away";
+        const _ourTabLand=`<button id="ls-tab-our" onclick="lsTab('our')" style="padding:4px 10px;border-radius:6px;border:none;font-weight:800;font-size:12px;cursor:pointer;background:${(live.statsView||'our')==='our'?(t?.color||'var(--orange)'):'var(--s2)'};color:${(live.statsView||'our')==='our'?'white':'var(--td)'}">${(t?.name||"Nuestro").split(" ")[0]}</button>`;
+        const _rivTabLand=`<button id="ls-tab-riv" onclick="lsTab('rival')" style="padding:4px 10px;border-radius:6px;border:none;font-weight:800;font-size:12px;cursor:pointer;background:${live.statsView==='rival'?'#ef4444':'var(--s2)'};color:${live.statsView==='rival'?'white':'var(--td)'}">${(m.rival||"Rival").length>10?(m.rival||"Rival").slice(0,8)+"…":m.rival||"Rival"}</button>`;
+        // v3.0.0-dev.43 · B-TOGGLE1: mismo criterio -- jugando fuera, el
+        // rival (local) va primero/izquierda.
+        return`<div style="display:flex;gap:4px">${_isAwayLand?_rivTabLand+_ourTabLand:_ourTabLand+_rivTabLand}</div>`;
+      })():""}
     </div>
     ${pillsHtml?`<div style="display:flex;gap:4px;flex-wrap:wrap;padding-bottom:4px">${pillsHtml}</div>`:""}
   </div>
