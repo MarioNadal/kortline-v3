@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.41";
+const APP_VERSION = "3.0.0-dev.42";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -8284,11 +8284,26 @@ function liveGame(){
                :'background:transparent;border:2px solid '+col+'d9')
       +'"></span>';
   }
+  // v3.0.0-dev.42 . B-BONUS2: pintaba 5 bolos de faltas de equipo, pero un
+  // marcador FIBA real solo tiene 4 luces de falta por equipo y periodo --
+  // el equipo entra en "situacion de bonus" nada mas cometer la 4a falta
+  // (a partir de ahi, CUALQUIER falta siguiente tira 2 TL; esto ya lo
+  // hacia bien openFoulTLModal, ver comentario "teamFouls del cuarto
+  // actual ya incluye la falta que acabas de pulsar"). Con 5 bolos in
+  // pantalla, el 5o bolo se rellenaba justo cuando ya se estaba en bonus,
+  // dando la falsa impresion de que el bonus "empieza" en la falta
+  // numero 5 en vez de estar ya activo desde la 4a. Ahora se pintan 4
+  // bolos como cualquier marcador de pabellon: se rellenan de normal
+  // hasta el 4o (que se pone en ambar, avisando de que la SIGUIENTE falta
+  // ya es tiro libre), y a partir de la 5a falta los 4 quedan en rojo
+  // (bonus activo), sin anadir un 5o bolo que no existe en un marcador
+  // real.
   function _foulDots(n,col){
     let s="";
-    for(let i=0;i<5;i++){
+    for(let i=0;i<4;i++){
+      const filled=i<n;
       const fc=n>=5?"#ef4444":n>=4?"#f59e0b":col;
-      s+=_dot(i<n,i<n?fc:col);
+      s+=_dot(filled,filled?fc:col);
     }
     return s;
   }

@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Marcador en vivo: máximo 4 bolos de falta de equipo, como un marcador real (2026-08-08)
+
+### Corregido
+
+- **B-BONUS2** (reportado por el usuario): el marcador de la pantalla de partido en vivo pintaba **5 bolos** (círculos) de faltas de equipo por lado y periodo, pero un marcador de pabellón real solo tiene **4 luces** de falta — el equipo entra en "situación de bonus" nada más cometer la 4ª falta de equipo (a partir de ahí, cualquier falta siguiente del equipo se penaliza con 2 tiros libres; esto ya lo calculaba bien `openFoulTLModal`, cubierto desde antes por `tests/bonus_badge.test.js`). Con 5 bolos en pantalla, el quinto se rellenaba justo cuando el equipo ya estaba en bonus, dando la falsa impresión de que el bonus "empezaba" en la falta número 5 en vez de estar ya activo desde la 4ª — exactamente la confusión que describió el usuario. Ahora se pintan siempre 4 bolos: se van rellenando con normalidad hasta el 4º (que se pone en ámbar, avisando de que la *siguiente* falta ya es tiro libre) y, a partir de la 5ª falta en adelante, los 4 quedan en rojo (bonus activo) — sin añadir un 5º bolo que no existe físicamente en un marcador real. No cambia ningún cálculo de tiros libres ni de la insignia de texto "BONUS" (`teamFouls>=5`), que ya eran correctos — solo el número de círculos dibujados.
+
+### Probado (jsdom)
+
+- `tests/bonus_dots.test.js` (8 comprobaciones nuevas): con 0, 2, 4, 5, 7 y 10 faltas de equipo se pintan siempre exactamente 4 bolos (nunca 5); con 4 faltas los 4 bolos están en ámbar; con 5+ faltas los 4 bolos están en rojo.
+- Suite completa: 408/408 en 37 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.42`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Cuartos manuales vuelven a orden Local/Visitante real, igual que el marcador (2026-08-08)
 
 ### Corregido
