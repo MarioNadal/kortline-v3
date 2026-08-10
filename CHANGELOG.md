@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: reasignar una acción del historial ofrecía TODA la plantilla, no solo los convocados (2026-08-10)
+
+### Corregido
+
+- **B-REASSIGN1** (reportado por el usuario: "al mover una acción del historial, por ejemplo quien ha anotado un tiro libre, en vez de los convocados o los disponibles en ese momento en el partido usa toda la plantilla"). `openReassignLogModal()` (el picker `↔ Reasignar acción` del historial del partido en vivo) construía la lista de jugadores a los que se puede reasignar una acción con `pl(S.teamId)` sin filtrar — toda la plantilla del equipo, incluidos jugadores que ni siquiera están convocados a ESE partido. Es el único picker de la pantalla de partido en vivo que no seguía este criterio: `openCourtSubModal`, `openSubModal`, `openOurFoulTLModal` y el panel de sustituciones de tiempo muerto (`_buildTmOverlay`) ya restringen correctamente a `m.convocados`. Se alinea `openReassignLogModal` con ese mismo criterio.
+  - Auditados también el resto de pickers de jugador de la pantalla de partido en vivo (selector de acción `¿Quién?`, cadena de asistencia/rebote, sustituciones, panel de tiempo muerto, tiros libres nuestros/del rival, resumen de fin de partido): todos ya restringían correctamente a en pista o convocados. `openReassignLogModal` era el único con el bug.
+  - El MVP de la semana (`openMvpModal`/`openMvpNewModal`) sí usa deliberadamente toda la plantilla — no es una acción de un partido concreto, es un reconocimiento semanal del equipo, así que no aplica el mismo criterio.
+
+### Probado (jsdom)
+
+- `tests/reassign_log_convocados.test.js` (6 comprobaciones nuevas): con un equipo de 6 jugadoras pero solo 5 convocadas a un partido, el picker de reasignar incluye a las convocadas y excluye a la no convocada; verificado también que revirtiendo el fix el test detecta la regresión (falla exactamente en esa comprobación). La reasignación en sí (mover estadísticas y actualizar el pid del log) sigue funcionando igual que antes.
+- Suite completa: 467/467 en 43 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.46`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Fix de redacción: el modal de tiros libres a nuestro favor presuponía que iba a haber tiro (2026-08-10)
 
 ### Corregido

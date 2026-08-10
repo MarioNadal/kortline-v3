@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.45";
+const APP_VERSION = "3.0.0-dev.46";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -10546,9 +10546,18 @@ function openReassignLogModal(idx){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
   const e=m.live.log[idx];if(!e)return;
   const isRivalPlayerEntry=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
-  const roster=isRivalPlayerEntry?(m.rivalPlayers||[]):pl(S.teamId);
-  const current=roster.find(p=>p.id===e.pid);
-  const candidates=roster.filter(p=>p.id!==e.pid);
+  // v3 · B-REASSIGN1: este picker ofrecía TODA la plantilla del equipo
+  // (pl(S.teamId) sin filtrar), incluyendo jugadores que ni siquiera están
+  // convocados a este partido -- al contrario que el resto de pickers del
+  // partido en vivo (openCourtSubModal, openSubModal, openOurFoulTLModal,
+  // _buildTmOverlay), que sí restringen siempre a m.convocados. Se alinea
+  // con ese mismo criterio: solo se puede reasignar a alguien convocado a
+  // este partido.
+  const convIds=m.convocados||[];
+  const fullRoster=isRivalPlayerEntry?(m.rivalPlayers||[]):pl(S.teamId);
+  const roster=isRivalPlayerEntry?fullRoster:fullRoster.filter(p=>convIds.includes(p.id));
+  const current=fullRoster.find(p=>p.id===e.pid);
+  const candidates=roster.filter(p=>p.id!==e.pid).sort((a,b)=>(a.number||99)-(b.number||99));
   if(candidates.length===0){toast("No hay otro jugador al que reasignar");return;}
   document.getElementById("m-reassign-log")?.remove();
   const el=document.createElement("div");
