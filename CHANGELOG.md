@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real de reglamento: la descalificación por 5 faltas no sumaba técnicas/antideportivas a las personales (2026-08-10)
+
+### Corregido
+
+- **B-DQ5** (pedido por el usuario: revisar la app con criterio de entrenador y las reglas reales de baloncesto, no solo de código). `_isDQ()` -- la función que decide si un jugador está descalificado y debe salir obligatoriamente de la pista -- comprobaba el límite de "5 faltas" mirando solo `st.foul` (faltas personales a solas). Por reglamento FIBA (Art. 36.3.1: *"By a player, a technical foul shall be charged as a player foul and shall count as one of the team fouls"*; Art. 40.1: *"A player who has committed 5 fouls ... must leave the game"*), una falta técnica se carga como una falta más de jugador — cuenta igual que una personal para ese límite de 5, no aparte. Lo mismo con las antideportivas. Así que un jugador con, por ejemplo, **4 personales + 1 técnica (5 faltas en total)** no se marcaba como descalificado: podía seguir en pista, e incluso se le podía dejar tirar sus propios tiros libres, sin ningún aviso — cuando por reglamento ya debería haber sido sustituido de forma obligatoria.
+  - El propio comentario del código en `liveAction()` ("v1.6.13 · B-47: descalificación considera personales + técnicas + antideportivas + descalificantes") ya documentaba esta intención — `_isDQ()` no llegaba a cumplirla en el caso mixto.
+  - Se añade `(foul+ftech+funsport)>=5` como nueva vía de descalificación, junto a las ya existentes (5 personales puras, 2 técnicas, 2 antideportivas, 1 técnica + 1 antideportiva, 1 descalificante directa) — todas siguen funcionando igual, esta es puramente aditiva.
+  - Auditado también: el umbral de bonus por faltas de equipo (5ª falta de equipo, incluyendo técnicas/antideportivas) y los límites de tiempos muertos (2 en la 1ª mitad, 3 en la 2ª, 1 por prórroga) — ambos ya estaban implementados correctamente según las reglas FIBA vigentes, no requerían cambios.
+  - **Aviso para el usuario, no un bug de esta app:** FIBA ha publicado cambios de reglamento para la temporada 2026-27 (vigentes desde el 1 de octubre de 2026) que eliminan la categoría "falta antideportiva" y la sustituyen por "falta disruptiva" y "falta flagrante". Si la liga en la que juega CB Jaca adopta estas reglas, el modelo de tipos de falta de la app (`funsport` = antideportiva) quedaría desactualizado — conviene decidir, antes de esa fecha, si hace falta adaptarlo.
+
+### Probado (jsdom)
+
+- `tests/dq_combined_fouls.test.js` (12 comprobaciones nuevas): confirma que el caso mixto (4 personales + 1 técnica, o 4 personales + 1 antideportiva) ahora descalifica correctamente, que 4 faltas mixtas en total NO descalifican todavía, que los 6 umbrales que ya funcionaban siguen funcionando exactamente igual (regresión), y una comprobación de extremo a extremo registrando faltas reales en vivo hasta que se abre el modal de sustitución forzosa.
+- Suite completa: 508/508 en 45 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.47`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Bug real: reasignar una acción del historial ofrecía TODA la plantilla, no solo los convocados (2026-08-10)
 
 ### Corregido

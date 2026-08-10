@@ -799,11 +799,20 @@ function _fmtClock(s){const m=Math.floor(s/60),ss=s%60;return m+":"+(ss<10?"0":"
 ═══════════════════════════════════════ */
 function _isDQ(st){
   if(!st)return false;
-  if((st.foul||0)>=5)return true;
+  if((st.fdq||0)>=1)return true;
   if((st.ftech||0)>=2)return true;
   if((st.funsport||0)>=2)return true;
   if(((st.ftech||0)+(st.funsport||0))>=2)return true;
-  if((st.fdq||0)>=1)return true;
+  if((st.foul||0)>=5)return true;
+  // v3 · B-DQ5: FIBA (Art. 36.3.1 / 40.1) carga una falta técnica "como
+  // falta de jugador" -- cuenta igual que una personal para el límite de 5
+  // faltas que expulsa del partido, no solo las 5 personales puras. Lo
+  // mismo con las antideportivas. Antes solo se comprobaba st.foul>=5
+  // (solo personales): un jugador con, por ejemplo, 4 personales + 1
+  // técnica (5 faltas en total) no se marcaba como descalificado, aunque
+  // por reglamento ya debería estarlo -- podía seguir en pista y hasta
+  // tirar sus propios tiros libres sin ningún aviso.
+  if(((st.foul||0)+(st.ftech||0)+(st.funsport||0))>=5)return true;
   return false;
 }
 // Total de faltas para mostrar al usuario (suma todas las modalidades)
@@ -1067,6 +1076,10 @@ function _forceSubAfterDQ(pid,isRival){
   else if((stOut.ftech||0)>=2)motivo="2 faltas técnicas";
   else if((stOut.funsport||0)>=2)motivo="2 antideportivas";
   else if(((stOut.ftech||0)+(stOut.funsport||0))>=2)motivo="1 técnica + 1 antideportiva";
+  // v3 · B-DQ5: caso mixto -- llega a 5 faltas combinando personales con
+  // técnicas y/o antideportivas, sin encajar en ninguno de los motivos de
+  // arriba (que ya han comprobado sus propios umbrales de 2).
+  else if(((stOut.foul||0)+(stOut.ftech||0)+(stOut.funsport||0))>=5)motivo="5 faltas (personales + técnicas/antideportivas)";
   const accentColor=isRival?"#ef4444":"var(--orange)";
   const teamColor=isRival?"#ef4444":(S.teams.find(x=>x.id===S.teamId)?.color||"#F06318");
   const benchHtml=benchValid.length===0
@@ -2100,7 +2113,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.46";
+const APP_VERSION = "3.0.0-dev.47";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
