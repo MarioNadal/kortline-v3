@@ -3,6 +3,28 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Nuevo reglamento FIBA 2026-27 (opcional, por partido) + fix de robustez "6ª jugadora en pista" (2026-08-10)
+
+### Añadido
+
+- **B-FIBA26**: soporte para el nuevo reglamento FIBA vigente desde el 1 de octubre de 2026 (verificado contra el reglamento oficial OBR 2026, Art. 36-39). Cambios reales de este reglamento:
+  - La falta antideportiva desaparece. La sustituyen la **disruptiva** (Art. 37 — frena un contraataque, para el reloj al final de un cuarto, etc. — cuenta como falta de equipo pero **nunca** descalifica) y la **flagrante** (Art. 38 — contacto violento/excesivo — sí descalifica a las 2, como antes la antideportiva).
+  - La falta técnica se divide en **categoría 1** (comportamiento grave: faltar al respeto, provocar, fingir falta — cuenta para la descalificación) y **categoría 2** (administrativa: retrasar el juego, colgarse del aro — no cuenta para la descalificación, pero sí se sigue cargando como falta de jugador para el límite general de 5, Art. 36.3.1).
+  - Nuevo interruptor **"⚖️ Reglamento FIBA 2026-27"** al crear o editar un partido, apagado por defecto — actívalo solo cuando tu competición confirme que ya juega con este reglamento. Con el interruptor apagado (el caso de todos los partidos existentes y de cualquier partido nuevo mientras no lo actives), todo funciona exactamente igual que hasta ahora, sin ningún cambio de comportamiento.
+  - Con el interruptor activado: el panel de faltas del partido en vivo pasa de 4 a 6 botones (Personal / Técnica cat.1 / Técnica cat.2 / Disruptiva / Flagrante / Descalificante), tanto en modo individual como en modo "solo equipo". `_isDQ()` (descalificación), `_totalFouls()` (contador visible de faltas) y el aviso de "a una falta de la descalificación" entienden los nuevos tipos, junto con el resto de la maquinaria de faltas (faltas de equipo/bonus, tiros libres por defecto, deshacer una acción del historial).
+  - **Aviso importante**: FIBA publicará las interpretaciones oficiales de este reglamento en septiembre de 2026 — algún detalle fino podría matizarse. Antes de activar el interruptor para un partido real, confirma con tu federación/competición que ya juega bajo estas reglas.
+
+### Corregido
+
+- **B-COURT6** (revisión de robustez, mismo patrón que B-ADV2): el botón "→ Pista" para que un jugador del banquillo entre directamente (cuando hay hueco) solo comprobaba el límite de 5 en pista **en el render** del botón, no dentro de `subPlayer()` en sí. Un doble toque antes de repintar (tablet lenta en la cancha) podía dejar 6 jugadoras "en pista" a la vez, corrompiendo minutos jugados y +/-. Ahora `subPlayer()` también lo comprueba internamente, igual que ya hacía con jugadores descalificados (B-ADV2).
+
+### Probado (jsdom)
+
+- `tests/fiba2026_rules.test.js` (26 comprobaciones nuevas): umbrales de descalificación con los 6 tipos de falta (incluyendo que las disruptivas nunca descalifican y que las técnicas cat.2 sí cuentan para el límite general de 5), el panel de faltas en vivo ofrece los botones correctos con el interruptor activado/desactivado, y registro de faltas en vivo de extremo a extremo.
+- `tests/court_max5.test.js` (3 comprobaciones nuevas).
+- Suite completa: 545/545 en 48 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.49`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Aviso de "a una falta de la descalificación" desalineado tras el fix de B-DQ5 (2026-08-10)
 
 ### Corregido

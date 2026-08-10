@@ -789,36 +789,53 @@ function applyEditClock(){
 }
 function _fmtClock(s){const m=Math.floor(s/60),ss=s%60;return m+":"+(ss<10?"0":"")+ss;}
 /* ═══════════════════════════════════════
-   DESCALIFICACIÓN POR FALTAS (v1.6.13 · B-47)
-   FIBA 36-37: un jugador queda descalificado por:
-   - 5 faltas personales acumuladas, o
+   DESCALIFICACIÓN POR FALTAS (v1.6.13 · B-47 · actualizado B-DQ5 / B-FIBA26)
+   FIBA (reglas hasta 2025-26): un jugador queda descalificado por:
+   - 5 faltas (personales y/o técnicas) acumuladas, o
    - 2 faltas técnicas, o
    - 2 faltas antideportivas, o
    - 1 técnica + 1 antideportiva, o
    - 1 falta descalificante directa.
+   FIBA 2026-27 (Art. 36-39, vigentes 1 oct 2026): la antideportiva
+   desaparece -- la sustituyen la disruptiva (fdisr, NO cuenta para
+   descalificación, Art. 37.2.1 solo la carga como falta de EQUIPO) y la
+   flagrante (fflag, sí descalifica, Art. 38.2.3 -- ocupa el rol de la
+   antideportiva de antes). La técnica se divide en categoría 1 (ftech1 --
+   cuenta para descalificación) y categoría 2 (ftech2 -- no cuenta para
+   descalificación, pero "se carga como falta de jugador" igual que la
+   cat.1, Art. 36.3.1, así que sí suma para el límite general de 5).
+   st.ftech/st.funsport (nombres de campo de partidos con reglas
+   anteriores) se leen igual que antes -- esta función funciona para
+   partidos con cualquiera de los dos reglamentos sin necesidad de saber
+   cuál usan, simplemente mirando qué campos tienen valor.
 ═══════════════════════════════════════ */
 function _isDQ(st){
   if(!st)return false;
   if((st.fdq||0)>=1)return true;
-  if((st.ftech||0)>=2)return true;
-  if((st.funsport||0)>=2)return true;
-  if(((st.ftech||0)+(st.funsport||0))>=2)return true;
+  // "2 técnicas" -- cat.1 en reglas 2026-27, o la técnica única de reglas
+  // anteriores (ambas comparten el mismo papel para este umbral).
+  const techStrict=(st.ftech1||0)||(st.ftech||0);
+  // "2 graves" -- flagrante en 2026-27, o antideportiva de reglas anteriores.
+  const severeStrict=(st.fflag||0)||(st.funsport||0);
+  if(techStrict>=2)return true;
+  if(severeStrict>=2)return true;
+  if((techStrict+severeStrict)>=2)return true;
   if((st.foul||0)>=5)return true;
-  // v3 · B-DQ5: FIBA (Art. 36.3.1 / 40.1) carga una falta técnica "como
-  // falta de jugador" -- cuenta igual que una personal para el límite de 5
-  // faltas que expulsa del partido, no solo las 5 personales puras. Lo
-  // mismo con las antideportivas. Antes solo se comprobaba st.foul>=5
-  // (solo personales): un jugador con, por ejemplo, 4 personales + 1
-  // técnica (5 faltas en total) no se marcaba como descalificado, aunque
-  // por reglamento ya debería estarlo -- podía seguir en pista y hasta
-  // tirar sus propios tiros libres sin ningún aviso.
-  if(((st.foul||0)+(st.ftech||0)+(st.funsport||0))>=5)return true;
+  // v3 · B-DQ5 / B-FIBA26: límite de 5 faltas combinando personales + TODAS
+  // las técnicas (cat.1 y cat.2 cuentan igual como falta de jugador,
+  // Art. 36.3.1) + graves/antideportivas. Las disruptivas NO entran aquí a
+  // propósito (Art. 37.2.1 solo las carga como falta de equipo, quedan
+  // fuera de la descalificación por diseño de la propia regla).
+  const allTech=techStrict+(st.ftech2||0);
+  if(((st.foul||0)+allTech+severeStrict)>=5)return true;
   return false;
 }
-// Total de faltas para mostrar al usuario (suma todas las modalidades)
+// Total de faltas para mostrar al usuario (suma TODAS las modalidades,
+// incluidas las disruptivas -- a efectos informativos el jugador sigue
+// habiendo cometido esa falta, aunque no cuente para su descalificación).
 function _totalFouls(st){
   if(!st)return 0;
-  return (st.foul||0)+(st.ftech||0)+(st.funsport||0)+(st.fdq||0);
+  return (st.foul||0)+(st.ftech||0)+(st.funsport||0)+(st.fdq||0)+(st.ftech1||0)+(st.ftech2||0)+(st.fdisr||0)+(st.fflag||0);
 }
 // v1.8.5 · F4d: dispara toast UNA SOLA VEZ por cuarto al cruzar a bonus (5ª falta).
 // Llamar después de incrementar teamFouls. El flag bonusToastFired[qi] evita repetir
@@ -2113,7 +2130,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.48";
+const APP_VERSION = "3.0.0-dev.49";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -7034,6 +7051,13 @@ function openMatchModal(init){
       </div>
       <button id="${mid}-pt-btn" class="tswitch ${init?.trackPlayType?'on':''}" onclick="this.classList.toggle('on')"></button>
     </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--s2);border:1px solid var(--border);border-radius:10px;margin-bottom:12px">
+      <div>
+        <div style="font-weight:700;font-size:14px">⚖️ Reglamento FIBA 2026-27 <span style="font-size:9px;font-weight:700;background:rgba(239,68,68,.18);color:#ef4444;padding:2px 6px;border-radius:4px;letter-spacing:1px;text-transform:uppercase;margin-left:4px">NUEVO</span></div>
+        <div style="font-size:12px;color:var(--td);margin-top:2px">Vigente desde el 1 de octubre de 2026: la falta antideportiva desaparece (pasa a disruptiva/flagrante) y la técnica se divide en categoría 1/2. Actívalo solo cuando tu competición confirme que ya juega con este reglamento — si no, deja esto apagado y todo sigue como hasta ahora.</div>
+      </div>
+      <button id="${mid}-f26-btn" class="tswitch ${init?.fibaRules2026?'on':''}" onclick="this.classList.toggle('on')"></button>
+    </div>
     <button class="btn-p" onclick="saveMatchMeta('${mid}','${init?.id||""}')">${init?"Guardar":"Crear Partido"}</button>
     <button class="btn-s" onclick="_closeModal('${mid}')">Cancelar</button>
   </div>`;
@@ -7388,14 +7412,15 @@ function saveMatchMeta(mid,eid){
   const stopOnFoul=document.getElementById(mid+"-sof-btn")?.classList.contains("on")||false;
   const shotChart=document.getElementById(mid+"-sc-btn")?.classList.contains("on")||false;
   const trackPlayType=document.getElementById(mid+"-pt-btn")?.classList.contains("on")||false;
+  const fibaRules2026=document.getElementById(mid+"-f26-btn")?.classList.contains("on")||false;
   if(!S.matches[S.teamId])S.matches[S.teamId]=[];
   if(eid){
-    S.matches[S.teamId]=S.matches[S.teamId].map(m=>m.id===eid?{...m,rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType}:m);
+    S.matches[S.teamId]=S.matches[S.teamId].map(m=>m.id===eid?{...m,rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026}:m);
     toast("✅ Partido actualizado");
     clearDirty();
     document.getElementById(mid)?.remove();save();render();
   } else {
-    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
+    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
     S.matches[S.teamId].push(nm);
     S.matchId=nm.id;
     clearDirty();
@@ -8084,6 +8109,35 @@ function liveGame(){
             return`<span style="background:var(--s3);color:var(--td);border:1px solid var(--border);border-radius:6px;font-size:10px;font-weight:700;padding:2px 7px">F:${tf}/4</span>`;
           })()}
         </div>
+        ${m.fibaRules2026?`
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+          <button class="action-btn" onclick="openActionPicker('foul',0)" style="border-color:#f59e0b66;background:#f59e0b14;color:#f59e0b;padding:9px 4px" title="Falta personal">
+            <div style="font-size:14px;font-weight:900">FALT</div>
+            <div style="font-size:8px;margin-top:2px">Personal</div>
+          </button>
+          <button class="action-btn" onclick="openActionPicker('ftech1',0)" style="border-color:#ef444488;background:#ef444418;color:#ef4444;padding:9px 4px" title="Técnica categoría 1 (grave) — 1 TL + posesión, cuenta para descalificación">
+            <div style="font-size:14px;font-weight:900">TÉC-1</div>
+            <div style="font-size:8px;margin-top:2px">Téc. grave</div>
+          </button>
+          <button class="action-btn" onclick="openActionPicker('ftech2',0)" style="border-color:#f59e0b88;background:#f59e0b18;color:#f59e0b;padding:9px 4px" title="Técnica categoría 2 (administrativa) — 1 TL + posesión, NO cuenta para descalificación">
+            <div style="font-size:14px;font-weight:900">TÉC-2</div>
+            <div style="font-size:8px;margin-top:2px">Téc. admin.</div>
+          </button>
+          <button class="action-btn" onclick="openActionPicker('fdisr',0)" style="border-color:#a855f788;background:#a855f718;color:#a855f7;padding:9px 4px" title="Disruptiva — 2 TL + posesión, NO cuenta para descalificación">
+            <div style="font-size:14px;font-weight:900">DISR</div>
+            <div style="font-size:8px;margin-top:2px">Disruptiva</div>
+          </button>
+          <button class="action-btn" onclick="openActionPicker('fflag',0)" style="border-color:#dc262688;background:#dc262618;color:#dc2626;padding:9px 4px" title="Flagrante — 2 TL + posesión, cuenta para descalificación">
+            <div style="font-size:14px;font-weight:900">FLA</div>
+            <div style="font-size:8px;margin-top:2px">Flagrante</div>
+          </button>
+          <button class="action-btn" onclick="openActionPicker('fdq',0)" style="border-color:#dc2626;background:#dc262625;color:#fca5a5;padding:9px 4px" title="Descalificante — expulsión inmediata">
+            <div style="font-size:14px;font-weight:900">DESC</div>
+            <div style="font-size:8px;margin-top:2px">Descalif.</div>
+          </button>
+        </div>
+        <div style="font-size:10px;color:var(--td);margin-top:6px;text-align:center">⚖️ Reglamento FIBA 2026-27 activo para este partido</div>
+        `:`
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
           <button class="action-btn" onclick="openActionPicker('foul',0)" style="border-color:#f59e0b66;background:#f59e0b14;color:#f59e0b;padding:10px 4px" title="Falta personal">
             <div style="font-size:15px;font-weight:900">FALT</div>
@@ -8102,6 +8156,7 @@ function liveGame(){
             <div style="font-size:9px;margin-top:2px">Descalif.</div>
           </button>
         </div>
+        `}
       </div>
     </div>`;
   // BENCH
@@ -8510,7 +8565,15 @@ function liveGame(){
       {id:"ast",l:"AST",s:"Asistencia",c:"#06b6d4",pts:0},{id:"stl",l:"ROB",s:"Robo",c:"#3b82f6",pts:0},
       {id:"blk",l:"TAP",s:"Tapón",c:"#8b5cf6",pts:0},{id:"to",l:"PER",s:"Pérdida",c:"#ef4444",pts:0}
     ]},
-    {lbl:"🤚 FALTAS",col:"#f59e0b",acts:[
+    {lbl:"🤚 FALTAS",col:"#f59e0b",acts:m.fibaRules2026?[
+      // v3 · B-FIBA26: mismo reglamento 2026-27 que en el panel individual
+      // (openActionPicker) -- ver comentario ahí. Modo "solo equipo" usa su
+      // propia lista de botones (liveTeamAction en vez de openActionPicker),
+      // así que necesita la misma actualización por separado.
+      {id:"foul",l:"FALT",s:"Personal",c:"#f59e0b",pts:0},{id:"ftech1",l:"TÉC-1",s:"Téc. grave",c:"#ef4444",pts:0},
+      {id:"ftech2",l:"TÉC-2",s:"Téc. admin.",c:"#f59e0b",pts:0},{id:"fdisr",l:"DISR",s:"Disruptiva",c:"#a855f7",pts:0},
+      {id:"fflag",l:"FLA",s:"Flagrante",c:"#dc2626",pts:0},{id:"fdq",l:"DESC",s:"Descalif.",c:"#dc2626",pts:0}
+    ]:[
       {id:"foul",l:"FALT",s:"Personal",c:"#f59e0b",pts:0},{id:"ftech",l:"TÉC",s:"Técnica",c:"#ef4444",pts:0},
       {id:"funsport",l:"ANT",s:"Antidep.",c:"#ef4444",pts:0},{id:"fdq",l:"DESC",s:"Descalif.",c:"#dc2626",pts:0}
     ]}
@@ -9035,7 +9098,7 @@ function openLiveStatsModal(){
 /* ═══════════════════════════════════════
    LIVE GAME ACTIONS
 ═══════════════════════════════════════ */
-const _ACTLABELS={p2m:"+2 Canasta",p3m:"+3 Triple",p1m:"+1 TL",p2a:"Fallo 2pt",p3a:"Fallo 3pt",p1a:"Fallo TL",ro:"Reb. Ofensivo",rd:"Reb. Defensivo",ast:"Asistencia",foul:"Falta",ftech:"Falta Técnica",funsport:"Falta Antideportiva",fdq:"Falta Descalificante",frecv:"Falta Recibida",p2tl:"2 TL Recibidos",stl:"Robo",blk:"Tapón",to:"Pérdida",rival:"Rival +pts",timeout:"Tiempo muerto",sub:"Sustitución"};
+const _ACTLABELS={p2m:"+2 Canasta",p3m:"+3 Triple",p1m:"+1 TL",p2a:"Fallo 2pt",p3a:"Fallo 3pt",p1a:"Fallo TL",ro:"Reb. Ofensivo",rd:"Reb. Defensivo",ast:"Asistencia",foul:"Falta",ftech:"Falta Técnica",ftech1:"Falta Técnica (cat.1)",ftech2:"Falta Técnica (cat.2)",funsport:"Falta Antideportiva",fdisr:"Falta Disruptiva",fflag:"Falta Flagrante",fdq:"Falta Descalificante",frecv:"Falta Recibida",p2tl:"2 TL Recibidos",stl:"Robo",blk:"Tapón",to:"Pérdida",rival:"Rival +pts",timeout:"Tiempo muerto",sub:"Sustitución"};
 const _ACTCOLOR={p2m:"#22c55e",p3m:"#22c55e",p1m:"#22c55e",p2a:"#ef4444",p3a:"#ef4444",p1a:"#ef4444",ro:"#a855f7",rd:"#9ca3af",ast:"#06b6d4",foul:"#f59e0b",ftech:"#ef4444",funsport:"#ef4444",fdq:"#dc2626",p2tl:"#22c55e",stl:"#3b82f6",blk:"#8b5cf6",to:"#ef4444",rival:"#ef4444",timeout:"#f59e0b",sub:"#06b6d4"};
 function selectLivePid(pid){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
@@ -9069,7 +9132,11 @@ const _ACTION_LABELS={
   to:{txt:"Pérdida",emoji:"❌",color:"#ef4444"},
   foul:{txt:"Falta personal",emoji:"🤚",color:"#f59e0b"},
   ftech:{txt:"Falta técnica",emoji:"🤚",color:"#ef4444"},
+  ftech1:{txt:"Falta técnica (cat.1, grave)",emoji:"🤚",color:"#ef4444"},
+  ftech2:{txt:"Falta técnica (cat.2, administrativa)",emoji:"🤚",color:"#f59e0b"},
   funsport:{txt:"Falta antideportiva",emoji:"🤚",color:"#ef4444"},
+  fdisr:{txt:"Falta disruptiva",emoji:"🤚",color:"#a855f7"},
+  fflag:{txt:"Falta flagrante",emoji:"🤚",color:"#dc2626"},
   fdq:{txt:"Falta descalificante",emoji:"🤚",color:"#dc2626"}
 };
 // Punto de entrada: el usuario pulsó una acción del banner. Pregunta el jugador.
@@ -9109,7 +9176,7 @@ function openActionPicker(action,pts){
 window._pickActionFor=function(pid,action,pts){
   document.getElementById("m-actpicker")?.remove();
   // Fix 5: advertencia si se anota falta a jugador del banquillo
-  const _isFoul=action==="foul"||action==="ftech"||action==="funsport"||action==="fdq";
+  const _isFoul=action==="foul"||action==="ftech"||action==="ftech1"||action==="ftech2"||action==="funsport"||action==="fdisr"||action==="fflag"||action==="fdq";
   if(_isFoul){
     const _lm=mById(S.teamId,S.matchId);
     const _isRiv=!!(_lm?.rivalPlayers||[]).find(p=>p.id===pid);
@@ -9560,10 +9627,16 @@ function matchSummaryScreen(){
 // antes no recibía ningún aviso en ese caso.
 function _foulTroubleMsg(st){
   if(!st)return null;
-  const foul=st.foul||0,ftech=st.ftech||0,funsport=st.funsport||0;
-  const total=foul+ftech+funsport;
+  const foul=st.foul||0;
+  // v3 · B-FIBA26: mismo criterio que _isDQ() -- suma personales + TODAS
+  // las técnicas (cat.1/cat.2/la técnica única de reglas anteriores) +
+  // graves (flagrante/antideportiva). Las disruptivas quedan fuera, igual
+  // que en _isDQ(), porque no cuentan para la descalificación.
+  const tech=(st.ftech||0)+(st.ftech1||0)+(st.ftech2||0);
+  const severe=(st.funsport||0)+(st.fflag||0);
+  const total=foul+tech+severe;
   if(total!==4)return null;
-  if(ftech===0&&funsport===0)return"4ª falta personal";
+  if(tech===0&&severe===0)return"4ª falta personal";
   return"4 faltas en total (a una de la descalificación)";
 }
 function liveAction(pid,action,pts){
@@ -9586,7 +9659,7 @@ function liveAction(pid,action,pts){
     const qi2=(live.q||1)-1;
     _ensureQSlot(live,qi2);
     if(pts>0)live.qScores[qi2][1]=(live.qScores[qi2][1]||0)+pts;
-    if(action==="foul"||action==="ftech"||action==="funsport"||action==="fdq"){
+    if(action==="foul"||action==="ftech"||action==="ftech1"||action==="ftech2"||action==="funsport"||action==="fdisr"||action==="fflag"||action==="fdq"){
       if(!live.rivalFouls)live.rivalFouls=[0,0,0,0,0,0];live.rivalFouls[qi2]=(live.rivalFouls[qi2]||0)+1;
       // v1.7.1 · Fix B: parar reloj si stopOnFoul + abrir modal TL para nuestro equipo
       if(m.stopOnFoul&&live.clockRunning){
@@ -9603,13 +9676,13 @@ function liveAction(pid,action,pts){
   const qi=(live.q||1)-1;
   _ensureQSlot(live,qi);
   if(pts>0)live.qScores[qi][0]=(live.qScores[qi][0]||0)+pts;
-  if(action==="foul"||action==="ftech"||action==="funsport"||action==="fdq"){if(!live.teamFouls)live.teamFouls=[0,0,0,0,0,0];live.teamFouls[qi]=(live.teamFouls[qi]||0)+1;_checkBonusEnter(m,qi);}
+  if(action==="foul"||action==="ftech"||action==="ftech1"||action==="ftech2"||action==="funsport"||action==="fdisr"||action==="fflag"||action==="fdq"){if(!live.teamFouls)live.teamFouls=[0,0,0,0,0,0];live.teamFouls[qi]=(live.teamFouls[qi]||0)+1;_checkBonusEnter(m,qi);}
   }
   // v1.7.5: pname soporta jugador rival también
   const pname=isRivalPid
     ? _shortName((m.rivalPlayers||[]).find(p=>p.id===pid)?.name||"Rival")
     : _shortName(pl(S.teamId).find(p=>p.id===pid)?.name||"?");
-  const isFoulAction=(action==="foul"||action==="ftech"||action==="funsport"||action==="fdq");
+  const isFoulAction=(action==="foul"||action==="ftech"||action==="ftech1"||action==="ftech2"||action==="funsport"||action==="fdisr"||action==="fflag"||action==="fdq");
   // v1.7.5: el bloque común de falta (parar reloj + abrir modal TL al rival) solo
   // aplica cuando es nuestro jugador. Si el pid es rival, su flujo ya fue tratado
   // en la rama isRivalPid (parada de reloj + openOurFoulTLModal).
@@ -9721,11 +9794,16 @@ function openFoulTLModal(foulerPid, isTech, foulKind){
   const _tFouls=(live.teamFouls||[])[_curQ]||0;
   const _inBonus=_tFouls>=5;
   let defaultTL=0;
-  if(foulKind==="ftech")defaultTL=1;
-  else if(foulKind==="funsport"||foulKind==="fdq")defaultTL=2;
+  // v3 · B-FIBA26: reglas FIBA 2026-27 (vigentes 1 oct 2026) -- la antideportiva
+  // desaparece, sustituida por disruptiva/flagrante, y la técnica se divide en
+  // categoría 1/2. Misma penalización de TL que sus equivalentes anteriores:
+  // técnica (cualquier categoría) = 1 TL; disruptiva/flagrante = 2 TL, igual
+  // que antes la antideportiva.
+  if(foulKind==="ftech"||foulKind==="ftech1"||foulKind==="ftech2")defaultTL=1;
+  else if(foulKind==="funsport"||foulKind==="fdisr"||foulKind==="fflag"||foulKind==="fdq")defaultTL=2;
   else if(foulKind==="foul"||!foulKind)defaultTL=_inBonus?2:0;
   else if(isTech)defaultTL=1; // retrocompat por si llega isTech sin foulKind
-  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdq"?" (descalificante)":isTech?" (técnica)":"";
+  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="ftech1"?" (técnica cat.1)":foulKind==="ftech2"?" (técnica cat.2)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdisr"?" (disruptiva)":foulKind==="fflag"?" (flagrante)":foulKind==="fdq"?" (descalificante)":isTech?" (técnica)":"";
   const bonusBanner=_inBonus&&(foulKind==="foul"||!foulKind)?`<div style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#22c55e;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center">⚠️ BONUS · esta falta tira 2 TL</div>`:"";
   const playerRows=rivalPlayers.length===0
     ?`<div style="font-size:13px;color:var(--tm);padding:12px 0;text-align:center">Sin jugadores del rival registrados.<br/>Añádelos en la convocatoria.</div>`
@@ -9885,7 +9963,7 @@ function liveTeamAction(action, pts){
   const isRivalSide=live.activeTeam==="rival";
   const qi=(live.q||1)-1;
   _ensureQSlot(live,qi);
-  const isFoulAction=(action==="foul"||action==="ftech"||action==="funsport"||action==="fdq");
+  const isFoulAction=(action==="foul"||action==="ftech"||action==="ftech1"||action==="ftech2"||action==="funsport"||action==="fdisr"||action==="fflag"||action==="fdq");
   // v2-live . B-TEAM2: el modo equipo tambien es independiente del lado activo
   // (nuestro/rival) -- antes escribia siempre en nuestro marcador aunque
   // estuvieras viendo la pestana del rival.
@@ -9959,11 +10037,11 @@ function openTeamTLModal(foulerPid, isTech, foulKind){
   const _tFouls=(_live.teamFouls||[])[_curQ]||0;
   const _inBonus=_tFouls>=5;
   let defaultTL=0;
-  if(foulKind==="ftech")defaultTL=1;
-  else if(foulKind==="funsport"||foulKind==="fdq")defaultTL=2;
+  if(foulKind==="ftech"||foulKind==="ftech1"||foulKind==="ftech2")defaultTL=1;
+  else if(foulKind==="funsport"||foulKind==="fdisr"||foulKind==="fflag"||foulKind==="fdq")defaultTL=2;
   else if(foulKind==="foul"||!foulKind)defaultTL=_inBonus?2:0;
   else if(isTech)defaultTL=1;
-  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdq"?" (descalificante)":isTech?" (técnica)":"";
+  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="ftech1"?" (técnica cat.1)":foulKind==="ftech2"?" (técnica cat.2)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdisr"?" (disruptiva)":foulKind==="fflag"?" (flagrante)":foulKind==="fdq"?" (descalificante)":isTech?" (técnica)":"";
   const bonusBanner=_inBonus&&(foulKind==="foul"||!foulKind)?`<div style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#22c55e;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center">⚠️ BONUS · esta falta tira 2 TL</div>`:"";
   const el=document.createElement("div");
   el.id="m-teamtl";
@@ -10112,10 +10190,10 @@ function openOurTeamOnlyFoulTLModal(foulKind){
   const _rFouls=(m.live.rivalFouls||[])[_curQ]||0;
   const _inBonus=_rFouls>=5;
   let defaultTL=0;
-  if(foulKind==="ftech")defaultTL=1;
-  else if(foulKind==="funsport"||foulKind==="fdq")defaultTL=2;
+  if(foulKind==="ftech"||foulKind==="ftech1"||foulKind==="ftech2")defaultTL=1;
+  else if(foulKind==="funsport"||foulKind==="fdisr"||foulKind==="fflag"||foulKind==="fdq")defaultTL=2;
   else defaultTL=_inBonus?2:0;
-  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdq"?" (descalificante)":"";
+  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="ftech1"?" (técnica cat.1)":foulKind==="ftech2"?" (técnica cat.2)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdisr"?" (disruptiva)":foulKind==="fflag"?" (flagrante)":foulKind==="fdq"?" (descalificante)":"";
   const bonusBanner=_inBonus&&(foulKind==="foul"||!foulKind)?`<div style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#22c55e;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center">⚠️ BONUS rival · esta falta tira 2 TL</div>`:"";
   const el=document.createElement("div");
   el.id="m-ourtl-team";
@@ -10228,10 +10306,10 @@ function openOurFoulTLModal(rpidOpt, foulKind){
   const _rFouls=(m.live.rivalFouls||[])[_curQ]||0;
   const _inBonus=_rFouls>=5;
   let defaultTL=0;
-  if(foulKind==="ftech")defaultTL=1;
-  else if(foulKind==="funsport"||foulKind==="fdq")defaultTL=2;
+  if(foulKind==="ftech"||foulKind==="ftech1"||foulKind==="ftech2")defaultTL=1;
+  else if(foulKind==="funsport"||foulKind==="fdisr"||foulKind==="fflag"||foulKind==="fdq")defaultTL=2;
   else defaultTL=_inBonus?2:0;
-  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdq"?" (descalificante)":"";
+  const foulLabel=foulKind==="ftech"?" (técnica)":foulKind==="ftech1"?" (técnica cat.1)":foulKind==="ftech2"?" (técnica cat.2)":foulKind==="funsport"?" (antideportiva)":foulKind==="fdisr"?" (disruptiva)":foulKind==="fflag"?" (flagrante)":foulKind==="fdq"?" (descalificante)":"";
   const bonusBanner=_inBonus&&(foulKind==="foul"||!foulKind)?`<div style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:#22c55e;border-radius:9px;padding:9px 12px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center">⚠️ BONUS rival · esta falta tira 2 TL</div>`:"";
   const rivalPlayers=m.rivalPlayers||[];
   const foulerName=rpidOpt?_shortName(rivalPlayers.find(p=>p.id===rpidOpt)?.name||"?"):"Rival";
@@ -10534,7 +10612,7 @@ function deleteLogEntry(idx,_preRemoved,_preM){
     const qi=(e.q||1)-1;
     if(m.live.qScores)m.live.qScores[qi][1]=Math.max(0,(m.live.qScores[qi][1]||0)-(e.pts||0));
     if(e.pid==="rival-team"){
-      if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
+      if((e.action==="foul"||e.action==="ftech"||e.action==="ftech1"||e.action==="ftech2"||e.action==="funsport"||e.action==="fdisr"||e.action==="fflag"||e.action==="fdq")&&m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
       _revertEntryStats(m.live.rivalTeamAgg,e);
     }
   } else if(e.pid==="rival-foul"){
@@ -10550,19 +10628,19 @@ function deleteLogEntry(idx,_preRemoved,_preM){
     _revertEntryStats(m.live.teamAgg,e);
     const qi=(e.q||1)-1;
     if(e.pts>0&&m.live.qScores)m.live.qScores[qi][0]=Math.max(0,(m.live.qScores[qi][0]||0)-e.pts);
-    if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
+    if((e.action==="foul"||e.action==="ftech"||e.action==="ftech1"||e.action==="ftech2"||e.action==="funsport"||e.action==="fdisr"||e.action==="fflag"||e.action==="fdq")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
   } else {
     const isRivalPid=(m.rivalPlayers||[]).some(p=>p.id===e.pid);
     if(isRivalPid){
       _revertEntryStats(m.live.rivalStats?.[e.pid],e);
       const qi=(e.q||1)-1;
       if(e.pts>0&&m.live.qScores)m.live.qScores[qi][1]=Math.max(0,(m.live.qScores[qi][1]||0)-e.pts);
-      if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
+      if((e.action==="foul"||e.action==="ftech"||e.action==="ftech1"||e.action==="ftech2"||e.action==="funsport"||e.action==="fdisr"||e.action==="fflag"||e.action==="fdq")&&m.live.rivalFouls)m.live.rivalFouls[qi]=Math.max(0,(m.live.rivalFouls[qi]||0)-1);
     } else {
       _revertEntryStats(m.live.stats?.[e.pid],e);
       const qi=(e.q||1)-1;
       if(e.pts>0&&m.live.qScores)m.live.qScores[qi][0]=Math.max(0,(m.live.qScores[qi][0]||0)-e.pts);
-      if((e.action==="foul"||e.action==="ftech"||e.action==="funsport"||e.action==="fdq")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
+      if((e.action==="foul"||e.action==="ftech"||e.action==="ftech1"||e.action==="ftech2"||e.action==="funsport"||e.action==="fdisr"||e.action==="fflag"||e.action==="fdq")&&m.live.teamFouls)m.live.teamFouls[qi]=Math.max(0,(m.live.teamFouls[qi]||0)-1);
     }
   }
   if(!_preRemoved)log.splice(idx,1);
@@ -10663,6 +10741,14 @@ function subPlayer(inId,outId){
   // jugador ya descalificado (5 faltas / expulsión) volviera a pista.
   const inP=pl(S.teamId).find(p=>p.id===inId);
   if(inP&&_isDQ(m.live.stats[inP.id]||{})){toast("⛔ Jugador descalificado, no puede entrar");return;}
+  // v3 · B-COURT6: mismo hueco que B-ADV2 pero para el límite de 5 en pista.
+  // El botón "→ Pista" solo se pinta cuando onCourt.length<5, pero eso es
+  // solo una comprobación EN EL RENDER -- si se pulsa dos veces seguidas
+  // antes de que se repinte (doble toque en una tablet lenta durante un
+  // partido, o cualquier otra vía que llegue a llamar subPlayer(id,null)),
+  // no había ninguna comprobación aquí dentro y se podía acabar con 6
+  // jugadores "en pista" a la vez, corrompiendo minutos y +/-.
+  if(outId===null&&(m.live.onCourt||[]).length>=5){toast("⚠️ Ya hay 5 jugadores en pista — elige a quién sacar");return;}
   _stopClockForSub(m);
   // v1.8.0: tracking de minutos y +/- antes de modificar onCourt
   if(outId)_trackExit(m,outId);
