@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.44";
+const APP_VERSION = "3.0.0-dev.45";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -10098,7 +10098,7 @@ function openOurTeamOnlyFoulTLModal(foulKind){
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-ourtl-team')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
-    <div class="mtitle">🏀 Tiros libres nuestros</div>
+    <div class="mtitle">🏀 Falta a nuestro favor</div>
     <div class="msub">Falta del rival${foulLabel} — partido en modo "solo equipo"</div>
     ${bonusBanner}
     <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:8px">Nº DE TIROS LIBRES</div>
@@ -10236,8 +10236,8 @@ function openOurFoulTLModal(rpidOpt, foulKind){
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div style="display:flex;justify-content:flex-end;margin:-8px 0 6px"><button onclick="_pauseTLModal('m-ourtl')" style="background:none;border:1px solid var(--border);border-radius:7px;padding:4px 10px;color:var(--td);font-size:11px;font-weight:800;cursor:pointer">⏸ Pausar</button></div>
-    <div class="mtitle">🏀 Tiros libres nuestros</div>
-    <div class="msub">Falta de <b style="color:#ef4444">${foulerName}</b>${foulLabel} — ¿quién tira?</div>
+    <div class="mtitle">🏀 Falta a nuestro favor</div>
+    <div class="msub">Falta de <b style="color:#ef4444">${foulerName}</b>${foulLabel} — ¿quién la recibió?</div>
     ${bonusBanner}
     <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--orange);margin-bottom:6px">EN PISTA</div>
     <div id="ourtl-court">${courtList||'<div style="font-size:12px;color:var(--tm);padding:6px 0">Sin jugadores en pista.</div>'}</div>
@@ -10246,7 +10246,7 @@ function openOurFoulTLModal(rpidOpt, foulKind){
     <div style="display:flex;gap:8px;margin-bottom:14px">
       ${[0,1,2,3].map(n=>`<button id="ourtl-n${n}" onclick="setOurTLCount(${n})" style="flex:1;padding:12px 0;border-radius:9px;border:${n===defaultTL?"2px solid var(--orange);background:rgba(249,115,22,.15);color:var(--orange)":"1px solid var(--border);background:var(--s2);color:var(--td)"};font-weight:900;font-size:16px;cursor:pointer">${n===0?"Sin TL":n+" TL"}</button>`).join("")}
     </div>
-    <button class="btn-p" id="ourtl-confirm" onclick="confirmOurTL()" disabled style="opacity:.4">Selecciona un tirador</button>
+    <button class="btn-p" id="ourtl-confirm" onclick="confirmOurTL()" disabled style="opacity:.4">Selecciona quién recibió la falta</button>
     <button class="btn-s" onclick="document.getElementById('m-ourtl').remove()">Saltar sin asignar</button>
   </div>`;
   document.body.appendChild(el);

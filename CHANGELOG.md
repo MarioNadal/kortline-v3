@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix de redacción: el modal de tiros libres a nuestro favor presuponía que iba a haber tiro (2026-08-10)
+
+### Corregido
+
+- **B-TLWORD1** (reportado por el usuario: "en la parte de tiros libres nuestros cuando es una falta no puede ser tiros libres nuestros ya que luego te da la opción de Sin TL, tendrá que ser un quien recibió la falta... y luego ya vemos si hay tiros libres"). El modal que aparece cuando el **rival** nos comete una falta se titulaba `🏀 Tiros libres nuestros` y preguntaba `¿quién tira?` — dando por hecho que iba a haber tiros libres — pero el propio modal ofrece el botón `Sin TL` (0 tiros libres), que es el resultado más habitual en una falta personal sin bonus. Contradicción entre el título/pregunta y la propia opción que se ofrece.
+  - Se reencuadra la pregunta: título `🏀 Falta a nuestro favor`, subtítulo `— ¿quién la recibió?`, y el botón de confirmar deshabilitado pasa de `Selecciona un tirador` a `Selecciona quién recibió la falta`. Ahora primero se identifica quién recibió la falta y después, con los botones `Sin TL / 1 TL / 2 TL / 3 TL`, se resuelve si hay tiro o no.
+  - Mismo cambio de título en la variante de modo "solo equipo" (`openOurTeamOnlyFoulTLModal`, sin selección de jugador individual).
+  - No se ha tocado la lógica de `confirmOurTL()`: ya registraba correctamente la "Falta Recibida" (`frecv`) del jugador seleccionado tanto con 0 TL como con más, mostraba el aviso "sin tiros libres" en 0 TL, y abría el modal granular de tiro a tiro solo cuando `TL>0` — esto era puramente un problema de redacción/framing, no de comportamiento.
+  - No se ha tocado `openFoulTLModal()` (tiros libres del **rival**, cuando **nosotros** cometemos la falta) — ya usa una redacción más neutra (`🏀 Tiros libres` / `¿a quién le tiran?`) y no fue lo reportado.
+
+### Probado (jsdom)
+
+- `tests/foul_tl_wording.test.js` (13 comprobaciones nuevas): el modal ya no contiene "Tiros libres nuestros" / "¿quién tira?" / "Selecciona un tirador" en ninguna de las dos variantes (individual y solo-equipo), sí contiene la nueva redacción, y `confirmOurTL()` sigue registrando `frecv` y decidiendo abrir o no el modal de tiro exactamente igual que antes tanto con 0 como con 2 TL.
+- Suite completa: 461/461 en 42 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.45`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Bug real: desactivar datos del rival podía dejarte atascado en su pestaña (2026-08-08)
 
 ### Corregido
