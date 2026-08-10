@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Bug real: desactivar datos del rival podía dejarte atascado en su pestaña (2026-08-08)
+
+### Corregido
+
+- **B-RIVAL2** (reportado por el usuario: "el equipo rival no es el tuyo, es el otro, aunque el equipo rival sea el local... si quito los datos del rival solo me deja hacer los del local, y no es así, es los de tu equipo aunque sea visitante"). Dos causas:
+  1. `_buildLiveStatsHtml()` (modal 📊 de stats) y `openLandscapeStats()` (vista a pantalla completa en horizontal) calculaban "¿está el rival activado?" a partir de si **ya había jugadores rivales en la plantilla** (`m.rivalPlayers.length>0`), no del interruptor **"Registrar datos del rival"** (`m.rivalStatsEnabled`) — así que en cuanto se añadía plantilla rival (imprescindible para poder anotarle), desactivar el interruptor después ya no tenía ningún efecto visible en esos dos sitios. Se unifica: la única fuente de verdad es `m.rivalStatsEnabled`, igual que ya usaba correctamente el resto de la pantalla de partido en vivo.
+  2. Si el entrenador estaba viendo/anotando al **rival** (`live.activeTeam='rival'`) y **después** desactivaba el interruptor, los botones para volver a "nuestro equipo" dependen de que el rival esté activado — así que desaparecían junto con él, dejando la pantalla **atascada** mostrando (y anotando) al rival, sin ninguna forma de volver al equipo propio. Jugando fuera de casa, el rival es "el local" en el marcador, así que esto se sentía como "solo me deja hacer las estadísticas del local" — exactamente lo que describió el usuario. Ahora, en cuanto se detecta que el rival ya no está activado, `activeTeam` se normaliza de vuelta a `"our"` automáticamente (nunca se pierde ningún dato ya registrado, ni del rival ni propio — solo se corrige a qué lado se sigue anotando de aquí en adelante).
+- Auditados también los otros 3 ajustes de partido que pueden tocarse a mitad de partido (individual/equipo, mapa de tiros, tipo de jugada): **no** presentan el mismo problema — en todos los sitios donde se usan (`m.teamOnlyStats`, `m.shotChart`, `m.trackPlayType`) se lee siempre el valor actual del partido, nunca una copia obsoleta ni un cálculo alternativo basado en si ya hay datos. No se ha tocado nada ahí.
+
+### Probado (jsdom)
+
+- `tests/rival_toggle_off.test.js` (6 comprobaciones nuevas): jugando fuera, con seguimiento de rival activo y `activeTeam='rival'`, desactivar el interruptor hace que `_buildLiveStatsHtml` deje de reportar `rivalEnabled` aunque la plantilla rival siga cargada, y que al re-renderizar el partido en vivo `activeTeam` vuelva a `"our"` y no se ofrezca ningún botón para volver a `"rival"` (no hace falta, ya no hay dos lados que elegir).
+- Suite completa: 448/448 en 41 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.44`. APP_VERSION sincronizada.
+
+
 ## [Sin publicar] · kortline-v3 · Partido en vivo: marcador manual de solo lectura, orden Local/Visitante en los selectores, y dos bugs de faltas del rival (2026-08-08)
 
 ### Corregido

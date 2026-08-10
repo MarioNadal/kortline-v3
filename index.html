@@ -2100,7 +2100,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.43";
+const APP_VERSION = "3.0.0-dev.44";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -7841,6 +7841,16 @@ function liveGame(){
   rivalPlayers.forEach(p=>{if(!live.rivalStats)live.rivalStats={};if(!live.rivalStats[p.id])live.rivalStats[p.id]={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};});
   if(!live.rivalOnCourt)live.rivalOnCourt=[];
   if(!live.activeTeam)live.activeTeam="our";
+  // v3.0.0-dev · B-RIVAL2: bug real reportado por el usuario -- si el
+  // entrenador estaba viendo/anotando al rival (activeTeam='rival') y
+  // DESPUÉS desactivaba "Registrar datos del rival", los botones para
+  // volver a 'our' dependen de rivalEnabled y desaparecían con él --
+  // dejando la pantalla atascada mostrando (y anotando) al rival sin
+  // ninguna forma de volver al propio equipo, aunque el propio equipo
+  // fuera el visitante. Se normaliza aquí, en el único sitio que decide
+  // rivalEnabled: sin seguimiento de rival activo, siempre se actúa sobre
+  // 'our' (nuestro equipo), sea local o visitante.
+  if(!rivalEnabled&&live.activeTeam==="rival"){live.activeTeam="our";save();}
   if(rivalEnabled&&live.rivalOnCourt.length===0&&rivalPlayers.length>0){
     live.rivalOnCourt=rivalPlayers.slice(0,5).map(p=>p.id);save();
   }
@@ -8734,7 +8744,15 @@ function _buildLiveStatsHtml(teamId,matchId){
   const onCourt=live.onCourt||[];
   const qScores=live.qScores||[];
   const ourTotal=qScores.reduce((s,q)=>s+(q&&q[0]||0),0);
-  const rivalEnabled=!!(m.rivalPlayers&&m.rivalPlayers.length>0);
+  // v3.0.0-dev · B-RIVAL2: "¿está el rival activado?" se calculaba aquí a
+  // partir de si YA hay jugadores rivales en la plantilla -- así que en
+  // cuanto se añadía uno (necesario para empezar a anotar), esto se quedaba
+  // en true para siempre, aunque el entrenador desactivara después el
+  // interruptor "Registrar datos del rival" en los ajustes del partido. La
+  // fuente de verdad real es m.rivalStatsEnabled (igual que en liveGame()),
+  // no la plantilla -- se puede tener plantilla rival cargada sin querer
+  // seguir anotándole en un momento dado.
+  const rivalEnabled=m.rivalStatsEnabled||false;
   const rivalPlayers=m.rivalPlayers||[];
   const rivalOnCourt=live.rivalOnCourt||[];
   function totSt(fn){return convP.reduce((s,p)=>s+(fn(live.stats[p.id]||{})||0),0);}
@@ -10863,7 +10881,11 @@ function openLandscapeStats(){
   const conv=m.convocados||[];
   const convP=conv.length>0?players.filter(p=>conv.includes(p.id)):players;
   const onCourt=live.onCourt||[];
-  const rivalEnabled=(m.rivalStatsEnabled||(m.rivalPlayers||[]).length>0)&&(m.rivalPlayers||[]).length>0;
+  // v3.0.0-dev · B-RIVAL2: idem _buildLiveStatsHtml -- este cálculo se
+  // volvía true en cuanto había plantilla rival cargada, ignorando el
+  // interruptor rivalStatsEnabled si luego se desactivaba. Fuente de verdad
+  // única: m.rivalStatsEnabled.
+  const rivalEnabled=m.rivalStatsEnabled||false;
   // Request landscape
   requestLandscape();
   function totSt(fn){return convP.reduce((s,p)=>s+(fn(live.stats?.[p.id]||{})||0),0);}
