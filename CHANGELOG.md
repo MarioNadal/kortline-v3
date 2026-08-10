@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Aviso de "a una falta de la descalificación" desalineado tras el fix de B-DQ5 (2026-08-10)
+
+### Corregido
+
+- Continuación directa de B-DQ5 (arriba). El aviso en vivo de "un jugador está a una falta de la descalificación" solo comprobaba `st.foul===4` (4 faltas personales puras) — con el criterio de `_isDQ()` ya corregido para descalificar también por 5 faltas combinando personales con técnicas/antideportivas, ese aviso se quedó desalineado: un jugador con 3 personales + 1 técnica está igual de cerca de la descalificación que uno con 4 personales puras, pero no recibía ningún aviso.
+  - Nuevo helper `_foulTroubleMsg(st)`, compartido por la rama de nuestro equipo y la del rival (antes cada una repetía su propia condición — el mismo patrón de "misma lógica copiada dos veces" que ya ha aparecido varias veces en este proyecto). Con 4 faltas personales puras mantiene el aviso de siempre ("4ª falta personal"); con una mezcla que suma 4, avisa con un texto genérico ("4 faltas en total (a una de la descalificación)").
+
+### Probado (jsdom)
+
+- `tests/foul_trouble_warning.test.js` (8 comprobaciones nuevas).
+- Suite completa: 516/516 en 46 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.48`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Bug real de reglamento: la descalificación por 5 faltas no sumaba técnicas/antideportivas a las personales (2026-08-10)
 
 ### Corregido

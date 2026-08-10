@@ -2113,7 +2113,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.47";
+const APP_VERSION = "3.0.0-dev.48";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -9552,6 +9552,20 @@ function matchSummaryScreen(){
     </div>
   </div>`;
 }
+// v3 · B-DQ5: aviso de "a una falta de la descalificación" (avisaba de
+// "4ª falta personal" mirando solo st.foul -- ya no es exacto ahora que
+// _isDQ() también descalifica por 5 faltas combinando personales con
+// técnicas/antideportivas). Un jugador con 3 personales + 1 técnica está
+// igual de cerca de la descalificación que uno con 4 personales puras, y
+// antes no recibía ningún aviso en ese caso.
+function _foulTroubleMsg(st){
+  if(!st)return null;
+  const foul=st.foul||0,ftech=st.ftech||0,funsport=st.funsport||0;
+  const total=foul+ftech+funsport;
+  if(total!==4)return null;
+  if(ftech===0&&funsport===0)return"4ª falta personal";
+  return"4 faltas en total (a una de la descalificación)";
+}
 function liveAction(pid,action,pts){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // v1.7.0 · Shot Chart: si está activo y es tiro de campo, derivar al modal de captura
@@ -9642,13 +9656,13 @@ function liveAction(pid,action,pts){
       if(_isDQ(stPRival)){
         toast("⛔ "+pname+" — DESCALIFICADO");
         if((live.rivalOnCourt||[]).includes(pid))_enqueueDQSub(pid,true);
-      } else if((stPRival.foul||0)===4)toast("⚠️ "+pname+" — 4ª falta personal");
+      } else{const _ft=_foulTroubleMsg(stPRival);if(_ft)toast("⚠️ "+pname+" — "+_ft);}
     } else {
       const stP=live.stats?.[pid]||{};
       if(_isDQ(stP)){
         toast("⛔ "+pname+" — DESCALIFICADO");
         if((live.onCourt||[]).includes(pid))_enqueueDQSub(pid,false);
-      } else if((stP.foul||0)===4)toast("⚠️ "+pname+" — 4ª falta personal");
+      } else{const _ft=_foulTroubleMsg(stP);if(_ft)toast("⚠️ "+pname+" — "+_ft);}
     }
   }
   _syncLiveQ(m);save();render();
