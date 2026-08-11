@@ -2076,7 +2076,7 @@ const FEATURE_LIVE_GAME = true;
 /* ═══════════════════════════════════════
    STATE
 ═══════════════════════════════════════ */
-let S={screen:"hoy",teamId:null,date:td(),teams:[],players:{},sessions:{},matches:{},events:{},drills:{},sf:"all",histMonth:null,statsMonth:null,clubLogo:null,clubName:"Kortline",clubAbrev:"",clubLema:"",cfg:{...DEFAULT_CFG},statsView:"table",matchId:null,eventId:null,navStack:[]};
+let S={screen:"hoy",teamId:null,date:td(),teams:[],players:{},sessions:{},matches:{},events:{},drills:{},trainingNotes:{},sf:"all",histMonth:null,statsMonth:null,clubLogo:null,clubName:"Kortline",clubAbrev:"",clubLema:"",cfg:{...DEFAULT_CFG},statsView:"table",matchId:null,eventId:null,navStack:[],tnWeekStart:null};
 let shareOpen={parents:true,internal:false};
 /* ═══════════════════════════════════════
    UTILS
@@ -2130,7 +2130,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.49";
+const APP_VERSION = "3.0.0-dev.50";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2289,7 +2289,7 @@ function _scheduleCloudSync(){
 function _snapshotState(){
   return JSON.parse(JSON.stringify({
     club:{clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg},
-    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills
+    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills, trainingNotes:S.trainingNotes
   }));
 }
 // v3 · B-live-clock: el reloj del partido cambia m.live.clockSec una vez
@@ -2325,14 +2325,20 @@ function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
   for(const id in prevById){ if(!curById[id]){ batch.delete(colRef.doc(id));n++; } }
   return n;
 }
-function _diffSessions(batch, curSess, prevSess){
+// v3 · B-TNOTES1: generalizada para aceptar el nombre de colección --
+// trainingNotes usa exactamente el mismo formato de clave "tid_date" que
+// sessions, así que reutiliza esta misma función en vez de duplicarla
+// (mismo patrón de bug -- "misma lógica copiada dos veces" -- que ya ha
+// aparecido varias veces en este proyecto; aquí se evita desde el principio).
+function _diffSessions(batch, curSess, prevSess, colName){
+  colName = colName || "sessions";
   let n=0;
   const keys=new Set([...Object.keys(curSess||{}), ...Object.keys(prevSess||{})]);
   for(const key of keys){
     if(JSON.stringify(curSess[key])!==JSON.stringify(prevSess[key])){
       const us=key.indexOf("_");const tid=key.slice(0,us),date=key.slice(us+1);
-      if(curSess[key]===undefined) batch.delete(_teamDocRef(tid).collection("sessions").doc(date));
-      else batch.set(_teamDocRef(tid).collection("sessions").doc(date), _fsSanitize(curSess[key]));
+      if(curSess[key]===undefined) batch.delete(_teamDocRef(tid).collection(colName).doc(date));
+      else batch.set(_teamDocRef(tid).collection(colName).doc(date), _fsSanitize(curSess[key]));
       n++;
     }
   }
@@ -2357,6 +2363,7 @@ async function _runCloudSync(){
     const teamIds4=new Set([...Object.keys(cur.drills||{}), ...Object.keys(prev?.drills||{})]);
     for(const tid of teamIds4) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drills"), cur.drills[tid]||[], prev?.drills?.[tid]);
     n+=_diffSessions(batch, cur.sessions, prev?.sessions);
+    n+=_diffSessions(batch, cur.trainingNotes, prev?.trainingNotes, "trainingNotes");
     if(n>0) await batch.commit();
     _lastSyncedSnapshot=cur;
   }catch(e){ console.warn("⚠️ Sync con la nube falló, los datos siguen a salvo en este dispositivo", e); }
@@ -2367,7 +2374,7 @@ let _clubUnsubs=[],_teamUnsubs=[],_lastListenedTeamId=undefined;
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
-  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:logo",S.clubLogo);
+  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:tn",S.trainingNotes);lsSet("cbj:logo",S.clubLogo);
   lsSet("cbj:name",S.clubName);lsSet("cbj:cabrev",S.clubAbrev);lsSet("cbj:clema",S.clubLema);lsSet("cbj:cfg",S.cfg);
   // Referencia al día para que el próximo sync saliente no reenvíe lo que
   // acabamos de recibir de otro entrenador.
@@ -2457,6 +2464,24 @@ function _attachTeamListeners(tid){
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
+  // v3 · B-TNOTES1: "Notas de entrenamiento" -- misma mecánica que sessions
+  // (colección aparte de Firestore, mismo formato de clave "tid_date") pero
+  // deliberadamente independiente de la asistencia, tal y como se pidió.
+  _teamUnsubs.push(teamRef.collection("trainingNotes").onSnapshot(snap=>{
+    let changed=false;
+    _applyingRemote=true;
+    if(!S.trainingNotes)S.trainingNotes={};
+    snap.docChanges().forEach(ch=>{
+      const key=sk(tid, ch.doc.id);
+      const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
+      if(JSON.stringify(fresh)===JSON.stringify(S.trainingNotes[key]))return;
+      changed=true;
+      if(ch.type==="removed")delete S.trainingNotes[key]; else S.trainingNotes[key]=fresh;
+    });
+    _applyingRemote=false;
+    if(!changed)return;
+    _persistLocalCacheOnly();render();
+  }));
 }
 
 /* ═══════════════════════════════════════
@@ -2494,7 +2519,7 @@ function toggleTeamsReorder(){
   render();
 }
 function load(){
-  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};
+  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};S.trainingNotes=lsGet("cbj:tn")||{};
   _sortTeams();
   S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
   const sc=lsGet("cbj:cfg");
@@ -2525,6 +2550,7 @@ function save(){
   if(!lsSet("cbj:s",S.sessions))ok=false;
   if(!lsSet("cbj:m",S.matches))ok=false;
   if(!lsSet("cbj:ev",S.events))ok=false;
+  if(!lsSet("cbj:tn",S.trainingNotes))ok=false;
   if(!lsSet("cbj:logo",S.clubLogo))ok=false;
   if(!lsSet("cbj:name",S.clubName))ok=false;
   if(!lsSet("cbj:cabrev",S.clubAbrev))ok=false;
@@ -3453,6 +3479,24 @@ function render(){
     }
     S._attNoCaptureOnRender=false;
   }
+  // v3 · B-TNOTES1: captura borrador de "Notas de entrenamiento" antes de
+  // repintar, igual que att() hace con notas/ejercicios -- así un toggle de
+  // hábito u otra acción que dispare render() no pierde lo que se estaba
+  // escribiendo en los campos de texto todavía sin guardar.
+  if(S.screen==="trainingNote"){
+    const g=id=>document.getElementById(id);
+    const objEl=g("tn-objetivo"),focoEl=g("tn-foco"),contEl=g("tn-contenido"),proxEl=g("tn-proximas");
+    if((objEl||focoEl||contEl||proxEl)&&!S._tnNoCaptureOnRender){
+      S._tnDraft={
+        teamId:S.teamId,date:S.date,
+        objetivo:objEl?objEl.value:undefined,
+        focoSemana:focoEl?focoEl.value:undefined,
+        contenido:contEl?contEl.value:undefined,
+        notasProximas:proxEl?proxEl.value:undefined
+      };
+    }
+    S._tnNoCaptureOnRender=false;
+  }
   // v1.6.10: captura borrador de notas del partido
   if(S.screen==="matchDetail"){
     const mn=document.getElementById("match-notes");
@@ -3485,6 +3529,8 @@ function render(){
   }
   else if(S.screen==="shotMap")r.innerHTML=shotMap();
   else if(S.screen==="matchSummary")r.innerHTML=matchSummaryScreen();
+  else if(S.screen==="trainingNote")r.innerHTML=trainingNoteScreen();
+  else if(S.screen==="trainingNotesWeek")r.innerHTML=trainingNotesWeekScreen();
   // v1.8.24: marcamos el body con la clase 'in-live' solo cuando estamos en
   // el live game. Lo usan las media queries landscape para aplicar el layout
   // full-width sólo a esa pantalla, manteniendo el resto a 430px centrado.
@@ -3496,6 +3542,7 @@ function render(){
 function navTo(screen,opts={}){
   const doNav=()=>{
     if(S.screen==="att")_attFlushDraft(); // v1.6.11: commit autoguardado antes de salir
+    if(S.screen==="trainingNote")_tnFlushDraft(); // v3 · B-TNOTES1: idem para notas de entrenamiento
     S.navStack=[...(S.navStack||[]).slice(-20),{
       screen:S.screen,teamId:S.teamId,matchId:S.matchId,
       date:S.date,eventId:S.eventId,histMonth:S.histMonth,
@@ -3513,6 +3560,7 @@ function navTo(screen,opts={}){
 function navBack(){
   _guardedExit(()=>{
     if(S.screen==="att")_attFlushDraft(); // v1.6.11: commit autoguardado antes de salir
+    if(S.screen==="trainingNote")_tnFlushDraft(); // v3 · B-TNOTES1: idem para notas de entrenamiento
     const stack=S.navStack||[];
     if(!stack.length){
       // Fallback sensato según pantalla actual
@@ -3739,6 +3787,7 @@ function hoy(){
   const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
     const time=t.schedule[ti];
     const sess=so(t.id,today);
+    const _hasTN=!!tn(t.id,today); // v3 · B-TNOTES1: ¿ya hay notas de entrenamiento para hoy?
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
     // partido (no entrenan) del resumen "Hoy" para no contarlos como
     // presentes por defecto en un entrenamiento al que no van.
@@ -3772,6 +3821,7 @@ function hoy(){
         </div>`:""}
         <div style="display:flex;gap:8px">
           <button onclick="navTo('att',{teamId:'${t.id}',date:td()})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
+          <button onclick="navTo('trainingNote',{teamId:'${t.id}',date:td()})" style="width:46px;height:46px;border-radius:9px;background:${_hasTN?"rgba(34,197,94,.12)":"var(--s2)"};border:1px solid ${_hasTN?"rgba(34,197,94,.35)":"var(--border)"};cursor:pointer;font-size:18px" title="Notas de entrenamiento (planificación previa, independiente de la asistencia)">${_hasTN?"✅":"📝"}</button>
           ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:td()})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
@@ -4531,6 +4581,7 @@ function team(){
       <button class="qb" onclick="navTo('hist')"><div style="font-size:22px">📋</div><div style="font-size:10px;font-weight:700;margin-top:4px;color:var(--td)">HISTORIAL</div><div style="font-family:var(--font-d);font-size:14px;color:var(--tm);margin-top:2px">${ts}</div></button>
     </div>
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
+    <button class="qb" onclick="S.tnWeekStart=null;navTo('trainingNotesWeek')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📝</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">NOTAS DE ENTRENAMIENTO</div><div style="font-size:11px;color:var(--tm);margin-top:1px">Planificación semanal · objetivo, hábitos y contenido</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     ${mvpCard(t)}
     ${attBar}
@@ -6552,6 +6603,311 @@ function openPhotoPreview(tid,date){
     <div style="color:var(--td);font-size:12px;margin-top:14px">📅 ${esc(fd(date,true))} · Toca en cualquier sitio para cerrar</div>`;
   document.body.appendChild(el);
 }
+/* ═══════════════════════════════════════
+   NOTAS DE ENTRENAMIENTO (v3 · B-TNOTES1)
+   Planificación previa de la sesión, deliberadamente independiente de la
+   asistencia (que se sigue pasando aparte, en el pabellón). Pensada para
+   rellenarse por la mañana en menos de 2 minutos: objetivo del día, foco de
+   la semana (se repite automáticamente entre sesiones de la misma semana
+   mientras no se escriba uno distinto), hábitos trabajados (checklist
+   visual), contenido técnico/táctico, foto del planteamiento, observaciones
+   por jugador y notas para la próxima sesión. Misma clave "tid_date" que
+   S.sessions (ver sk()), pero en su propia colección de Firestore
+   ("trainingNotes") y su propio objeto en memoria (S.trainingNotes) -- así
+   nunca se mezcla con el registro de asistencia ni depende de él.
+═══════════════════════════════════════ */
+const TRAINING_HABITS=[
+  {id:"puntualidad",emoji:"⏰",label:"Puntualidad"},
+  {id:"actitud",emoji:"💪",label:"Actitud"},
+  {id:"comunicacion",emoji:"🗣️",label:"Comunicación"},
+  {id:"esfuerzo",emoji:"🔥",label:"Esfuerzo"},
+  {id:"respeto",emoji:"🤝",label:"Respeto"},
+  {id:"equipo",emoji:"🧩",label:"Trabajo en equipo"}
+];
+// Devuelve la nota de esa sesión, o null si todavía no se ha rellenado nada.
+function tn(tid,d){return S.trainingNotes[sk(tid,d)]||null;}
+// Lunes (YYYY-MM-DD) de la semana natural a la que pertenece esa fecha.
+function _weekMonday(dateStr){
+  const d=new Date(dateStr+"T12:00:00");
+  const day=d.getDay(); // 0=domingo .. 6=sábado
+  const diff=(day===0?-6:1-day);
+  d.setDate(d.getDate()+diff);
+  return d.toISOString().split("T")[0];
+}
+// Las 7 fechas (lunes a domingo) de la semana que empieza en `monday`.
+function _weekDatesFrom(monday){
+  const d=new Date(monday+"T12:00:00");
+  const out=[];
+  for(let i=0;i<7;i++)out.push(new Date(d.getTime()+i*86400000).toISOString().split("T")[0]);
+  return out;
+}
+// 0=lunes .. 6=domingo, mismo convenio que todayIdx() / t.schedule.
+function _dowIdx(dateStr){const dd=new Date(dateStr+"T12:00:00").getDay();return dd===0?6:dd-1;}
+// "Foco de la semana" ya escrito en OTRA sesión de la misma semana (la más
+// reciente que tenga uno) -- para poder pre-rellenarlo automáticamente y
+// que el entrenador no tenga que volver a escribirlo cada día.
+function _weekFocusHint(tid,monday,excludeDate){
+  const dates=_weekDatesFrom(monday);
+  for(const d of dates){
+    if(d===excludeDate)continue;
+    const note=tn(tid,d);
+    if(note&&note.focoSemana&&note.focoSemana.trim())return note.focoSemana.trim();
+  }
+  return "";
+}
+// Fusiona `patch` en la nota de esa sesión (creándola si hace falta) y
+// guarda. No repinta por sí sola -- lo decide quien llama, según si el
+// cambio necesita reflejarse ya en pantalla (checkbox, foto, observación) o
+// si viene de un campo de texto con autoguardado (que NO debe repintar en
+// cada pulsación, para no perder el foco -- ver _tnAutoSave/_tnFlushDraft).
+function _tnPatch(tid,d,patch){
+  const k=sk(tid,d);
+  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  S.trainingNotes[k]={...cur,...patch,updatedAt:Date.now(),coachName:cur.coachName||_getCoachName()||""};
+  save();
+}
+let _tnSaveTimer=null;
+// Autoguardado con debounce de los 4 campos de texto largo (objetivo, foco
+// de la semana, contenido, notas para la próxima sesión) -- mismo patrón
+// que _attAutoSave()/_attFlushDraft() en el pase de asistencia.
+function _tnAutoSave(){
+  const g=id=>document.getElementById(id);
+  const objEl=g("tn-objetivo"),focoEl=g("tn-foco"),contEl=g("tn-contenido"),proxEl=g("tn-proximas");
+  S._tnDraft={
+    teamId:S.teamId,date:S.date,
+    objetivo:objEl?objEl.value:undefined,
+    focoSemana:focoEl?focoEl.value:undefined,
+    contenido:contEl?contEl.value:undefined,
+    notasProximas:proxEl?proxEl.value:undefined
+  };
+  if(_tnSaveTimer)clearTimeout(_tnSaveTimer);
+  _tnSaveTimer=setTimeout(_tnFlushDraft,700);
+}
+function _tnFlushDraft(){
+  if(_tnSaveTimer){clearTimeout(_tnSaveTimer);_tnSaveTimer=null;}
+  const d=S._tnDraft;
+  if(!d)return;
+  const patch={};
+  if(d.objetivo!=null)patch.objetivo=d.objetivo;
+  if(d.focoSemana!=null)patch.focoSemana=d.focoSemana;
+  if(d.contenido!=null)patch.contenido=d.contenido;
+  if(d.notasProximas!=null)patch.notasProximas=d.notasProximas;
+  const hasContent=Object.values(patch).some(v=>v&&v.trim&&v.trim()!=="");
+  const k=sk(d.teamId,d.date);
+  const exists=!!S.trainingNotes[k];
+  // No crear una nota "fantasma" vacía si no hay contenido real -- mismo
+  // criterio que _attFlushDraft() para notas/ejercicios de asistencia.
+  if(!exists&&!hasContent){S._tnDraft=null;return;}
+  _tnPatch(d.teamId,d.date,patch);
+  S._tnDraft=null;
+  _flashTnSaved();
+}
+function _flashTnSaved(){
+  const hint=document.getElementById("tn-saved-hint");
+  if(!hint)return;
+  hint.textContent="✓ Guardado";hint.style.color="#22c55e";
+  setTimeout(()=>{const h=document.getElementById("tn-saved-hint");if(h)h.textContent="";},1500);
+}
+function _tnToggleHabit(tid,d,habitId){
+  const k=sk(tid,d);
+  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const habitos={...(cur.habitos||{})};
+  habitos[habitId]=!habitos[habitId];
+  _tnPatch(tid,d,{habitos});
+  render();
+}
+function _tnToggleObsForm(){S._tnShowObsForm=!S._tnShowObsForm;render();}
+function _tnAddObservation(){
+  const pidEl=document.getElementById("tn-obs-player");
+  const noteEl=document.getElementById("tn-obs-note");
+  const pid=pidEl?pidEl.value:"";
+  const note=noteEl?noteEl.value.trim():"";
+  if(!pid||!note){toast("⚠️ Elige jugador/a y escribe una observación");return;}
+  const k=sk(S.teamId,S.date);
+  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const observaciones=[...(cur.observaciones||[]),{id:uid(),playerId:pid,note}];
+  _tnPatch(S.teamId,S.date,{observaciones});
+  S._tnShowObsForm=false;
+  render();
+  toast("✅ Observación añadida");
+}
+function _tnRemoveObservation(obsId){
+  const k=sk(S.teamId,S.date);
+  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const observaciones=(cur.observaciones||[]).filter(o=>o.id!==obsId);
+  _tnPatch(S.teamId,S.date,{observaciones});
+  render();
+}
+// Foto del planteamiento -- misma compresión adaptativa que handlePhoto()
+// (att()), reutilizando _compressPhoto(), pero guardada en la nota de
+// entrenamiento en vez de en la sesión de asistencia.
+async function _tnHandlePhoto(input){
+  const file=input.files[0];if(!file)return;
+  toast("⏳ Procesando foto…");
+  const tid=S.teamId,d=S.date;
+  const k=sk(tid,d);
+  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const oldPhoto=cur.foto;
+  const tries=[{max:600,q:0.7},{max:480,q:0.65},{max:400,q:0.55},{max:320,q:0.45},{max:240,q:0.4}];
+  let saved=false,finalSize=0;
+  for(const cfg of tries){
+    try{
+      const b64=await _compressPhoto(file,cfg.max,cfg.q);
+      S.trainingNotes[k]={...(S.trainingNotes[k]||cur),foto:b64,updatedAt:Date.now(),coachName:cur.coachName||_getCoachName()||""};
+      if(save()){saved=true;finalSize=Math.round(b64.length*0.75/1024);break;}
+    }catch(e){console.error(e);}
+  }
+  if(!saved){
+    if(oldPhoto){S.trainingNotes[k]={...(S.trainingNotes[k]||cur),foto:oldPhoto};}
+    else if(S.trainingNotes[k]){const c2={...S.trainingNotes[k]};delete c2.foto;S.trainingNotes[k]=c2;}
+    save();render();
+    toast("⚠️ Sin espacio. Borra fotos antiguas para liberar sitio.");
+    return;
+  }
+  render();
+  toast("📷 Foto guardada (~"+finalSize+" KB)");
+}
+function _tnRemovePhoto(){
+  const k=sk(S.teamId,S.date);
+  if(!S.trainingNotes[k])return;
+  const cur={...S.trainingNotes[k]};delete cur.foto;
+  S.trainingNotes[k]=cur;save();render();
+}
+function _tnOpenPhotoPreview(tid,date){
+  const note=S.trainingNotes[sk(tid,date)];
+  if(!note||!note.foto){toast("⚠️ No hay foto para esta sesión");return;}
+  document.getElementById("m-tn-photo-preview")?.remove();
+  const el=document.createElement("div");
+  el.id="m-tn-photo-preview";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.95);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
+  el.onclick=()=>el.remove();
+  el.innerHTML=`<img src="${note.foto}" style="max-width:100%;max-height:78vh;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.6)"/>
+    <div style="color:var(--td);font-size:12px;margin-top:14px">📅 ${esc(fd(date,true))} · Toca en cualquier sitio para cerrar</div>`;
+  document.body.appendChild(el);
+}
+function _tnWeekNav(delta){
+  const cur=S.tnWeekStart||_weekMonday(td());
+  const d=new Date(cur+"T12:00:00");
+  d.setDate(d.getDate()+delta*7);
+  S.tnWeekStart=d.toISOString().split("T")[0];
+  render();
+}
+// Pantalla de relleno de UNA sesión -- pensada para completarse en ~2
+// minutos por la mañana, antes de ir al entrenamiento. No depende de que
+// exista (ni existirá nunca) una sesión de asistencia para esa fecha.
+function trainingNoteScreen(){
+  const t=S.teams.find(x=>x.id===S.teamId);
+  if(!t){S.screen="equipos";return equiposScreen();}
+  const note=tn(S.teamId,S.date)||{};
+  const draft=(S._tnDraft&&S._tnDraft.teamId===S.teamId&&S._tnDraft.date===S.date)?S._tnDraft:null;
+  const monday=_weekMonday(S.date);
+  const objetivoVal=(draft&&draft.objetivo!=null)?draft.objetivo:(note.objetivo||"");
+  const focoDefault=note.focoSemana!=null?note.focoSemana:_weekFocusHint(S.teamId,monday,S.date);
+  const focoVal=(draft&&draft.focoSemana!=null)?draft.focoSemana:focoDefault;
+  const contenidoVal=(draft&&draft.contenido!=null)?draft.contenido:(note.contenido||"");
+  const proximasVal=(draft&&draft.notasProximas!=null)?draft.notasProximas:(note.notasProximas||"");
+  const habitChips=TRAINING_HABITS.map(h=>{
+    const on=!!(note.habitos&&note.habitos[h.id]);
+    return `<button onclick="_tnToggleHabit('${S.teamId}','${S.date}','${h.id}')" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;border-radius:12px;border:2px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.15)":"var(--s2)"};color:${on?"var(--orange)":"var(--td)"};cursor:pointer;font-family:inherit">
+      <div style="font-size:20px">${h.emoji}</div>
+      <div style="font-size:9px;font-weight:800;text-align:center;line-height:1.2">${h.label}</div>
+    </button>`;
+  }).join("");
+  const players=pl(S.teamId).filter(p=>!p.matchOnly).sort((a,b)=>(a.number==null?99:a.number)-(b.number==null?99:b.number));
+  const obsRows=(note.observaciones||[]).map(o=>{
+    const p=players.find(x=>x.id===o.playerId);
+    return `<div style="display:flex;align-items:flex-start;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:6px">
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;color:var(--orange)">${esc(p?p.name:"Jugador/a eliminado")}</div><div style="font-size:13px;color:var(--tx);margin-top:2px">${esc(o.note)}</div></div>
+      <button onclick="_tnRemoveObservation('${o.id}')" style="background:none;border:none;color:var(--tm);cursor:pointer;font-size:16px;padding:2px;flex-shrink:0">✕</button>
+    </div>`;
+  }).join("");
+  const obsForm=S._tnShowObsForm?`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+    ${players.length===0?`<div style="font-size:12px;color:var(--tm);padding:6px 0">Sin jugadores en la plantilla.</div>`:`
+    <select class="fi" id="tn-obs-player" style="margin-bottom:6px">${players.map(p=>`<option value="${p.id}">${p.number!=null?"#"+p.number+" ":""}${esc(p.name)}</option>`).join("")}</select>
+    <textarea class="fi" id="tn-obs-note" rows="2" style="resize:none" placeholder="¿Qué has observado?"></textarea>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="btn-p" style="flex:1;padding:8px;font-size:13px" onclick="_tnAddObservation()">✓ Añadir</button>
+      <button class="btn-s" style="padding:8px 14px;font-size:13px" onclick="_tnToggleObsForm()">Cancelar</button>
+    </div>`}
+  </div>`:"";
+  const photoHtml=`<div class="fg"><label class="fl">📷 Foto del planteamiento</label><div class="photo-box" onclick="${note.foto?`_tnOpenPhotoPreview('${S.teamId}','${S.date}')`:"document.getElementById('tn-photo-input').click()"}">${note.foto?`<img src="${note.foto}"/><div style="font-size:11px;color:var(--td);margin-top:6px">Toca para ver</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto (opcional)</div>`}</div><input type="file" id="tn-photo-input" accept="image/*" style="display:none" onchange="_tnHandlePhoto(this)"/>${note.foto?`<div style="display:flex;gap:8px;margin-top:8px"><button onclick="document.getElementById('tn-photo-input').click()" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:8px 10px">🔄 Cambiar foto</button><button onclick="_tnRemovePhoto()" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:8px 12px">✕ Quitar</button></div>`:""}</div>`;
+  const coachLine=note.coachName?`<div style="font-size:11px;color:var(--tm);margin-top:2px">📝 Registrado por ${esc(note.coachName)}</div>`:"";
+  return`<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1;min-width:0"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">📝 Notas de entrenamiento</div><div style="font-size:11px;color:var(--orange);font-weight:700">${esc(t.name)} · ${cap(fd(S.date,true))}</div>${coachLine}</div>
+    <button class="bbtn" onclick="navTo('trainingNotesWeek',{teamId:S.teamId})" title="Ver semana">🗓️</button>
+  </div></header>
+  <div class="content">
+    <div style="background:rgba(240,99,24,.08);border:1px solid rgba(240,99,24,.25);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--td);display:flex;align-items:center;gap:8px">
+      <span style="font-size:16px">💡</span><span>Esto es la <b style="color:var(--tx)">planificación previa</b> — independiente de pasar lista, que sigue haciéndose aparte en el pabellón.</span>
+    </div>
+    <div class="fg"><label class="fl">🎯 Objetivo del día</label><input class="fi" id="tn-objetivo" type="text" maxlength="120" placeholder="Ej: mejorar el bloqueo directo" value="${esc(objetivoVal)}" oninput="_tnAutoSave()"/></div>
+    <div class="fg"><label class="fl">📌 Foco de la semana <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(opcional, se repite entre sesiones)</span></label><input class="fi" id="tn-foco" type="text" maxlength="120" placeholder="Ej: defensa individual" value="${esc(focoVal)}" oninput="_tnAutoSave()"/></div>
+    <div class="fg"><label class="fl">✅ Hábitos a trabajar</label><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${habitChips}</div></div>
+    <div class="fg"><label class="fl">🏀 Contenido técnico/táctico</label><textarea class="fi" id="tn-contenido" rows="4" style="resize:none" placeholder="Lista de ejercicios, calentamiento, situaciones de juego..." oninput="_tnAutoSave()">${esc(contenidoVal)}</textarea></div>
+    ${photoHtml}
+    <div class="fg">
+      <label class="fl">👤 Observaciones por jugador/a <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(opcional)</span></label>
+      ${obsRows}
+      ${obsForm}
+      ${!S._tnShowObsForm?`<button class="btn-s" style="width:100%;padding:9px;font-size:13px" onclick="_tnToggleObsForm()">+ Añadir observación</button>`:""}
+    </div>
+    <div class="fg"><label class="fl">➡️ Notas para la próxima sesión</label><textarea class="fi" id="tn-proximas" rows="2" style="resize:none" placeholder="¿Qué retomar la próxima vez?" oninput="_tnAutoSave()">${esc(proximasVal)}</textarea></div>
+    <div id="tn-saved-hint" style="text-align:center;font-size:11px;color:var(--td);height:16px;margin-top:4px"></div>
+  </div>`;
+}
+// Vista semanal por categoría: todas las sesiones de la semana agrupadas,
+// de un vistazo, con navegación a la semana anterior/siguiente.
+function trainingNotesWeekScreen(){
+  const t=S.teams.find(x=>x.id===S.teamId);
+  if(!t){S.screen="equipos";return equiposScreen();}
+  const monday=S.tnWeekStart||_weekMonday(td());
+  const dates=_weekDatesFrom(monday);
+  const sunday=dates[6];
+  const isCurrentWeek=monday===_weekMonday(td());
+  const focusHint=_weekFocusHint(S.teamId,monday,null);
+  const DOW=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+  const dayCards=dates.map(d=>{
+    const dowIdx=_dowIdx(d);
+    const trains=!!(t.schedule&&t.schedule.hasOwnProperty(dowIdx));
+    const note=tn(S.teamId,d);
+    if(!trains&&!note)return"";
+    const isToday=d===td();
+    const habitsOn=note?TRAINING_HABITS.filter(h=>note.habitos&&note.habitos[h.id]):[];
+    return`<div onclick="navTo('trainingNote',{teamId:'${S.teamId}',date:'${d}'})" style="background:var(--s);border:1px solid ${note?"rgba(34,197,94,.3)":"rgba(249,115,22,.3)"};border-radius:14px;margin-bottom:10px;overflow:hidden;cursor:pointer">
+      <div style="height:4px;background:${t.color}"></div>
+      <div style="padding:12px 14px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">
+          <div>
+            <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">${DOW[dowIdx]}${isToday?" · HOY":""}</div>
+            <div style="font-weight:700;font-size:14px;margin-top:1px">${cap(fd(d,true))}</div>
+          </div>
+          ${note?`<span style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">✓ Planificado</span>`:`<span style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">Sin planificar</span>`}
+        </div>
+        ${note?`
+        ${note.objetivo?`<div style="font-size:13px;color:var(--tx);margin-bottom:6px">🎯 ${esc(note.objetivo)}</div>`:""}
+        <div style="display:flex;align-items:center;gap:10px">
+          ${habitsOn.length?`<div style="display:flex;gap:3px">${habitsOn.map(h=>`<span title="${h.label}" style="font-size:14px">${h.emoji}</span>`).join("")}</div>`:`<span style="font-size:11px;color:var(--tm)">Sin hábitos marcados</span>`}
+          ${note.foto?`<img src="${note.foto}" style="width:28px;height:28px;border-radius:6px;object-fit:cover;margin-left:auto"/>`:""}
+        </div>`:`<div style="font-size:12px;color:var(--tm)">Toca para planificar la sesión</div>`}
+      </div>
+    </div>`;
+  }).join("");
+  return`<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">🗓️ Notas de entrenamiento</div><div style="font-size:11px;color:var(--orange)">${esc(t.name)}</div></div>
+  </div></header>
+  <div class="content">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <button onclick="_tnWeekNav(-1)" style="width:36px;height:36px;border-radius:9px;background:var(--s2);border:1px solid var(--border);cursor:pointer;font-size:16px;color:var(--tx)">‹</button>
+      <div style="text-align:center"><div style="font-weight:800;font-size:13px">${cap(fd(monday,true))} – ${cap(fd(sunday,true))}</div>${isCurrentWeek?`<div style="font-size:10px;color:var(--orange);font-weight:700">SEMANA ACTUAL</div>`:""}</div>
+      <button onclick="_tnWeekNav(1)" style="width:36px;height:36px;border-radius:9px;background:var(--s2);border:1px solid var(--border);cursor:pointer;font-size:16px;color:var(--tx)">›</button>
+    </div>
+    ${focusHint?`<div style="background:rgba(240,99,24,.08);border:1px dashed rgba(240,99,24,.3);border-radius:10px;padding:10px 14px;margin-bottom:12px"><div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--orange);margin-bottom:2px">📌 Foco de la semana</div><div style="font-size:13px;color:var(--tx)">${esc(focusHint)}</div></div>`:""}
+    ${dayCards||`<div class="empty"><div style="font-size:48px;margin-bottom:12px">🗓️</div><div style="font-weight:700;margin-bottom:6px">Sin entrenamientos esta semana</div></div>`}
+  </div>`;
+}
+
 /* ═══════════════════════════════════════
    FAB AÑADIR ACTIVIDAD SORPRESA (HOY · v1.6.12)
    Permite crear un entrenamiento o partido para hoy fuera del horario

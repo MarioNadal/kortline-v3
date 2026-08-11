@@ -11,7 +11,8 @@ const INDEX_HTML_PATH = path.join(__dirname, "..", "index.html");
 // intentar leerlo como identificador suelto lanzaria ReferenceError.
 const EXPOSED_GLOBALS = [
   "S",
-  "_TL_PAUSABLE"
+  "_TL_PAUSABLE",
+  "TRAINING_HABITS"
 ];
 
 // Variables `let` de scope global que algun test necesita poder LEER Y

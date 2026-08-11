@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Notas de entrenamiento: planificación estructurada de la sesión, independiente de pasar asistencia (2026-08-11)
+
+### Añadido
+
+- **Notas de entrenamiento** (pedido por el usuario): hasta ahora, el único registro de lo planteado en un entrenamiento era subir una foto. Se añade una entidad nueva y completamente independiente de la asistencia — no se mezclan ni dependen la una de la otra, tal y como se pidió — pensada para rellenarse por la mañana, antes de ir al pabellón, en menos de 2 minutos.
+  - Nueva pantalla diaria por equipo y fecha con: objetivo del día, foco de la semana (se sugiere solo, si ya se rellenó en otra sesión de la misma semana natural lunes-domingo), checklist visual de hábitos trabajados (puntualidad, actitud, comunicación, esfuerzo, respeto, trabajo en equipo — chips de un toque), contenido técnico/táctico en texto libre, foto del planteamiento (se mantiene, ya no como único campo), observaciones vinculadas a un jugador/a concreto, y notas para la próxima sesión.
+  - Nueva vista semanal por categoría: agrupa las notas de todos los días de la semana, muestra solo los días en que el equipo entrena (o que ya tienen nota), con navegación semana anterior/siguiente y un aviso destacado del foco de la semana.
+  - Accesible desde "Hoy" (icono 📝, se pone ✅ en verde si ya está rellena) y desde la ficha de equipo ("📝 NOTAS DE ENTRENAMIENTO").
+  - Visible para todos los entrenadores asignados a esa categoría, con el mismo guardado automático (autoguardado con debounce, sin botón "guardar"), sincronización en la nube entre entrenadores y funcionamiento offline (localStorage) que ya usa el resto de la app. Colección propia en Firestore (`trainingNotes`), separada de `sessions`.
+  - Se atribuye automáticamente al entrenador que la rellena (mismo nombre de dispositivo que ya se usa en el resto de la app).
+
+### Probado (jsdom)
+
+- `tests/training_notes.test.js` (29 comprobaciones nuevas): independencia total respecto a la asistencia (crear una nota no toca `S.sessions` y viceversa), checklist de hábitos, observaciones por jugador/a, atribución automática al entrenador, el foco de la semana se hereda solo dentro de la misma semana natural (no se cuela de una semana a otra), helpers de cálculo de semana, ambas pantallas renderizan sin excepción e incluyen todos los campos pedidos (incluyendo el aviso explícito de que es independiente de pasar lista), la vista semanal muestra solo los días de entrenamiento reales, sincronización a Firestore como colección propia, y persistencia offline en localStorage.
+- Suite completa: 574/574 en 49 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.50`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Nuevo reglamento FIBA 2026-27 (opcional, por partido) + fix de robustez "6ª jugadora en pista" (2026-08-10)
 
 ### Añadido
