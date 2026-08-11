@@ -2130,7 +2130,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.50";
+const APP_VERSION = "3.0.0-dev.51";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6616,16 +6616,31 @@ function openPhotoPreview(tid,date){
    ("trainingNotes") y su propio objeto en memoria (S.trainingNotes) -- así
    nunca se mezcla con el registro de asistencia ni depende de él.
 ═══════════════════════════════════════ */
-const TRAINING_HABITS=[
-  {id:"puntualidad",emoji:"⏰",label:"Puntualidad"},
-  {id:"actitud",emoji:"💪",label:"Actitud"},
-  {id:"comunicacion",emoji:"🗣️",label:"Comunicación"},
-  {id:"esfuerzo",emoji:"🔥",label:"Esfuerzo"},
-  {id:"respeto",emoji:"🤝",label:"Respeto"},
-  {id:"equipo",emoji:"🧩",label:"Trabajo en equipo"}
-];
 // Devuelve la nota de esa sesión, o null si todavía no se ha rellenado nada.
 function tn(tid,d){return S.trainingNotes[sk(tid,d)]||null;}
+// Hábitos trabajados: NO es una lista fija -- son términos de baloncesto
+// libres (rebote, bote, 1c1...) que cada club/entrenador define sobre la
+// marcha. Para no tener que reescribirlos cada día, se sugieren (más
+// recientes primero) los ya usados en sesiones anteriores de ese mismo
+// equipo. Devuelve un array de strings, sin duplicados, máx. 14.
+function _tnHabitSuggestions(tid,excludeDate){
+  const prefix=tid+"_";
+  const entries=Object.keys(S.trainingNotes)
+    .filter(k=>k.startsWith(prefix))
+    .map(k=>({date:k.slice(prefix.length),note:S.trainingNotes[k]}))
+    .filter(e=>e.date!==excludeDate&&e.note&&Array.isArray(e.note.habitos)&&e.note.habitos.length)
+    .sort((a,b)=>b.date.localeCompare(a.date)); // fechas ISO -> orden lexicográfico = cronológico
+  const seen=new Set(),out=[];
+  for(const e of entries){
+    for(const label of e.note.habitos){
+      const l=(label||"").trim();
+      if(!l||seen.has(l))continue;
+      seen.add(l);out.push(l);
+      if(out.length>=14)return out;
+    }
+  }
+  return out;
+}
 // Lunes (YYYY-MM-DD) de la semana natural a la que pertenece esa fecha.
 function _weekMonday(dateStr){
   const d=new Date(dateStr+"T12:00:00");
@@ -6662,7 +6677,7 @@ function _weekFocusHint(tid,monday,excludeDate){
 // cada pulsación, para no perder el foco -- ver _tnAutoSave/_tnFlushDraft).
 function _tnPatch(tid,d,patch){
   const k=sk(tid,d);
-  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
   S.trainingNotes[k]={...cur,...patch,updatedAt:Date.now(),coachName:cur.coachName||_getCoachName()||""};
   save();
 }
@@ -6708,12 +6723,27 @@ function _flashTnSaved(){
   hint.textContent="✓ Guardado";hint.style.color="#22c55e";
   setTimeout(()=>{const h=document.getElementById("tn-saved-hint");if(h)h.textContent="";},1500);
 }
-function _tnToggleHabit(tid,d,habitId){
+function _tnToggleHabit(tid,d,label){
   const k=sk(tid,d);
-  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
-  const habitos={...(cur.habitos||{})};
-  habitos[habitId]=!habitos[habitId];
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
+  const arr=Array.isArray(cur.habitos)?cur.habitos:[];
+  const habitos=arr.includes(label)?arr.filter(h=>h!==label):[...arr,label];
   _tnPatch(tid,d,{habitos});
+  render();
+}
+// Añade un hábito nuevo (texto libre escrito por el entrenador) a la sesión
+// de hoy -- a partir de entonces también aparecerá como sugerencia rápida
+// en las próximas sesiones de este equipo (ver _tnHabitSuggestions).
+function _tnAddCustomHabit(tid,d){
+  const input=document.getElementById("tn-habit-new");
+  const label=input?input.value.trim():"";
+  if(!label){toast("⚠️ Escribe un hábito (ej: rebote, bote...)");return;}
+  const k=sk(tid,d);
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
+  const arr=Array.isArray(cur.habitos)?cur.habitos:[];
+  if(arr.includes(label)){if(input)input.value="";return;}
+  _tnPatch(tid,d,{habitos:[...arr,label]});
+  if(input)input.value="";
   render();
 }
 function _tnToggleObsForm(){S._tnShowObsForm=!S._tnShowObsForm;render();}
@@ -6724,7 +6754,7 @@ function _tnAddObservation(){
   const note=noteEl?noteEl.value.trim():"";
   if(!pid||!note){toast("⚠️ Elige jugador/a y escribe una observación");return;}
   const k=sk(S.teamId,S.date);
-  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
   const observaciones=[...(cur.observaciones||[]),{id:uid(),playerId:pid,note}];
   _tnPatch(S.teamId,S.date,{observaciones});
   S._tnShowObsForm=false;
@@ -6733,7 +6763,7 @@ function _tnAddObservation(){
 }
 function _tnRemoveObservation(obsId){
   const k=sk(S.teamId,S.date);
-  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
   const observaciones=(cur.observaciones||[]).filter(o=>o.id!==obsId);
   _tnPatch(S.teamId,S.date,{observaciones});
   render();
@@ -6746,7 +6776,7 @@ async function _tnHandlePhoto(input){
   toast("⏳ Procesando foto…");
   const tid=S.teamId,d=S.date;
   const k=sk(tid,d);
-  const cur=S.trainingNotes[k]||{habitos:{},observaciones:[]};
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
   const oldPhoto=cur.foto;
   const tries=[{max:600,q:0.7},{max:480,q:0.65},{max:400,q:0.55},{max:320,q:0.45},{max:240,q:0.4}];
   let saved=false,finalSize=0;
@@ -6806,13 +6836,16 @@ function trainingNoteScreen(){
   const focoVal=(draft&&draft.focoSemana!=null)?draft.focoSemana:focoDefault;
   const contenidoVal=(draft&&draft.contenido!=null)?draft.contenido:(note.contenido||"");
   const proximasVal=(draft&&draft.notasProximas!=null)?draft.notasProximas:(note.notasProximas||"");
-  const habitChips=TRAINING_HABITS.map(h=>{
-    const on=!!(note.habitos&&note.habitos[h.id]);
-    return `<button onclick="_tnToggleHabit('${S.teamId}','${S.date}','${h.id}')" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;border-radius:12px;border:2px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.15)":"var(--s2)"};color:${on?"var(--orange)":"var(--td)"};cursor:pointer;font-family:inherit">
-      <div style="font-size:20px">${h.emoji}</div>
-      <div style="font-size:9px;font-weight:800;text-align:center;line-height:1.2">${h.label}</div>
-    </button>`;
+  const currentHabits=Array.isArray(note.habitos)?note.habitos:[];
+  const habitSuggestions=_tnHabitSuggestions(S.teamId,S.date).filter(l=>!currentHabits.includes(l));
+  const habitChips=[...currentHabits.map(l=>({label:l,on:true})),...habitSuggestions.map(l=>({label:l,on:false}))].map(h=>{
+    const safe=esc(h.label).replace(/'/g,"&#39;");
+    return `<button onclick="_tnToggleHabit('${S.teamId}','${S.date}','${safe}')" style="display:flex;align-items:center;gap:5px;padding:8px 14px;border-radius:20px;border:2px solid ${h.on?"var(--orange)":"var(--border)"};background:${h.on?"rgba(240,99,24,.15)":"var(--s2)"};color:${h.on?"var(--orange)":"var(--tx)"};cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;white-space:nowrap">${h.on?"✓ ":""}${esc(h.label)}</button>`;
   }).join("");
+  const habitAddRow=`<div style="display:flex;gap:6px;margin-top:8px">
+    <input class="fi" id="tn-habit-new" type="text" maxlength="40" placeholder="+ nuevo hábito (ej: rebote, bote, 1c1...)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();_tnAddCustomHabit('${S.teamId}','${S.date}')}"/>
+    <button class="btn-s" style="padding:0 16px;font-size:13px" onclick="_tnAddCustomHabit('${S.teamId}','${S.date}')">Añadir</button>
+  </div>`;
   const players=pl(S.teamId).filter(p=>!p.matchOnly).sort((a,b)=>(a.number==null?99:a.number)-(b.number==null?99:b.number));
   const obsRows=(note.observaciones||[]).map(o=>{
     const p=players.find(x=>x.id===o.playerId);
@@ -6843,7 +6876,7 @@ function trainingNoteScreen(){
     </div>
     <div class="fg"><label class="fl">🎯 Objetivo del día</label><input class="fi" id="tn-objetivo" type="text" maxlength="120" placeholder="Ej: mejorar el bloqueo directo" value="${esc(objetivoVal)}" oninput="_tnAutoSave()"/></div>
     <div class="fg"><label class="fl">📌 Foco de la semana <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(opcional, se repite entre sesiones)</span></label><input class="fi" id="tn-foco" type="text" maxlength="120" placeholder="Ej: defensa individual" value="${esc(focoVal)}" oninput="_tnAutoSave()"/></div>
-    <div class="fg"><label class="fl">✅ Hábitos a trabajar</label><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${habitChips}</div></div>
+    <div class="fg"><label class="fl">✅ Hábitos trabajados hoy <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(los vuestros: rebote, bote...)</span></label>${habitChips?`<div style="display:flex;flex-wrap:wrap;gap:7px">${habitChips}</div>`:`<div style="font-size:12px;color:var(--tm);margin-bottom:2px">Todavía no hay ninguno guardado para este equipo. Añade el primero abajo.</div>`}${habitAddRow}</div>
     <div class="fg"><label class="fl">🏀 Contenido técnico/táctico</label><textarea class="fi" id="tn-contenido" rows="4" style="resize:none" placeholder="Lista de ejercicios, calentamiento, situaciones de juego..." oninput="_tnAutoSave()">${esc(contenidoVal)}</textarea></div>
     ${photoHtml}
     <div class="fg">
@@ -6873,7 +6906,7 @@ function trainingNotesWeekScreen(){
     const note=tn(S.teamId,d);
     if(!trains&&!note)return"";
     const isToday=d===td();
-    const habitsOn=note?TRAINING_HABITS.filter(h=>note.habitos&&note.habitos[h.id]):[];
+    const habitsOn=note&&Array.isArray(note.habitos)?note.habitos:[];
     return`<div onclick="navTo('trainingNote',{teamId:'${S.teamId}',date:'${d}'})" style="background:var(--s);border:1px solid ${note?"rgba(34,197,94,.3)":"rgba(249,115,22,.3)"};border-radius:14px;margin-bottom:10px;overflow:hidden;cursor:pointer">
       <div style="height:4px;background:${t.color}"></div>
       <div style="padding:12px 14px">
@@ -6887,7 +6920,7 @@ function trainingNotesWeekScreen(){
         ${note?`
         ${note.objetivo?`<div style="font-size:13px;color:var(--tx);margin-bottom:6px">🎯 ${esc(note.objetivo)}</div>`:""}
         <div style="display:flex;align-items:center;gap:10px">
-          ${habitsOn.length?`<div style="display:flex;gap:3px">${habitsOn.map(h=>`<span title="${h.label}" style="font-size:14px">${h.emoji}</span>`).join("")}</div>`:`<span style="font-size:11px;color:var(--tm)">Sin hábitos marcados</span>`}
+          ${habitsOn.length?`<div style="font-size:11px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border-radius:8px;padding:2px 9px">✅ ${habitsOn.slice(0,3).map(h=>esc(h)).join(", ")}${habitsOn.length>3?" +"+(habitsOn.length-3):""}</div>`:`<span style="font-size:11px;color:var(--tm)">Sin hábitos marcados</span>`}
           ${note.foto?`<img src="${note.foto}" style="width:28px;height:28px;border-radius:6px;object-fit:cover;margin-left:auto"/>`:""}
         </div>`:`<div style="font-size:12px;color:var(--tm)">Toca para planificar la sesión</div>`}
       </div>

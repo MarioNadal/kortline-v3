@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Notas de entrenamiento: hábitos de texto libre en vez de lista fija (2026-08-11)
+
+### Cambiado
+
+- Ajuste pedido por el usuario tras probar la funcionalidad de "Notas de entrenamiento" (arriba): la checklist de hábitos ya no es una lista fija de la app (puntualidad, actitud...). Ahora son hábitos de baloncesto de texto libre que cada club define sobre la marcha (rebote, bote, 1c1, comunicación defensiva...), pensados para escribirse la primera vez y reutilizarse después.
+  - Nuevo campo "+ nuevo hábito" para añadir uno propio en cualquier momento (también con Enter).
+  - Sugerencias automáticas: al abrir una sesión se muestran como chips rápidos los hábitos usados en sesiones anteriores del mismo equipo (más recientes primero, sin duplicados), para no tener que volver a escribirlos si se repiten. Si aún no hay ninguno guardado, se explica que hay que añadir el primero.
+  - La vista semanal muestra ahora los hábitos tal cual se escribieron (hasta 3 + contador), en vez de los iconos fijos de antes.
+  - `S.trainingNotes[...].habitos` pasa de ser un mapa de booleanos por id fijo a un array de strings; sin migración de datos porque la funcionalidad se publicó hace apenas unas horas (dev.50) y no hay notas reales creadas todavía con el formato antiguo.
+
+### Probado (jsdom)
+
+- `tests/training_notes.test.js` ampliado a 36 comprobaciones (7 nuevas): añadir/quitar hábitos de texto libre, añadir uno nuevo desde el input, sugerencias ordenadas por sesión más reciente y sin colarse desde la propia fecha, y que la vista semanal muestra el texto del hábito.
+- Suite completa: 581/581 en 49 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.51`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Notas de entrenamiento: planificación estructurada de la sesión, independiente de pasar asistencia (2026-08-11)
 
 ### Añadido

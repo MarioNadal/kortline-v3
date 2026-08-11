@@ -37,13 +37,37 @@ async function run() {
   report.assert(win.tn("t1", "2026-08-10").objetivo === objetivo, "pasar asistencia no borra ni modifica la nota de entrenamiento ya existente");
   report.assert(win.tn("t1", "2026-08-11") === null, "un día sin nota de entrenamiento devuelve null (no un objeto vacío fantasma)");
 
-  // ── 2) Hábitos (checklist) ──
-  win._tnToggleHabit("t1", "2026-08-10", "puntualidad");
-  win._tnToggleHabit("t1", "2026-08-10", "actitud");
+  // ── 2) Hábitos: texto libre (de baloncesto, ej. "Rebote"), NO una lista
+  // fija -- el club los define sobre la marcha, cada sesión puede tener
+  // hábitos distintos.
+  win._tnToggleHabit("t1", "2026-08-10", "Rebote");
+  win._tnToggleHabit("t1", "2026-08-10", "Bote");
   let note = win.tn("t1", "2026-08-10");
-  report.assert(note.habitos.puntualidad === true && note.habitos.actitud === true, "_tnToggleHabit marca los hábitos trabajados");
-  win._tnToggleHabit("t1", "2026-08-10", "puntualidad");
-  report.assert(win.tn("t1", "2026-08-10").habitos.puntualidad === false, "_tnToggleHabit alterna (segunda vez lo desmarca)");
+  report.assert(Array.isArray(note.habitos) && note.habitos.includes("Rebote") && note.habitos.includes("Bote"), "_tnToggleHabit añade hábitos de texto libre");
+  win._tnToggleHabit("t1", "2026-08-10", "Rebote");
+  report.assert(!win.tn("t1", "2026-08-10").habitos.includes("Rebote") && win.tn("t1", "2026-08-10").habitos.includes("Bote"), "_tnToggleHabit alterna (segunda vez lo quita, sin tocar los demás)");
+
+  // Añadir un hábito nuevo escrito a mano (_tnAddCustomHabit), como haría
+  // el formulario real con el input "+ nuevo hábito".
+  const habitInput = win.document.createElement("input");
+  habitInput.id = "tn-habit-new";
+  habitInput.value = "1c1";
+  win.document.body.appendChild(habitInput);
+  win._tnAddCustomHabit("t1", "2026-08-10");
+  report.assert(win.tn("t1", "2026-08-10").habitos.includes("1c1"), "_tnAddCustomHabit añade un hábito nuevo escrito por el entrenador");
+  report.assert(habitInput.value === "", "_tnAddCustomHabit limpia el campo de texto tras añadir");
+  habitInput.remove();
+
+  // ── 2b) Sugerencias de hábitos usados en sesiones anteriores del mismo equipo ──
+  win.S.trainingNotes = {};
+  win._tnPatch("t1", "2026-08-03", { habitos: ["Rebote", "Transición"] }); // semana anterior
+  win._tnPatch("t1", "2026-08-10", { habitos: ["Bote"] }); // más reciente
+  const sug = win._tnHabitSuggestions("t1", "2026-08-12");
+  report.assert(sug[0] === "Bote", "_tnHabitSuggestions ordena por sesión más reciente primero");
+  report.assert(sug.includes("Rebote") && sug.includes("Transición"), "_tnHabitSuggestions incluye hábitos de sesiones anteriores, no solo de la última");
+  const sugExcl = win._tnHabitSuggestions("t1", "2026-08-10");
+  report.assert(!sugExcl.includes("Bote") || sug.filter(h => h === "Bote").length <= 1, "_tnHabitSuggestions excluye la propia fecha para no auto-sugerirse duplicado");
+  win.S.trainingNotes = { [win.sk("t1", "2026-08-10")]: note };
 
   // ── 3) Observaciones por jugador/a ──
   win.S.date = "2026-08-10";
@@ -99,7 +123,8 @@ async function run() {
   if (html != null) {
     report.assert(html.includes("Objetivo del día"), "trainingNoteScreen incluye el campo objetivo");
     report.assert(html.includes("Foco de la semana"), "trainingNoteScreen incluye el campo foco de la semana");
-    report.assert(html.includes("Hábitos a trabajar"), "trainingNoteScreen incluye el checklist de hábitos");
+    report.assert(html.includes("Hábitos trabajados hoy"), "trainingNoteScreen incluye la sección de hábitos (texto libre, no lista fija)");
+    report.assert(html.includes("tn-habit-new"), "trainingNoteScreen permite añadir un hábito nuevo escrito a mano");
     report.assert(html.includes("Contenido técnico"), "trainingNoteScreen incluye el contenido técnico/táctico");
     report.assert(html.includes("Foto del planteamiento"), "trainingNoteScreen mantiene la foto (ya no como único campo)");
     report.assert(html.includes("Observaciones por jugador"), "trainingNoteScreen incluye observaciones por jugador/a");
@@ -123,6 +148,11 @@ async function run() {
   const martCount = (wk.match(/>Martes</g) || []).length;
   report.assert(luneCount > 0 && mierCount > 0, "la semana muestra los días en que el equipo SÍ entrena (lunes y miércoles)");
   report.assert(martCount === 0, "la semana NO muestra un día sin entrenamiento programado ni nota (martes)");
+
+  // ── 8b) La vista semanal muestra los hábitos (texto libre) de cada día ──
+  win._tnPatch("t1", "2026-08-10", { habitos: ["Rebote", "Bote"] });
+  const wk2 = win.trainingNotesWeekScreen();
+  report.assert(wk2.includes("Rebote"), "trainingNotesWeekScreen muestra los hábitos de texto libre en la tarjeta del día");
 
   // ── 9) Sincronización a la nube: trainingNotes viaja en el snapshot y se
   // sincroniza como colección propia, no mezclada con sessions.
