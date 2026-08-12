@@ -37,6 +37,32 @@ async function run() {
   report.assert(win.tn("t1", "2026-08-10").objetivo === objetivo, "pasar asistencia no borra ni modifica la nota de entrenamiento ya existente");
   report.assert(win.tn("t1", "2026-08-11") === null, "un día sin nota de entrenamiento devuelve null (no un objeto vacío fantasma)");
 
+  // ── 1b) Objetivos del día: lista de varios objetivos, no un único texto ──
+  win.S.trainingNotes = {};
+  const objInput = win.document.createElement("input");
+  objInput.id = "tn-objetivo-new";
+  win.document.body.appendChild(objInput);
+  objInput.value = "Mejorar el bloqueo directo";
+  win._tnAddObjetivo("t1", "2026-08-10");
+  objInput.value = "Trabajar transición rápida";
+  win._tnAddObjetivo("t1", "2026-08-10");
+  let noteObj = win.tn("t1", "2026-08-10");
+  report.assert(Array.isArray(noteObj.objetivos) && noteObj.objetivos.length === 2, "_tnAddObjetivo permite añadir varios objetivos del día");
+  report.assert(noteObj.objetivos[0].text === "Mejorar el bloqueo directo" && noteObj.objetivos[1].text === "Trabajar transición rápida", "los objetivos se guardan en el orden en que se añaden");
+  report.assert(objInput.value === "", "_tnAddObjetivo limpia el campo de texto tras añadir");
+  const objIdToRemove = noteObj.objetivos[0].id;
+  win._tnRemoveObjetivo("t1", "2026-08-10", objIdToRemove);
+  report.assert(win.tn("t1", "2026-08-10").objetivos.length === 1 && win.tn("t1", "2026-08-10").objetivos[0].text === "Trabajar transición rápida", "_tnRemoveObjetivo quita solo el objetivo indicado, no todos");
+  objInput.remove();
+
+  // Compatibilidad con notas ya creadas en dev.50 (campo singular `objetivo`).
+  const legacyObjs = win._tnObjetivos({ objetivo: "Objetivo antiguo de una sola línea" });
+  report.assert(legacyObjs.length === 1 && legacyObjs[0].text === "Objetivo antiguo de una sola línea", "_tnObjetivos migra en caliente las notas antiguas con el campo singular 'objetivo'");
+  report.assert(win._tnObjetivos(null).length === 0 && win._tnObjetivos({}).length === 0, "_tnObjetivos devuelve [] si no hay nota o no tiene objetivos");
+
+  win.S.trainingNotes = {};
+  win.S.date = "2026-08-10";
+
   // ── 2) Hábitos: texto libre (de baloncesto, ej. "Rebote"), NO una lista
   // fija -- el club los define sobre la marcha, cada sesión puede tener
   // hábitos distintos.
@@ -121,7 +147,8 @@ async function run() {
   let html;
   try { html = win.trainingNoteScreen(); } catch (e) { html = null; report.assert(false, "trainingNoteScreen() no debe lanzar: " + e.message); }
   if (html != null) {
-    report.assert(html.includes("Objetivo del día"), "trainingNoteScreen incluye el campo objetivo");
+    report.assert(html.includes("Objetivos del día"), "trainingNoteScreen incluye el campo de objetivos (lista, plural)");
+    report.assert(html.includes("tn-objetivo-new"), "trainingNoteScreen permite añadir varios objetivos, uno detrás de otro");
     report.assert(html.includes("Foco de la semana"), "trainingNoteScreen incluye el campo foco de la semana");
     report.assert(html.includes("Hábitos trabajados hoy"), "trainingNoteScreen incluye la sección de hábitos (texto libre, no lista fija)");
     report.assert(html.includes("tn-habit-new"), "trainingNoteScreen permite añadir un hábito nuevo escrito a mano");
@@ -168,6 +195,27 @@ async function run() {
   win._tnPatch("t1", "2026-08-10", { objetivo: "Persistencia" });
   const raw = win.localStorage.getItem("cbj:tn");
   report.assert(!!raw && JSON.parse(raw)[win.sk("t1", "2026-08-10")].objetivo === "Persistencia", "las notas de entrenamiento persisten en localStorage (offline) bajo su propia clave 'cbj:tn'");
+
+  // ── 11) Compartir (buildTrainingNoteText / _tnShare) ──
+  win.S.trainingNotes = {};
+  win._tnPatch("t1", "2026-08-10", { focoSemana: "Defensa individual", contenido: "Calentamiento + rondos", notasProximas: "Repasar bloqueos" });
+  const objInput3 = win.document.createElement("input");
+  objInput3.id = "tn-objetivo-new";
+  win.document.body.appendChild(objInput3);
+  objInput3.value = "Mejorar el rebote defensivo";
+  win._tnAddObjetivo("t1", "2026-08-10");
+  objInput3.remove();
+  win._tnToggleHabit("t1", "2026-08-10", "Rebote");
+  const shareTxt = win.buildTrainingNoteText("t1", "2026-08-10");
+  report.assert(shareTxt.includes("Mejorar el rebote defensivo"), "buildTrainingNoteText incluye los objetivos del día");
+  report.assert(shareTxt.includes("Defensa individual"), "buildTrainingNoteText incluye el foco de la semana");
+  report.assert(shareTxt.includes("Rebote"), "buildTrainingNoteText incluye los hábitos trabajados");
+  report.assert(shareTxt.includes("Calentamiento"), "buildTrainingNoteText incluye el contenido técnico/táctico");
+  report.assert(shareTxt.includes("Repasar bloqueos"), "buildTrainingNoteText incluye las notas para la próxima sesión");
+  report.assert(win.buildTrainingNoteText("t1", "2026-08-11") === "", "buildTrainingNoteText devuelve vacío si no hay nada que compartir ese día");
+  let shareErr = null;
+  try { win._tnShare("t1", "2026-08-10"); } catch (e) { shareErr = e; }
+  report.assert(!shareErr, "_tnShare no lanza excepción al compartir (usa el mismo shareText() del resto de la app)");
 
   return report.summary();
 }

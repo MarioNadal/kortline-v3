@@ -3,6 +3,26 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Notas de entrenamiento: rediseño de la pantalla tras el primer uso (varios objetivos, tamaños, guardado y compartir) (2026-08-12)
+
+### Cambiado
+
+- Ajustes pedidos por el usuario tras usar la pantalla por primera vez:
+  - **Objetivos del día**: pasa de un único campo de texto a una lista — se pueden añadir varios objetivos (uno por línea, con su propio botón para quitarlo), en vez de tener que meterlos todos apretados en una sola frase. Compatible con las notas ya creadas en dev.50/dev.51 (el objetivo antiguo se sigue mostrando como el primero de la lista).
+  - **Hábitos trabajados**: el campo de texto para escribir uno nuevo ahora es la parte grande (más aire, letra más grande) y el botón de añadir pasa a ser pequeño y cuadrado — antes ambos ocupaban el mismo tamaño y el foco visual no era el campo de escritura.
+  - **Contenido técnico/táctico**: la caja de texto crece de 4 a 7 líneas visibles, para no tener que hacer scroll constantemente al escribir el planteamiento de la sesión.
+  - **Foto del planteamiento**: pasa de una caja grande a un botón compacto con miniatura (menos protagonismo, ya que se espera que se use poco).
+  - **Notas para la próxima sesión**: crece de 2 a 4 líneas visibles, mismo motivo que el contenido técnico.
+  - Los dos textareas grandes (contenido y próxima sesión) ahora también se pueden estirar a mano si hace falta más espacio.
+  - **Guardado**: el autoguardado (igual que en el resto de la app) ahora se indica de forma permanente ("💾 Autoguardado" / "✓ Guardado" al detectar un cambio), no solo con un aviso que aparecía y desaparecía. Se dispara también al tocar un hábito, añadir/quitar un objetivo o una observación y al subir una foto — antes solo se veía al escribir texto.
+  - **Compartir**: nuevo botón 📤 en la cabecera para compartir la nota por WhatsApp (o guardarla en el portapapeles), con objetivos, foco de la semana, hábitos, contenido, observaciones y notas para la próxima sesión — mismo mecanismo (`shareText()`) que ya usa el resto de la app para compartir asistencia y resultados.
+
+### Probado (jsdom)
+
+- `tests/training_notes.test.js` ampliado a 50 comprobaciones (14 nuevas): varios objetivos por sesión (añadir, quitar, orden), migración en caliente de notas antiguas con el campo `objetivo` singular, y el nuevo `buildTrainingNoteText()`/`_tnShare()` para compartir.
+- Suite completa: 595/595 en 49 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.52`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Notas de entrenamiento: hábitos de texto libre en vez de lista fija (2026-08-11)
 
 ### Cambiado

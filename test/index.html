@@ -2130,7 +2130,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.51";
+const APP_VERSION = "3.0.0-dev.52";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3485,11 +3485,10 @@ function render(){
   // escribiendo en los campos de texto todavía sin guardar.
   if(S.screen==="trainingNote"){
     const g=id=>document.getElementById(id);
-    const objEl=g("tn-objetivo"),focoEl=g("tn-foco"),contEl=g("tn-contenido"),proxEl=g("tn-proximas");
-    if((objEl||focoEl||contEl||proxEl)&&!S._tnNoCaptureOnRender){
+    const focoEl=g("tn-foco"),contEl=g("tn-contenido"),proxEl=g("tn-proximas");
+    if((focoEl||contEl||proxEl)&&!S._tnNoCaptureOnRender){
       S._tnDraft={
         teamId:S.teamId,date:S.date,
-        objetivo:objEl?objEl.value:undefined,
         focoSemana:focoEl?focoEl.value:undefined,
         contenido:contEl?contEl.value:undefined,
         notasProximas:proxEl?proxEl.value:undefined
@@ -6670,6 +6669,33 @@ function _weekFocusHint(tid,monday,excludeDate){
   }
   return "";
 }
+// Objetivos del día: lista (no un único texto) -- un entrenamiento suele
+// tener varios objetivos concretos. Compatible con notas antiguas (dev.50)
+// que todavía tengan el campo singular `objetivo` como texto suelto.
+function _tnObjetivos(note){
+  if(!note)return[];
+  if(Array.isArray(note.objetivos))return note.objetivos;
+  if(note.objetivo&&note.objetivo.trim())return[{id:"legacy",text:note.objetivo.trim()}];
+  return[];
+}
+function _tnAddObjetivo(tid,d){
+  const input=document.getElementById("tn-objetivo-new");
+  const val=input?input.value.trim():"";
+  if(!val){toast("⚠️ Escribe un objetivo");return;}
+  const k=sk(tid,d);
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
+  const arr=_tnObjetivos(cur);
+  _tnPatch(tid,d,{objetivos:[...arr,{id:uid(),text:val}]});
+  if(input)input.value="";
+  render();
+}
+function _tnRemoveObjetivo(tid,d,oid){
+  const k=sk(tid,d);
+  const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
+  const arr=_tnObjetivos(cur).filter(o=>o.id!==oid);
+  _tnPatch(tid,d,{objetivos:arr});
+  render();
+}
 // Fusiona `patch` en la nota de esa sesión (creándola si hace falta) y
 // guarda. No repinta por sí sola -- lo decide quien llama, según si el
 // cambio necesita reflejarse ya en pantalla (checkbox, foto, observación) o
@@ -6680,6 +6706,7 @@ function _tnPatch(tid,d,patch){
   const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
   S.trainingNotes[k]={...cur,...patch,updatedAt:Date.now(),coachName:cur.coachName||_getCoachName()||""};
   save();
+  _flashTnSaved();
 }
 let _tnSaveTimer=null;
 // Autoguardado con debounce de los 4 campos de texto largo (objetivo, foco
@@ -6687,10 +6714,9 @@ let _tnSaveTimer=null;
 // que _attAutoSave()/_attFlushDraft() en el pase de asistencia.
 function _tnAutoSave(){
   const g=id=>document.getElementById(id);
-  const objEl=g("tn-objetivo"),focoEl=g("tn-foco"),contEl=g("tn-contenido"),proxEl=g("tn-proximas");
+  const focoEl=g("tn-foco"),contEl=g("tn-contenido"),proxEl=g("tn-proximas");
   S._tnDraft={
     teamId:S.teamId,date:S.date,
-    objetivo:objEl?objEl.value:undefined,
     focoSemana:focoEl?focoEl.value:undefined,
     contenido:contEl?contEl.value:undefined,
     notasProximas:proxEl?proxEl.value:undefined
@@ -6703,7 +6729,6 @@ function _tnFlushDraft(){
   const d=S._tnDraft;
   if(!d)return;
   const patch={};
-  if(d.objetivo!=null)patch.objetivo=d.objetivo;
   if(d.focoSemana!=null)patch.focoSemana=d.focoSemana;
   if(d.contenido!=null)patch.contenido=d.contenido;
   if(d.notasProximas!=null)patch.notasProximas=d.notasProximas;
@@ -6715,13 +6740,12 @@ function _tnFlushDraft(){
   if(!exists&&!hasContent){S._tnDraft=null;return;}
   _tnPatch(d.teamId,d.date,patch);
   S._tnDraft=null;
-  _flashTnSaved();
 }
 function _flashTnSaved(){
   const hint=document.getElementById("tn-saved-hint");
   if(!hint)return;
   hint.textContent="✓ Guardado";hint.style.color="#22c55e";
-  setTimeout(()=>{const h=document.getElementById("tn-saved-hint");if(h)h.textContent="";},1500);
+  setTimeout(()=>{const h=document.getElementById("tn-saved-hint");if(h){h.textContent="💾 Autoguardado";h.style.color="var(--tm)";}},1500);
 }
 function _tnToggleHabit(tid,d,label){
   const k=sk(tid,d);
@@ -6795,6 +6819,7 @@ async function _tnHandlePhoto(input){
     return;
   }
   render();
+  _flashTnSaved();
   toast("📷 Foto guardada (~"+finalSize+" KB)");
 }
 function _tnRemovePhoto(){
@@ -6802,6 +6827,7 @@ function _tnRemovePhoto(){
   if(!S.trainingNotes[k])return;
   const cur={...S.trainingNotes[k]};delete cur.foto;
   S.trainingNotes[k]=cur;save();render();
+  _flashTnSaved();
 }
 function _tnOpenPhotoPreview(tid,date){
   const note=S.trainingNotes[sk(tid,date)];
@@ -6822,6 +6848,37 @@ function _tnWeekNav(delta){
   S.tnWeekStart=d.toISOString().split("T")[0];
   render();
 }
+// Texto para compartir la nota de una sesión (WhatsApp u otra app), mismo
+// patrón que buildDailyText()/buildWeeklyText() para la asistencia.
+function buildTrainingNoteText(tid,date){
+  const t=S.teams.find(x=>x.id===tid);if(!t)return"";
+  const note=tn(tid,date);
+  if(!note)return"";
+  const objetivos=_tnObjetivos(note);
+  const habitos=Array.isArray(note.habitos)?note.habitos:[];
+  let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`,`📝 *Notas de entrenamiento*`,""];
+  if(objetivos.length){lines.push(`🎯 *Objetivos:*`);objetivos.forEach(o=>lines.push(`  • ${o.text}`));lines.push("");}
+  if(note.focoSemana&&note.focoSemana.trim()){lines.push(`📌 Foco de la semana: ${note.focoSemana.trim()}`,"");}
+  if(habitos.length){lines.push(`✅ Hábitos: ${habitos.join(", ")}`,"");}
+  if(note.contenido&&note.contenido.trim()){lines.push(`🏀 *Contenido técnico/táctico:*`,note.contenido.trim(),"");}
+  if((note.observaciones||[]).length){
+    const players=pl(tid);
+    lines.push(`👤 *Observaciones:*`);
+    note.observaciones.forEach(o=>{const p=players.find(x=>x.id===o.playerId);lines.push(`  • ${p?p.name:"Jugador/a"}: ${o.note}`);});
+    lines.push("");
+  }
+  if(note.notasProximas&&note.notasProximas.trim())lines.push(`➡️ Para la próxima sesión: ${note.notasProximas.trim()}`,"");
+  if(note.coachName)lines.push(`📝 ${note.coachName}`);
+  const realClub=S.clubName&&S.clubName!=="Kortline"?S.clubName:"";
+  lines.push(`\n_${realClub||t.name}_`);
+  return lines.join("\n");
+}
+function _tnShare(tid,date){
+  _tnFlushDraft();
+  const text=buildTrainingNoteText(tid,date);
+  if(!text){toast("⚠️ Rellena algo primero para poder compartirlo");return;}
+  shareText(text);
+}
 // Pantalla de relleno de UNA sesión -- pensada para completarse en ~2
 // minutos por la mañana, antes de ir al entrenamiento. No depende de que
 // exista (ni existirá nunca) una sesión de asistencia para esa fecha.
@@ -6831,20 +6888,33 @@ function trainingNoteScreen(){
   const note=tn(S.teamId,S.date)||{};
   const draft=(S._tnDraft&&S._tnDraft.teamId===S.teamId&&S._tnDraft.date===S.date)?S._tnDraft:null;
   const monday=_weekMonday(S.date);
-  const objetivoVal=(draft&&draft.objetivo!=null)?draft.objetivo:(note.objetivo||"");
   const focoDefault=note.focoSemana!=null?note.focoSemana:_weekFocusHint(S.teamId,monday,S.date);
   const focoVal=(draft&&draft.focoSemana!=null)?draft.focoSemana:focoDefault;
   const contenidoVal=(draft&&draft.contenido!=null)?draft.contenido:(note.contenido||"");
   const proximasVal=(draft&&draft.notasProximas!=null)?draft.notasProximas:(note.notasProximas||"");
+  // Objetivos del día -- lista, no un único texto (un entrenamiento suele
+  // tener varios objetivos concretos a la vez).
+  const objetivos=_tnObjetivos(note);
+  const objRows=objetivos.map(o=>`<div style="display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:6px">
+      <div style="flex:1;min-width:0;font-size:14px;color:var(--tx)">🎯 ${esc(o.text)}</div>
+      <button onclick="_tnRemoveObjetivo('${S.teamId}','${S.date}','${o.id}')" style="background:none;border:none;color:var(--tm);cursor:pointer;font-size:16px;padding:2px;flex-shrink:0">✕</button>
+    </div>`).join("");
+  const objAddRow=`<div style="display:flex;gap:6px">
+    <input class="fi" id="tn-objetivo-new" type="text" maxlength="120" placeholder="Ej: mejorar el bloqueo directo" style="flex:1;font-size:15px;padding:12px 14px" onkeydown="if(event.key==='Enter'){event.preventDefault();_tnAddObjetivo('${S.teamId}','${S.date}')}"/>
+    <button onclick="_tnAddObjetivo('${S.teamId}','${S.date}')" style="width:44px;flex-shrink:0;border:none;border-radius:10px;background:var(--orange);color:#fff;font-size:20px;font-weight:900;cursor:pointer">+</button>
+  </div>`;
   const currentHabits=Array.isArray(note.habitos)?note.habitos:[];
   const habitSuggestions=_tnHabitSuggestions(S.teamId,S.date).filter(l=>!currentHabits.includes(l));
   const habitChips=[...currentHabits.map(l=>({label:l,on:true})),...habitSuggestions.map(l=>({label:l,on:false}))].map(h=>{
     const safe=esc(h.label).replace(/'/g,"&#39;");
     return `<button onclick="_tnToggleHabit('${S.teamId}','${S.date}','${safe}')" style="display:flex;align-items:center;gap:5px;padding:8px 14px;border-radius:20px;border:2px solid ${h.on?"var(--orange)":"var(--border)"};background:${h.on?"rgba(240,99,24,.15)":"var(--s2)"};color:${h.on?"var(--orange)":"var(--tx)"};cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;white-space:nowrap">${h.on?"✓ ":""}${esc(h.label)}</button>`;
   }).join("");
+  // v2: el input de texto es la parte grande (más aire, letra más grande) y
+  // el botón de añadir es pequeño y cuadrado -- al revés que antes, donde
+  // ambos ocupaban el mismo alto y el foco visual no era el campo de texto.
   const habitAddRow=`<div style="display:flex;gap:6px;margin-top:8px">
-    <input class="fi" id="tn-habit-new" type="text" maxlength="40" placeholder="+ nuevo hábito (ej: rebote, bote, 1c1...)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();_tnAddCustomHabit('${S.teamId}','${S.date}')}"/>
-    <button class="btn-s" style="padding:0 16px;font-size:13px" onclick="_tnAddCustomHabit('${S.teamId}','${S.date}')">Añadir</button>
+    <input class="fi" id="tn-habit-new" type="text" maxlength="40" placeholder="+ nuevo hábito (ej: rebote, bote, 1c1...)" style="flex:1;font-size:15px;padding:12px 14px" onkeydown="if(event.key==='Enter'){event.preventDefault();_tnAddCustomHabit('${S.teamId}','${S.date}')}"/>
+    <button onclick="_tnAddCustomHabit('${S.teamId}','${S.date}')" style="width:44px;flex-shrink:0;border:none;border-radius:10px;background:var(--orange);color:#fff;font-size:20px;font-weight:900;cursor:pointer">+</button>
   </div>`;
   const players=pl(S.teamId).filter(p=>!p.matchOnly).sort((a,b)=>(a.number==null?99:a.number)-(b.number==null?99:b.number));
   const obsRows=(note.observaciones||[]).map(o=>{
@@ -6863,21 +6933,30 @@ function trainingNoteScreen(){
       <button class="btn-s" style="padding:8px 14px;font-size:13px" onclick="_tnToggleObsForm()">Cancelar</button>
     </div>`}
   </div>`:"";
-  const photoHtml=`<div class="fg"><label class="fl">📷 Foto del planteamiento</label><div class="photo-box" onclick="${note.foto?`_tnOpenPhotoPreview('${S.teamId}','${S.date}')`:"document.getElementById('tn-photo-input').click()"}">${note.foto?`<img src="${note.foto}"/><div style="font-size:11px;color:var(--td);margin-top:6px">Toca para ver</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto (opcional)</div>`}</div><input type="file" id="tn-photo-input" accept="image/*" style="display:none" onchange="_tnHandlePhoto(this)"/>${note.foto?`<div style="display:flex;gap:8px;margin-top:8px"><button onclick="document.getElementById('tn-photo-input').click()" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:8px 10px">🔄 Cambiar foto</button><button onclick="_tnRemovePhoto()" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:8px 12px">✕ Quitar</button></div>`:""}</div>`;
+  // v2: la foto pasa a ser opcional y discreta (poco uso esperado) -- ya no
+  // es una caja grande, solo un botón/miniatura compacta.
+  const photoHtml=note.foto
+    ?`<div class="fg"><label class="fl">📷 Foto del planteamiento</label><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <img src="${note.foto}" onclick="_tnOpenPhotoPreview('${S.teamId}','${S.date}')" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;border:1px solid var(--border);flex-shrink:0"/>
+        <button onclick="document.getElementById('tn-photo-input').click()" style="font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:7px 10px">🔄 Cambiar</button>
+        <button onclick="_tnRemovePhoto()" style="font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:7px 10px">✕ Quitar</button>
+      </div><input type="file" id="tn-photo-input" accept="image/*" style="display:none" onchange="_tnHandlePhoto(this)"/></div>`
+    :`<div class="fg"><button onclick="document.getElementById('tn-photo-input').click()" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--tm);background:var(--s2);border:1px solid var(--border);border-radius:8px;cursor:pointer;padding:8px 12px">📷 Foto del planteamiento (opcional)</button><input type="file" id="tn-photo-input" accept="image/*" style="display:none" onchange="_tnHandlePhoto(this)"/></div>`;
   const coachLine=note.coachName?`<div style="font-size:11px;color:var(--tm);margin-top:2px">📝 Registrado por ${esc(note.coachName)}</div>`:"";
   return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1;min-width:0"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">📝 Notas de entrenamiento</div><div style="font-size:11px;color:var(--orange);font-weight:700">${esc(t.name)} · ${cap(fd(S.date,true))}</div>${coachLine}</div>
+    <button onclick="_tnShare('${S.teamId}','${S.date}')" style="width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:16px;flex-shrink:0" title="Compartir">📤</button>
     <button class="bbtn" onclick="navTo('trainingNotesWeek',{teamId:S.teamId})" title="Ver semana">🗓️</button>
   </div></header>
   <div class="content">
     <div style="background:rgba(240,99,24,.08);border:1px solid rgba(240,99,24,.25);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--td);display:flex;align-items:center;gap:8px">
       <span style="font-size:16px">💡</span><span>Esto es la <b style="color:var(--tx)">planificación previa</b> — independiente de pasar lista, que sigue haciéndose aparte en el pabellón.</span>
     </div>
-    <div class="fg"><label class="fl">🎯 Objetivo del día</label><input class="fi" id="tn-objetivo" type="text" maxlength="120" placeholder="Ej: mejorar el bloqueo directo" value="${esc(objetivoVal)}" oninput="_tnAutoSave()"/></div>
+    <div class="fg"><label class="fl">🎯 Objetivos del día</label>${objRows}${objAddRow}</div>
     <div class="fg"><label class="fl">📌 Foco de la semana <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(opcional, se repite entre sesiones)</span></label><input class="fi" id="tn-foco" type="text" maxlength="120" placeholder="Ej: defensa individual" value="${esc(focoVal)}" oninput="_tnAutoSave()"/></div>
     <div class="fg"><label class="fl">✅ Hábitos trabajados hoy <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(los vuestros: rebote, bote...)</span></label>${habitChips?`<div style="display:flex;flex-wrap:wrap;gap:7px">${habitChips}</div>`:`<div style="font-size:12px;color:var(--tm);margin-bottom:2px">Todavía no hay ninguno guardado para este equipo. Añade el primero abajo.</div>`}${habitAddRow}</div>
-    <div class="fg"><label class="fl">🏀 Contenido técnico/táctico</label><textarea class="fi" id="tn-contenido" rows="4" style="resize:none" placeholder="Lista de ejercicios, calentamiento, situaciones de juego..." oninput="_tnAutoSave()">${esc(contenidoVal)}</textarea></div>
+    <div class="fg"><label class="fl">🏀 Contenido técnico/táctico</label><textarea class="fi" id="tn-contenido" rows="7" style="resize:vertical" placeholder="Lista de ejercicios, calentamiento, situaciones de juego..." oninput="_tnAutoSave()">${esc(contenidoVal)}</textarea></div>
     ${photoHtml}
     <div class="fg">
       <label class="fl">👤 Observaciones por jugador/a <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">(opcional)</span></label>
@@ -6885,8 +6964,8 @@ function trainingNoteScreen(){
       ${obsForm}
       ${!S._tnShowObsForm?`<button class="btn-s" style="width:100%;padding:9px;font-size:13px" onclick="_tnToggleObsForm()">+ Añadir observación</button>`:""}
     </div>
-    <div class="fg"><label class="fl">➡️ Notas para la próxima sesión</label><textarea class="fi" id="tn-proximas" rows="2" style="resize:none" placeholder="¿Qué retomar la próxima vez?" oninput="_tnAutoSave()">${esc(proximasVal)}</textarea></div>
-    <div id="tn-saved-hint" style="text-align:center;font-size:11px;color:var(--td);height:16px;margin-top:4px"></div>
+    <div class="fg"><label class="fl">➡️ Notas para la próxima sesión</label><textarea class="fi" id="tn-proximas" rows="4" style="resize:vertical" placeholder="¿Qué retomar la próxima vez?" oninput="_tnAutoSave()">${esc(proximasVal)}</textarea></div>
+    <div id="tn-saved-hint" style="text-align:center;font-size:11px;color:var(--tm);height:16px;margin-top:4px">💾 Autoguardado</div>
   </div>`;
 }
 // Vista semanal por categoría: todas las sesiones de la semana agrupadas,
@@ -6907,6 +6986,7 @@ function trainingNotesWeekScreen(){
     if(!trains&&!note)return"";
     const isToday=d===td();
     const habitsOn=note&&Array.isArray(note.habitos)?note.habitos:[];
+    const objetivosPrev=note?_tnObjetivos(note):[];
     return`<div onclick="navTo('trainingNote',{teamId:'${S.teamId}',date:'${d}'})" style="background:var(--s);border:1px solid ${note?"rgba(34,197,94,.3)":"rgba(249,115,22,.3)"};border-radius:14px;margin-bottom:10px;overflow:hidden;cursor:pointer">
       <div style="height:4px;background:${t.color}"></div>
       <div style="padding:12px 14px">
@@ -6918,7 +6998,7 @@ function trainingNotesWeekScreen(){
           ${note?`<span style="background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">✓ Planificado</span>`:`<span style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">Sin planificar</span>`}
         </div>
         ${note?`
-        ${note.objetivo?`<div style="font-size:13px;color:var(--tx);margin-bottom:6px">🎯 ${esc(note.objetivo)}</div>`:""}
+        ${objetivosPrev.length?`<div style="font-size:13px;color:var(--tx);margin-bottom:6px">🎯 ${objetivosPrev.slice(0,2).map(o=>esc(o.text)).join(" · ")}${objetivosPrev.length>2?" +"+(objetivosPrev.length-2):""}</div>`:""}
         <div style="display:flex;align-items:center;gap:10px">
           ${habitsOn.length?`<div style="font-size:11px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border-radius:8px;padding:2px 9px">✅ ${habitsOn.slice(0,3).map(h=>esc(h)).join(", ")}${habitsOn.length>3?" +"+(habitsOn.length-3):""}</div>`:`<span style="font-size:11px;color:var(--tm)">Sin hábitos marcados</span>`}
           ${note.foto?`<img src="${note.foto}" style="width:28px;height:28px;border-radius:6px;object-fit:cover;margin-left:auto"/>`:""}
