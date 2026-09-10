@@ -123,6 +123,39 @@ async function run() {
   ]));
   report.assert(!!(win.S.trainingNotes && win.S.trainingNotes[key]), "las notas de entrenamiento de un equipo no visible también llegan en tiempo real");
 
+  // ── Comprobación pedida explícitamente por el usuario: si estoy PARADO en
+  // la pantalla "Hoy" (sin tocar nada) y otro entrenador pasa la lista de un
+  // equipo que no es el mío, ¿se actualiza solo, o hace falta entrar a
+  // "pasar lista" para verlo? Debe actualizarse solo. ──
+  win.S.players.t2 = [{ id: "px", name: "Jugadora Test", number: 9 }];
+  const hoyIdx = win.todayIdx();
+  const hoyFecha = win.td();
+  // t2 entrena hoy a las 18:00 -- y "Equipo Uno" (t1, el que SÍ estoy
+  // viendo) también, para que quede claro que no estoy tocando ese equipo.
+  mock.fire("clubs/cbjaca/teams", docsSnap([
+    { id: "t1", name: "Equipo Uno", order: 0, schedule: { [hoyIdx]: "17:00" } },
+    { id: "t2", name: "Equipo Dos", order: 1, schedule: { [hoyIdx]: "18:00" } }
+  ]));
+  win.S.screen = "hoy";
+  win.render(); // como si el entrenador ya estuviera parado mirando la pantalla Hoy
+
+  const hoyHtmlAntes = win.document.getElementById("root").innerHTML;
+  report.assert(hoyHtmlAntes.includes("Equipo Dos"), "la pantalla Hoy, ya renderizada, muestra la tarjeta de entrenamiento de Equipo Dos (t2)");
+  report.assert(/Equipo Dos[\s\S]*?Pendiente/.test(hoyHtmlAntes), "antes de que nadie pase lista, la tarjeta de Equipo Dos sale como \"Pendiente\"");
+  report.assert(!/Equipo Dos[\s\S]*?Pasada/.test(hoyHtmlAntes), "todavía no sale \"✓ Pasada\" para Equipo Dos");
+
+  // Ahora "otro entrenador" pasa la lista de t2 HOY (no de este dispositivo:
+  // llega solo por el listener, sin que este dispositivo llame a save() ni
+  // navegue a ningún sitio).
+  mock.fire("clubs/cbjaca/teams/t2/sessions", changesSnap([
+    { type: "added", id: hoyFecha, data: { px: "present" } }
+  ]));
+
+  const hoyHtmlDespues = win.document.getElementById("root").innerHTML;
+  report.assert(win.S.screen === "hoy", "seguimos en la pantalla Hoy (no ha hecho falta navegar a ningún sitio)");
+  report.assert(/Equipo Dos[\s\S]*?Pasada/.test(hoyHtmlDespues), "en cuanto llega la asistencia de t2, la tarjeta de Equipo Dos cambia sola a \"✓ Pasada\" -- sin tocar nada ni entrar en ese equipo");
+  report.assert(hoyHtmlDespues !== hoyHtmlAntes, "el HTML de la pantalla Hoy realmente cambia solo (no hace falta pulsar \"pasar lista\" para refrescarlo)");
+
   // Si t2 se da de baja del club, su listener de asistencia se debe cortar
   // (no debe quedar escuchando para siempre a un equipo borrado).
   mock.fire("clubs/cbjaca/teams", docsSnap([
