@@ -2045,7 +2045,11 @@ const POSITIONS=["Base","Escolta","Alero","Ala-Pívot","Pívot"];
 const ASTS=["present","absent","late","excused"];
 const AV={present:{l:"Presente",c:"#22c55e",bg:"rgba(34,197,94,.15)",i:"✓"},absent:{l:"Ausente",c:"#ef4444",bg:"rgba(239,68,68,.15)",i:"✗"},late:{l:"Tarde",c:"#f59e0b",bg:"rgba(245,158,11,.15)",i:"⏱"},excused:{l:"Justif.",c:"#6b7280",bg:"rgba(107,114,128,.15)",i:"◎"}};
 const JUST_REASONS=[{id:"sick",label:"Enfermo/a",icon:"🤒"},{id:"injury",label:"Lesionado/a",icon:"🤕"},{id:"study",label:"Examen/Estudio",icon:"📚"},{id:"vacation",label:"Vacaciones",icon:"🏖️"},{id:"travel",label:"Viaje",icon:"✈️"},{id:"family",label:"Familia",icon:"👪"},{id:"punishment",label:"Castigado/a",icon:"😤"},{id:"other",label:"Otro",icon:"📝"}];
-const DEFAULT_CFG={riskThreshold:75,features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
+// v3.0.0-dev.55 · B-SEASON1: seasonStart empieza en null (sin recorte de
+// pretemporada) a propósito -- es una decisión que tiene que tomar el
+// entrenador desde Ajustes -> Estadísticas cada temporada, no un valor que
+// aparezca solo. null/vacío = comportamiento de siempre (nada excluido).
+const DEFAULT_CFG={riskThreshold:75,seasonStart:null,features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
 // v3.0.0-dev.34 · B-DRILL1: catalogo de ejercicios reutilizables por equipo
 // (planificacion de entrenamientos, v1 acotada). No sustituye al campo libre
 // "Ejercicios del entrenamiento" (f.exercises) -- es un catalogo aparte,
@@ -2130,7 +2134,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.54";
+const APP_VERSION = "3.0.0-dev.55";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2791,6 +2795,17 @@ function toast(m){document.querySelectorAll(".toast").forEach(e=>e.remove());con
 // si no existe (datos legacy), inferimos la primera sesión en la que aparece
 // con un estado registrado explícito. Si nunca aparece, devuelve null → se
 // considera "existe desde siempre" (comportamiento previo, retrocompatible).
+// v3.0.0-dev.55 · B-SEASON1: pretemporada (Ajustes -> Estadísticas ->
+// "Inicio de temporada"). Los entrenamientos de antes de esa fecha se
+// registran exactamente igual que cualquier otro (pasar lista, Historial,
+// hoja "Sesiones" del Excel siguen mostrando el día real, se haya jugado o
+// no) -- lo único que cambia es que NO cuentan en los AGREGADOS de
+// temporada: % de asistencia, riesgo FEB, racha de ausencias, gráficas,
+// resumen de temporada en PDF/Excel. seasonStart vacío/null = sin recorte
+// (comportamiento de siempre).
+function _isDateInSeason(date){
+  return !S.cfg.seasonStart||date>=S.cfg.seasonStart;
+}
 function _playerStartDate(p,sessList){
   if(p.addedAt)return p.addedAt;
   let first=null;
@@ -2819,9 +2834,10 @@ function _isPlayerActiveOn(p,date,sessList){
   const start=_playerStartDate(p,sessList);
   return !start||date>=start;
 }
-// Filtra la lista de sesiones a las que un jugador ya estaba en plantilla.
+// Filtra la lista de sesiones a las que un jugador ya estaba en plantilla
+// Y que cuentan para las estadísticas de temporada (B-SEASON1).
 function _sessForPlayer(p,sessList){
-  return sessList.filter(s=>_isPlayerActiveOn(p,s.date,sessList));
+  return sessList.filter(s=>_isDateInSeason(s.date)&&_isPlayerActiveOn(p,s.date,sessList));
 }
 // Cuenta estados de asistencia aplicando el filtro de alta del jugador.
 function _countAtt(p,sessList){
@@ -2869,7 +2885,7 @@ function injuryWasAtRisk(p){
 // snapshot que queda congelado mientras dure la lesión.
 function computeInjurySnapshot(p,startDate,sessList){
   const start=p&&p.addedAt?p.addedAt:_playerStartDate(p||{},sessList);
-  const rel=sessList.filter(s=>(!start||s.date>=start)&&(!startDate||s.date<startDate));
+  const rel=sessList.filter(s=>_isDateInSeason(s.date)&&(!start||s.date>=start)&&(!startDate||s.date<startDate));
   if(!rel.length)return{pct:100,tot:0};
   let pr=0;
   rel.forEach(s=>{
@@ -3015,9 +3031,14 @@ function _buildStatsCharts(){
   const players=pl(tid);
   const t=S.teams.find(x=>x.id===tid);
   const thr=S.cfg.riskThreshold;
+  // v3.0.0-dev.55 · B-SEASON1: las gráficas son una vista de temporada --
+  // se excluye la pretemporada de raíz aquí (no solo vía _isPlayerActiveOn)
+  // para que la línea de tendencia no muestre un falso "0%" en días de
+  // pretemporada sin jugadores "activos" que contar.
   const allSess=Object.entries(S.sessions)
     .filter(([k])=>k.startsWith(tid+"_"))
     .map(([k,v])=>({date:k.replace(tid+"_",""),data:v}))
+    .filter(s=>_isDateInSeason(s.date))
     .sort((a,b)=>a.date.localeCompare(b.date));
   if(!allSess.length)return;
   // Shared tooltip style
@@ -3117,7 +3138,10 @@ function exportPDF(){
   // puntuales de partido (matchOnly) no entrenan, no pintan nada aquí
   // (ellos salen en la exportación de partidos, no en la de asistencia).
   const players=pl(S.teamId).filter(p=>!p.matchOnly);
-  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).sort((a,b)=>a.date.localeCompare(b.date));
+  // v3.0.0-dev.55 · B-SEASON1: informe de TEMPORADA -- se excluye la
+  // pretemporada de raíz (no hay tabla día a día en este PDF, todo lo que
+  // usa allSess de aquí en adelante es agregado de temporada).
+  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).filter(s=>_isDateInSeason(s.date)).sort((a,b)=>a.date.localeCompare(b.date));
   const thr=S.cfg.riskThreshold;
   const sf=S.sf||"all";
   // Pre-calcula stats por jugador respetando fecha de alta
@@ -3244,16 +3268,21 @@ function exportExcel(){
   // entrenan, se excluyen de las hojas de asistencia de temporada.
   const players=pl(S.teamId).filter(p=>!p.matchOnly);
   const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).sort((a,b)=>a.date.localeCompare(b.date));
+  // v3.0.0-dev.55 · B-SEASON1: allSess sigue siendo TODO el histórico (la
+  // hoja "Sesiones" -- día a día -- se queda igual que siempre, pretemporada
+  // incluida: son entrenamientos reales). seasonSess es solo para los
+  // agregados de temporada (hoja "Jugadores"/"Riesgo"/"Racha" y "Mensual").
+  const seasonSess=allSess.filter(s=>_isDateInSeason(s.date));
   const thr=S.cfg.riskThreshold;
   const sf=S.sf||"all";
   const wb=XLSX.utils.book_new();
   // Pre-calcula stats por jugador respetando fecha de alta y lesión
   const pStats=players.map(p=>{
-    const c=_countAtt(p,allSess);
+    const c=_countAtt(p,seasonSess);
     let streak=0;
-    for(const s of [...allSess].reverse()){const v=s.data[p.id]||"present";if(v==="absent")streak++;else break;}
+    for(const s of [...seasonSess].reverse()){const v=s.data[p.id]||"present";if(v==="absent")streak++;else break;}
     let scoreSum=0,scoreCnt=0;
-    allSess.forEach(s=>{const sc=s.data[p.id+"_score"];if(sc){scoreSum+=sc;scoreCnt++;}});
+    seasonSess.forEach(s=>{const sc=s.data[p.id+"_score"];if(sc){scoreSum+=sc;scoreCnt++;}});
     const isInj=isInjured(p);
     const wasAtRisk=injuryWasAtRisk(p);
     const pct=c.tot>0?pc(c.pr+c.la,c.tot)/100:0;
@@ -3303,13 +3332,15 @@ function exportExcel(){
   for(let r=1;r<=sr.e.r;r++){const cell=ws2[XLSX.utils.encode_cell({r,c:pctColIdx})];if(cell)cell.z="0%";}
   XLSX.utils.book_append_sheet(wb,ws2,"Sesiones");
   // ── Sheet 3: Monthly summary — media ponderada por jugador-sesión activo
+  // (B-SEASON1: sobre seasonSess -- un mes que sea 100% pretemporada
+  // sencillamente no sale aquí, igual que no cuenta en ningún otro agregado).
   const byM={};
-  allSess.forEach(s=>{
+  seasonSess.forEach(s=>{
     const m=s.date.slice(0,7);
     if(!byM[m])byM[m]={sesiones:0,sumPr:0,sumPs:0};
     byM[m].sesiones++;
     sortedP.forEach(p=>{
-      if(!_isPlayerActiveOn(p,s.date,allSess))return;
+      if(!_isPlayerActiveOn(p,s.date,seasonSess))return;
       byM[m].sumPs++;
       const v=s.data[p.id]||"present";
       if(v==="present"||v==="late")byM[m].sumPr++;
@@ -4128,10 +4159,27 @@ function stats(){
   // sin tocar, en la pestaña Partidos más abajo -- esa usa `players` sin
   // filtrar a propósito, porque ahí sí jugaron).
   const attPlayers=players.filter(p=>!p.matchOnly);
-  const sessList=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
+  const rawSessList=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
   const thr=S.cfg.riskThreshold;
   const feat=S.cfg.features;
   const view=S.statsView||"table";
+  const totalAll=rawSessList.length;
+  if(totalAll===0)return`<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")}</div></div>
+  </div></header>
+  <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm);margin-bottom:14px">Sin sesiones aún.<br/>Pasa lista primero.</div><button class="btn-p" style="max-width:240px;margin:0 auto" onclick="navTo('att',{date:td()})">✅ Pasar lista ahora</button></div></div>
+  ${navBar()}`;
+  // v3.0.0-dev.55 · B-SEASON1: esta pantalla es la vista de TEMPORADA (a
+  // diferencia de Historial, que sigue enseñando todo el histórico) -- a
+  // partir de aquí, todo se calcula solo sobre sesiones de temporada.
+  const sessList=rawSessList.filter(s=>_isDateInSeason(s.date));
+  if(sessList.length===0)return`<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")}</div></div>
+  </div></header>
+  <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">🏋️</div><div style="font-size:14px;color:var(--tm);margin-bottom:6px">Solo hay pretemporada registrada.</div><div style="font-size:12px;color:var(--tm);margin-bottom:14px">Las estadísticas de temporada empiezan el ${fd(S.cfg.seasonStart,true)} — mientras tanto, esos entrenamientos se pueden consultar en Historial.</div><button class="btn-p" style="max-width:240px;margin:0 auto" onclick="navTo('hist')">📅 Ver Historial</button></div></div>
+  ${navBar()}`;
   // ── Mes seleccionado ──────────────────────────────────────────────────────
   const sessMonths=[...new Set(sessList.map(s=>s.date.slice(0,7)))].sort().reverse();
   const matchMonthsSrc=(S.matches[S.teamId]||[]).filter(mm=>mm.date&&_hasMatchStats(mm)).map(mm=>mm.date.slice(0,7));
@@ -4139,13 +4187,6 @@ function stats(){
   const filteredSess=S.statsMonth?sessList.filter(s=>s.date.startsWith(S.statsMonth)):sessList;
   const allSess=filteredSess.map(s=>s.data);
   const total=filteredSess.length;
-  const totalAll=sessList.length;
-  if(totalAll===0)return`<header class="header"><div class="hrow">
-    <button class="bbtn" onclick="navBack()">←</button>
-    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")}</div></div>
-  </div></header>
-  <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm);margin-bottom:14px">Sin sesiones aún.<br/>Pasa lista primero.</div><button class="btn-p" style="max-width:240px;margin:0 auto" onclick="navTo('att',{date:td()})">✅ Pasar lista ahora</button></div></div>
-  ${navBar()}`;
   const sortedSess=[...filteredSess].sort((a,b)=>b.date.localeCompare(a.date));
   const pst=attPlayers.map(p=>{
     const c=_countAtt(p,filteredSess);
@@ -4381,11 +4422,15 @@ function hist(){
   let mStats="";
   if(entries.length>0&&players.length>0){
     const mTot=entries.length;
-    // Media ponderada por jugador-sesión activo (respeta fecha de alta del jugador)
+    // Media ponderada por jugador-sesión activo (respeta fecha de alta del
+    // jugador) Y de temporada (B-SEASON1: un mes con pretemporada mezclada
+    // con temporada solo promedia los días que sí cuentan; el listado de
+    // sesiones de abajo, en cambio, se queda igual -- muestra TODO lo que
+    // pasó de verdad ese mes).
     let sumPr=0,sumPs=0;
     entries.forEach(e=>{
       players.forEach(p=>{
-        if(!_isPlayerActiveOn(p,e.date,allEntries))return;
+        if(!_isDateInSeason(e.date)||!_isPlayerActiveOn(p,e.date,allEntries))return;
         sumPs++;
         const v=e.data[p.id]||"present";
         if(v==="present"||v==="late")sumPr++;
@@ -4594,7 +4639,10 @@ function team(){
   // la media. El resto de la app (exportPDF, Stats, Historial) ya
   // respetaba esto vía _playerStartDate/_countAtt -- aquí solo faltaba
   // usarlo también.
-  const allSessTeam=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
+  // v3.0.0-dev.55 · B-SEASON1: "Asistencia media" es un agregado de
+  // temporada -- se excluye la pretemporada de raíz, para que el número de
+  // "X entrenamientos" cuadre con el % mostrado justo al lado.
+  const allSessTeam=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).filter(s=>_isDateInSeason(s.date));
   const totalSessTeam=allSessTeam.length;
   let avgPctTeam=0;
   if(totalSessTeam>0&&players.length>0){
@@ -5193,6 +5241,10 @@ function openClubSettings(){
       <div class="fg"><label class="fl">Umbral de riesgo FEB</label>
         <select class="fi" id="cfg-risk">${[60,65,70,75,80,85].map(v=>`<option value="${v}" ${S.cfg.riskThreshold==v?"selected":""}>${v}% — ${v===75?"Estándar FEB":v<75?"Más permisivo":"Más exigente"}</option>`).join("")}</select>
         <div style="font-size:12px;color:var(--tm);margin-top:5px">Jugadores por debajo de este % aparecen en "Riesgo". La FEB exige 75% mínimo para competir.</div>
+      </div>
+      <div class="fg"><label class="fl">Inicio de temporada <span style="color:var(--tm)">(pretemporada excluida de las estadísticas)</span></label>
+        <input type="date" class="fi" id="cfg-season-start" value="${S.cfg.seasonStart||""}"/>
+        <div style="font-size:12px;color:var(--tm);margin-top:5px">Los entrenamientos de antes de esta fecha se siguen guardando igual (Historial los muestra tal cual) pero no cuentan en % de asistencia, riesgo FEB, gráficas ni exports de temporada. Déjalo vacío para no excluir nada.</div>
       </div>
     </div>
     <div class="stg-sec" style="margin-top:4px">
@@ -6130,7 +6182,13 @@ function saveClubSettings(){
     if(cn)_setCoachName(cn);
     else{lsSet("cbj:coachname","",true);}
   }
-  const name=document.getElementById("cfg-name")?.value.trim();if(name)S.clubName=name;const abrev=document.getElementById("cfg-abrev")?.value.trim();S.clubAbrev=abrev!==undefined?abrev:S.clubAbrev;const lema=document.getElementById("cfg-lema")?.value.trim();S.clubLema=lema!==undefined?lema:S.clubLema;const risk=document.getElementById("cfg-risk")?.value;if(risk)S.cfg.riskThreshold=parseInt(risk);save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
+  const name=document.getElementById("cfg-name")?.value.trim();if(name)S.clubName=name;const abrev=document.getElementById("cfg-abrev")?.value.trim();S.clubAbrev=abrev!==undefined?abrev:S.clubAbrev;const lema=document.getElementById("cfg-lema")?.value.trim();S.clubLema=lema!==undefined?lema:S.clubLema;const risk=document.getElementById("cfg-risk")?.value;if(risk)S.cfg.riskThreshold=parseInt(risk);
+  // v3.0.0-dev.55 · B-SEASON1: a diferencia del resto de campos, aquí SÍ
+  // hay que aceptar un valor vacío (significa "sin recorte de pretemporada"
+  // -- volver al comportamiento de siempre), así que no se usa "if(valor)".
+  const seasonStartEl=document.getElementById("cfg-season-start");
+  if(seasonStartEl)S.cfg.seasonStart=seasonStartEl.value||null;
+  save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
 function saveTeam(mid,eid){
   // Normalización v1.6.9: los nombres de equipo se guardan siempre en MAYÚSCULAS
   // para coherencia con cómo se muestran en la UI y con la confirmación tipografiada de borrado.

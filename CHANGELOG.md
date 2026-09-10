@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Excluir la pretemporada de las estadísticas de asistencia (2026-09-10)
+
+### Añadido
+
+- **B-SEASON1**. Petición del usuario: los entrenamientos de pretemporada (este año, antes del 14/09) no deben contar en las estadísticas de asistencia. Nueva fecha configurable **"Inicio de temporada"** en Ajustes → Estadísticas y exportación (junto al umbral de riesgo FEB), vacía por defecto (ningún club se ve afectado sin tocarla). A partir de ahí, cualquier entrenamiento anterior a esa fecha sigue registrándose exactamente igual que cualquier otro — pasar lista funciona igual, Historial y la hoja "Sesiones" del Excel siguen mostrando esos días tal cual pasaron — pero deja de contar en los AGREGADOS de temporada: % de asistencia (pantalla Equipo y Estadísticas), riesgo FEB, racha de ausencias, gráficas, informe PDF, hojas "Jugadores"/"Mensual"/"Riesgo FEB" del Excel, resumen semanal por WhatsApp, y el snapshot de asistencia que se congela al marcar una lesión. Nuevo punto único `_isDateInSeason(date)`, aplicado en `_sessForPlayer` (de donde beben `_countAtt` y casi todos los sitios anteriores) y explícitamente en los pocos sitios que no pasan por ahí (`computeInjurySnapshot`, la media mensual de Historial, las gráficas y los exports) — siguiendo el mismo patrón de "punto único" que ya se usó para la fecha de alta del jugador (`_isPlayerActiveOn`, B-GUEST3), para no reabrir el mismo bug de reimplementaciones sueltas que se desincronizan. Si un equipo solo tiene pretemporada registrada todavía, la pantalla Estadísticas lo explica en vez de enseñar una tabla vacía confusa, con acceso directo a Historial.
+
+### Probado (jsdom)
+
+- `tests/season_cutoff.test.js` (nuevo, 20 comprobaciones): sin `seasonStart` configurado no cambia nada (comportamiento de siempre); con el corte activo, `team()`/`stats()`/`hist()` (solo la media del mes, no el día a día)/`computeInjurySnapshot()` excluyen correctamente la pretemporada de sus agregados mientras el registro día a día se mantiene intacto; el aviso de "solo hay pretemporada" en Estadísticas; y el campo de Ajustes se precarga, guarda y permite volver a desactivar el corte (vacío → `null`, no cadena vacía).
+- Suite completa: 652/652 en 49 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.55`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · La asistencia de un equipo no visible no llegaba a otros dispositivos hasta entrar en ese equipo (2026-09-10)
 
 ### Corregido
