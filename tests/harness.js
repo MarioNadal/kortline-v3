@@ -38,8 +38,30 @@ function buildBridgeScript() {
   return "<script>" + assigns + bindings + "</script>";
 }
 
-function loadApp() {
+const REAL_FIREBASE_SCRIPT_TAGS = [
+  '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>',
+  '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>',
+  '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>'
+].join("\n");
+
+function loadApp(opts) {
+  opts = opts || {};
   let html = fs.readFileSync(INDEX_HTML_PATH, "utf-8");
+  if (opts.firebase) {
+    // IMPORTANTE: si vamos a inyectar un firebase falso (para poder
+    // ejercitar la ruta de sincronizacion con Firestore en un test), hay
+    // que quitar del HTML las tres etiquetas <script src=...gstatic.com...>
+    // que cargan el SDK REAL antes de construir el JSDOM. Si no se quitan,
+    // jsdom (resources:"usable") las descarga de verdad y ese script real
+    // sobreescribe window.firebase DESPUES de que beforeParse ponga el
+    // mock, dejando que _fbInit()/_attachClubListeners() corran contra el
+    // SDK autentico -- inicializado con el FIREBASE_CONFIG real de
+    // produccion. Nunca debe pasar en un test.
+    if (!html.includes(REAL_FIREBASE_SCRIPT_TAGS)) {
+      throw new Error("loadApp({firebase}): no se encontraron las 3 etiquetas <script src=...gstatic.com...> esperadas en index.html -- revisar REAL_FIREBASE_SCRIPT_TAGS en harness.js antes de continuar (por seguridad, no se debe cargar el SDK real en un test con firebase mockeado).");
+    }
+    html = html.replace(REAL_FIREBASE_SCRIPT_TAGS, "<!-- SDK de Firebase real quitado por harness.js: loadApp({firebase}) usa un mock -->");
+  }
   html = html.replace("</body>", buildBridgeScript() + "</body>");
 
   const dom = new JSDOM(html, {
@@ -52,6 +74,13 @@ function loadApp() {
       };
       window.requestAnimationFrame = window.requestAnimationFrame || (cb => setTimeout(cb, 0));
       window.cancelAnimationFrame = window.cancelAnimationFrame || clearTimeout;
+      // Opcional: inyectar un "firebase" falso ANTES de que se ejecute el
+      // script de index.html, para los tests que necesitan ejercitar la
+      // ruta de sincronización con Firestore (por defecto no se inyecta
+      // nada, y typeof firebase==="undefined" hace que la app arranque en
+      // modo local, como hasta ahora -- no cambia el comportamiento de
+      // ningún test existente que llame a loadApp() sin argumentos).
+      if (opts.firebase) window.firebase = opts.firebase;
     }
   });
 

@@ -2130,7 +2130,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.53";
+const APP_VERSION = "3.0.0-dev.54";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2371,6 +2371,11 @@ async function _runCloudSync(){
 
 /* ── Entrada: Firestore → S en tiempo real ── */
 let _clubUnsubs=[],_teamUnsubs=[],_lastListenedTeamId=undefined;
+// v3 · B-SYNCATT1: listeners de asistencia (sessions) y notas de
+// entrenamiento (trainingNotes), uno por equipo, para TODOS los equipos
+// del club a la vez (ver _syncSessionListeners más abajo) — independiente
+// de qué equipo se esté viendo en pantalla.
+let _sessionUnsubsByTid={};
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
@@ -2389,6 +2394,15 @@ function _persistLocalCacheOnly(){
 // eco y no hay nada que hacer.
 function _attachClubListeners(){
   _teardown(_clubUnsubs);
+  Object.keys(_sessionUnsubsByTid).forEach(tid=>_teardown(_sessionUnsubsByTid[tid]));
+  _sessionUnsubsByTid={};
+  // v3 · B-SYNCATT1: conectar ya mismo con los equipos que tengamos en caché
+  // local (S.teams se rellena en load() antes de llegar aquí) -- si
+  // esperásemos solo al primer snapshot de "teams" de más abajo, un día
+  // normal en el que la lista de equipos no ha cambiado respecto a la
+  // caché haría que ese snapshot saliera "igual que ya teníamos" y nunca
+  // llegásemos a conectar los listeners de asistencia.
+  _syncSessionListeners();
   _clubUnsubs.push(_clubDocRef().onSnapshot(snap=>{
     if(!snap.exists)return;
     const rd=_fsRestore(snap.data()||{});
@@ -2412,6 +2426,10 @@ function _attachClubListeners(){
     _applyingRemote=true;S.teams=fresh;
     const needsBackfill=_sortTeams();
     _applyingRemote=false;
+    // v3 · B-SYNCATT1: cada vez que cambia la lista de equipos (incluida la
+    // primera vez, al entrar), (re)conectamos los listeners de asistencia
+    // de TODOS los equipos -- no solo del que se esté viendo.
+    _syncSessionListeners();
     if(needsBackfill){
       // Equipos antiguos sin campo "order": lo asignamos aquí y lo subimos a
       // Firestore para que todos los entrenadores converjan al mismo orden
@@ -2421,6 +2439,65 @@ function _attachClubListeners(){
       _persistLocalCacheOnly();render();
     }
   }));
+}
+// v3 · B-SYNCATT1: antes, la asistencia (colección "sessions" de Firestore)
+// solo se escuchaba en tiempo real para el equipo que se tenía abierto en
+// pantalla en ese momento (ver _attachTeamListeners, más abajo), porque se
+// reconectaba en cada cambio de S.teamId. Si un entrenador pasaba
+// asistencia -- de hoy o de otro día -- de un equipo que otro dispositivo
+// no tenía abierto, ese cambio no llegaba a ese dispositivo hasta que
+// alguien entraba en ese equipo concreto (lo que hacía parecer que la
+// pantalla "Hoy" no se actualizaba con lo que ponían los demás). Ahora se
+// escucha la asistencia (y las notas de entrenamiento, que comparten
+// exactamente el mismo mecanismo) de TODOS los equipos del club a la vez,
+// se esté viendo esa pantalla o no. El resto de colecciones por equipo
+// (jugadoras, partidos, eventos, ejercicios) se editan casi siempre estando
+// dentro de ese equipo, así que se quedan igual que antes: por equipo, bajo
+// demanda, en _attachTeamListeners.
+function _attachSessionListeners(tid){
+  const unsubs=[];
+  const teamRef=_teamDocRef(tid);
+  unsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
+    let changed=false;
+    _applyingRemote=true;
+    snap.docChanges().forEach(ch=>{
+      const key=sk(tid, ch.doc.id);
+      const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
+      if(JSON.stringify(fresh)===JSON.stringify(S.sessions[key]))return; // eco de nuestro propio guardado
+      changed=true;
+      if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=fresh;
+    });
+    _applyingRemote=false;
+    if(!changed)return;
+    _persistLocalCacheOnly();render();
+  }));
+  unsubs.push(teamRef.collection("trainingNotes").onSnapshot(snap=>{
+    let changed=false;
+    _applyingRemote=true;
+    if(!S.trainingNotes)S.trainingNotes={};
+    snap.docChanges().forEach(ch=>{
+      const key=sk(tid, ch.doc.id);
+      const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
+      if(JSON.stringify(fresh)===JSON.stringify(S.trainingNotes[key]))return;
+      changed=true;
+      if(ch.type==="removed")delete S.trainingNotes[key]; else S.trainingNotes[key]=fresh;
+    });
+    _applyingRemote=false;
+    if(!changed)return;
+    _persistLocalCacheOnly();render();
+  }));
+  return unsubs;
+}
+function _syncSessionListeners(){
+  const currentIds=new Set(S.teams.map(t=>t.id));
+  // Baja: equipos que ya no existen (borrados) -- cortar sus listeners.
+  Object.keys(_sessionUnsubsByTid).forEach(tid=>{
+    if(!currentIds.has(tid)){ _teardown(_sessionUnsubsByTid[tid]); delete _sessionUnsubsByTid[tid]; }
+  });
+  // Alta: equipos nuevos (o la primera carga) que aún no tienen listener.
+  currentIds.forEach(tid=>{
+    if(!_sessionUnsubsByTid[tid]) _sessionUnsubsByTid[tid]=_attachSessionListeners(tid);
+  });
 }
 function _attachTeamListeners(tid){
   _teardown(_teamUnsubs);
@@ -2450,38 +2527,10 @@ function _attachTeamListeners(tid){
     _applyingRemote=true;if(!S.drills)S.drills={};S.drills[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
-  _teamUnsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
-    let changed=false;
-    _applyingRemote=true;
-    snap.docChanges().forEach(ch=>{
-      const key=sk(tid, ch.doc.id);
-      const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
-      if(JSON.stringify(fresh)===JSON.stringify(S.sessions[key]))return; // eco de nuestro propio guardado
-      changed=true;
-      if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=fresh;
-    });
-    _applyingRemote=false;
-    if(!changed)return;
-    _persistLocalCacheOnly();render();
-  }));
-  // v3 · B-TNOTES1: "Notas de entrenamiento" -- misma mecánica que sessions
-  // (colección aparte de Firestore, mismo formato de clave "tid_date") pero
-  // deliberadamente independiente de la asistencia, tal y como se pidió.
-  _teamUnsubs.push(teamRef.collection("trainingNotes").onSnapshot(snap=>{
-    let changed=false;
-    _applyingRemote=true;
-    if(!S.trainingNotes)S.trainingNotes={};
-    snap.docChanges().forEach(ch=>{
-      const key=sk(tid, ch.doc.id);
-      const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
-      if(JSON.stringify(fresh)===JSON.stringify(S.trainingNotes[key]))return;
-      changed=true;
-      if(ch.type==="removed")delete S.trainingNotes[key]; else S.trainingNotes[key]=fresh;
-    });
-    _applyingRemote=false;
-    if(!changed)return;
-    _persistLocalCacheOnly();render();
-  }));
+  // v3 · B-SYNCATT1: "sessions" (asistencia) y "trainingNotes" ya NO se
+  // escuchan aquí -- se escuchan para TODOS los equipos a la vez desde
+  // _attachSessionListeners/_syncSessionListeners (ver más arriba), no solo
+  // para el equipo que se está viendo. Ver ese comentario para el porqué.
 }
 
 /* ═══════════════════════════════════════

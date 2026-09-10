@@ -3,6 +3,18 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · La asistencia de un equipo no visible no llegaba a otros dispositivos hasta entrar en ese equipo (2026-09-10)
+
+### Corregido
+
+- **B-SYNCATT1**. Reportado por el usuario: "al pasar una asistencia de un equipo que no está en la pantalla de hoy [...] hasta que no entro en el equipo no lo recarga en otros dispositivos". La sincronización en tiempo real con Firestore tenía dos niveles: a nivel de club (datos del club y la lista de equipos), un único listener activo siempre desde que se entra en la app; a nivel de equipo (jugadoras, partidos, eventos, ejercicios, **asistencia** y notas de entrenamiento), un listener que solo cubría el equipo que ese dispositivo concreto tuviera abierto en pantalla en ese momento (`S.teamId`), y que se desconectaba y reconectaba a otro equipo cada vez que se navegaba a un equipo distinto (`render()` comparaba `S.teamId` contra el último equipo escuchado). Si el Entrenador A pasaba asistencia de un equipo que el Entrenador B no tenía abierto en su pantalla — de hoy o de cualquier otro día — ese cambio nunca llegaba al dispositivo de B: nada estaba escuchando ese equipo. La pantalla "Hoy" de B parecía "no actualizarse con lo que ponen los demás", aunque en realidad nunca había estado recibiendo esos datos. Se separa la asistencia (`sessions`) y las notas de entrenamiento (`trainingNotes`, mismo mecanismo) del resto de colecciones por equipo: ahora se escuchan para **todos los equipos del club a la vez**, se estén viendo en pantalla o no, con un listener por equipo que se conecta nada más entrar en la app (o nada más darse de alta un equipo nuevo) y se desconecta solo si ese equipo se borra del club — sin esperar a que nadie navegue hasta ahí. El resto de colecciones por equipo (jugadoras, partidos, eventos, ejercicios) se quedan como estaban: por equipo, bajo demanda, ya que se editan casi siempre estando dentro de ese equipo y no era el problema reportado.
+
+### Probado (jsdom)
+
+- `tests/session_sync_all_teams.test.js` (nuevo, 12 comprobaciones): usa un mock mínimo de Firestore inyectado en el harness (`loadApp({firebase})`, nuevo parámetro opcional — quita las etiquetas `<script>` del SDK real de Firebase del HTML antes de cargarlo en jsdom, para no depender de red ni arriesgarse a tocar el proyecto real) para comprobar que, con dos equipos en el club y viendo solo uno de ellos, hay un listener de asistencia conectado para AMBOS equipos; que una asistencia de un día cualquiera escrita en el equipo que no se está viendo llega igualmente a `S.sessions`; que lo mismo ocurre con las notas de entrenamiento; que borrar un equipo del club desconecta su listener de asistencia sin afectar al del otro; y que renderizar/navegar no duplica listeners ya conectados. Esta zona no tenía ninguna cobertura de test antes (los 613 tests existentes cargan `index.html` sin `firebase`, en modo local).
+- Suite completa: 626/626 en 48 archivos.
+- CACHE_VERSION → `kortline-v3.0.0-dev.54`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Dos bugs reales: catálogo de ejercicios no sobrevivía a un refresco offline + picker individual del rival ofrecía nuestra propia plantilla (2026-09-10)
 
 ### Corregido
