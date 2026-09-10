@@ -111,6 +111,24 @@ async function run() {
   report.assert(libraryHtmlAfter.includes("Transición 3c2"), "un ejercicio añadido desde el catálogo aparece ahí sin tener que reabrir el modal");
   document.getElementById("m-drill-library")?.remove();
 
+  // ── v3.0.0-dev.53 · B-DRILLSAVE1 (pendiente de la sesión anterior, sin
+  // llegar a CONTINUATION.md): save() no escribía "cbj:drills" en
+  // localStorage al editar el catálogo localmente -- aunque load() y
+  // _persistLocalCacheOnly() sí lo hacían -- así que una edición offline
+  // del catálogo se podía perder si se refrescaba la página antes de que
+  // llegara a sincronizar con Firestore (el resto del estado sí sobrevivía
+  // al refresco, el catálogo de ejercicios no). ──
+  win.localStorage.removeItem("cbj:drills");
+  win.S.drills.t1 = [{ id: "dr_persist", name: "Contraataque 3c1", category: "transition", minutes: 8, notes: "" }];
+  win.save();
+  const persisted = JSON.parse(win.localStorage.getItem("cbj:drills") || "null");
+  report.assert(!!persisted, "save() escribe la clave \"cbj:drills\" en localStorage (antes no lo hacía)");
+  report.assert(!!(persisted && persisted.t1 && persisted.t1[0] && persisted.t1[0].name === "Contraataque 3c1"), "el contenido guardado en localStorage refleja el catálogo actual del equipo");
+  // Simula un refresco de página: load() reconstruye S.drills solo desde localStorage.
+  win.S.drills = {};
+  win.load();
+  report.assert(win.S.drills.t1 && win.S.drills.t1[0] && win.S.drills.t1[0].name === "Contraataque 3c1", "tras \"recargar\" (load() desde localStorage), el ejercicio guardado localmente con save() sigue ahí");
+
   return report.summary();
 }
 

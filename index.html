@@ -2130,7 +2130,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.52";
+const APP_VERSION = "3.0.0-dev.53";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2550,6 +2550,7 @@ function save(){
   if(!lsSet("cbj:s",S.sessions))ok=false;
   if(!lsSet("cbj:m",S.matches))ok=false;
   if(!lsSet("cbj:ev",S.events))ok=false;
+  if(!lsSet("cbj:drills",S.drills))ok=false;
   if(!lsSet("cbj:tn",S.trainingNotes))ok=false;
   if(!lsSet("cbj:logo",S.clubLogo))ok=false;
   if(!lsSet("cbj:name",S.clubName))ok=false;
@@ -9612,14 +9613,26 @@ const _ACTION_LABELS={
 function openActionPicker(action,pts){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   document.getElementById("m-actpicker")?.remove();
-  const players=pl(S.teamId);
-  const onCourt=m.live.onCourt||[];
+  // v3 · B-RIVALPICK1 (sin confirmar por el usuario, revisado por precaución):
+  // este picker ("¿Quién?" tras tocar un botón de acción) siempre construía su
+  // lista de jugadores a partir de NUESTRA plantilla (pl(S.teamId)) y de
+  // m.live.onCourt, sin mirar m.live.activeTeam -- así que en la pestaña
+  // Rival, con plantilla rival completa (modo individual, no "solo equipo"),
+  // tocar cualquier botón de acción (no solo faltas) abría un picker con
+  // NUESTROS jugadores en pista, nunca con los del rival. Se alinea con el
+  // resto de la pantalla (rivalCourtCards/rivalBenchCards, openCourtRivalSubModal,
+  // liveAction ya distingue el pid rival correctamente), usando la plantilla y
+  // el quinteto que correspondan según el lado que se está viendo.
+  const isRivalSide=m.live.activeTeam==="rival";
+  const players=isRivalSide?(m.rivalPlayers||[]):pl(S.teamId);
+  const onCourt=isRivalSide?(m.live.rivalOnCourt||[]):(m.live.onCourt||[]);
   const courtP=onCourt.map(id=>players.find(x=>x.id===id)).filter(Boolean);
   const meta=_ACTION_LABELS[action]||{txt:action,emoji:"·",color:"var(--tx)"};
   const t=S.teams.find(x=>x.id===S.teamId);
-  const teamColor=t?.color||"#F06318";
+  const teamColor=isRivalSide?"#ef4444":(t?.color||"#F06318");
+  const statsSrc=isRivalSide?(m.live.rivalStats||{}):(m.live.stats||{});
   const cards=courtP.map(p=>{
-    const st=m.live.stats?.[p.id]||{};
+    const st=statsSrc[p.id]||{};
     const pts2=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3;
     return `<button onclick="_pickActionFor('${p.id}','${action}',${pts||0})" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 6px;border-radius:12px;border:2px solid ${meta.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">
       <div style="width:40px;height:40px;border-radius:9px;background:linear-gradient(135deg,${teamColor},${teamColor}88);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:white">${p.number||"?"}</div>
