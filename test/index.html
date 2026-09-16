@@ -2031,6 +2031,14 @@ function _resumeFromTm(){
 }
 const DAYSF=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const CATEGORIES=["Escuela","Benjamín","Alevín","Infantil","Cadete","Junior","Senior","3x3","Otro"];
+// v3.0.0-dev.59 · B-GUEST5: género real del equipo (antes solo iba suelto en
+// el nombre, ej. "Infantil Masculino A"). Se usa para filtrar la categoría
+// inferior del picker de puntuales -- un equipo femenino solo debe poder
+// traer jugadoras de equipos femeninos, nunca de un masculino y viceversa.
+// Los equipos creados ANTES de este cambio no tienen género hasta que se
+// edite el equipo y se elija uno -- no adivinamos nada del nombre porque
+// podríamos equivocarnos.
+const GENDERS=["Masculino","Femenino","Mixto"];
 // v3.0.0-dev.58 · B-GUEST4: equipo(s) de la categoría de edad inmediatamente
 // inferior a la de `teamId`, para el picker de jugadores puntuales ("sube de
 // categoría inferior"). "3x3"/"Otro" no tienen orden de edad -- no ofrecen
@@ -2038,6 +2046,12 @@ const CATEGORIES=["Escuela","Benjamín","Alevín","Infantil","Cadete","Junior","
 // justo debajo (p.ej. tiene Cadete y Alevín pero no Infantil), se sigue
 // bajando hasta encontrar la categoría más cercana que sí exista, para no
 // dejar sin candidatos a un club con categorías intermedias vacías.
+// v3.0.0-dev.59 · B-GUEST5: además, si el equipo actual tiene género
+// asignado, solo se ofrecen equipos del MISMO género (un equipo sin género
+// asignado todavía queda excluido en ese caso, para no mezclar por error).
+// Si el equipo actual no tiene género asignado, no filtramos por género
+// (comportamiento de antes) para no hacer desaparecer la función a quien
+// todavía no lo haya configurado.
 function _lowerCategoryTeams(teamId){
   const t=S.teams.find(x=>x.id===teamId);
   if(!t)return [];
@@ -2045,7 +2059,8 @@ function _lowerCategoryTeams(teamId){
   const seniorIdx=CATEGORIES.indexOf("Senior");
   if(idx<=0||idx>seniorIdx)return [];
   for(let i=idx-1;i>=0;i--){
-    const teams=S.teams.filter(x=>x.id!==teamId&&x.category===CATEGORIES[i]);
+    let teams=S.teams.filter(x=>x.id!==teamId&&x.category===CATEGORIES[i]);
+    if(t.gender)teams=teams.filter(x=>x.gender===t.gender);
     if(teams.length)return teams;
   }
   return [];
@@ -2153,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.58";
+const APP_VERSION = "3.0.0-dev.59";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4706,6 +4721,7 @@ function team(){
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="S.tnWeekStart=null;navTo('trainingNotesWeek')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📝</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">NOTAS DE ENTRENAMIENTO</div><div style="font-size:11px;color:var(--tm);margin-top:1px">Planificación semanal · objetivo, hábitos y contenido</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
+    ${_findDuplicateGuestGroups(S.teamId).length?`<button class="qb" onclick="openGuestDuplicatesModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35)"><div style="font-size:20px">🔍</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#f59e0b">PUNTUALES DUPLICADOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${_findDuplicateGuestGroups(S.teamId).length} grupo${_findDuplicateGuestGroups(S.teamId).length!==1?"s":""} para fusionar</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>`:""}
     ${mvpCard(t)}
     ${attBar}
     <div class="card" style="margin-bottom:14px"><div style="padding:4px 14px 8px"><div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);padding-top:10px;margin-bottom:4px">📅 Horario</div>${schedRows}</div></div>
@@ -5887,13 +5903,21 @@ function openTeamModal(init){
   document.getElementById(id)?.remove();
   const sc=init?.color||COLORS[0];const coaches=init?.coaches||["",""];
   const catsHtml=CATEGORIES.map(c=>`<option value="${c}" ${(init?.category||"")==c?"selected":""}>${c}</option>`).join("");
+  // v3.0.0-dev.59 · B-GUEST5: género real del equipo (antes solo iba suelto
+  // en el nombre) -- se usa para que el picker de jugadores puntuales solo
+  // ofrezca la categoría inferior del mismo género. Opción en blanco para no
+  // forzar a elegir uno en equipos ya existentes que no lo tenían.
+  const gendersHtml=`<option value="">Sin especificar</option>`+GENDERS.map(g=>`<option value="${g}" ${(init?.gender||"")===g?"selected":""}>${g}</option>`).join("");
   const el=document.createElement("div");el.id=id;el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)_closeModal(id);};
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div><div class="mtitle">${init?"Editar Equipo":"Nuevo Equipo"}</div>
     <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-n" value="${esc(init?.name||"")}" placeholder="ej. Infantil Masculino A"/></div>
-    <div class="fg"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
-    <div style="font-size:11px;color:var(--td);margin:-8px 0 12px">💡 Incluye género en el nombre si hay varios equipos de la misma categoría.</div>
+    <div class="frow">
+      <div class="fg" style="flex:1"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
+      <div class="fg" style="flex:1"><label class="fl">Género</label><select class="fi" id="${id}-gender">${gendersHtml}</select></div>
+    </div>
+    <div style="font-size:11px;color:var(--td);margin:-8px 0 12px">💡 El género se usa para que "categoría inferior" (al añadir un jugador puntual) solo ofrezca equipos del mismo género.</div>
     <div class="fg"><label class="fl">👟 Entrenador/a principal</label><input class="fi" id="${id}-coach0" value="${esc(coaches[0]||"")}" placeholder="Nombre del entrenador"/></div>
     <div class="fg" id="${id}-asst-wrap"><label class="fl">👟 Entrenadores ayudantes</label><div id="${id}-asst-list">${coaches.slice(1).map((c,i)=>`<div class="asst-row"><input class="fi asst-inp" id="${id+'-asst-'+i}" value="${esc(c)}" placeholder="Nombre ayudante" style="flex:1;margin-bottom:0"/><button type="button" class="asst-rm" onclick="this.closest('.asst-row').remove()">✕</button></div>`).join("")||`<div class="asst-row"><input class="fi asst-inp" id="${id}-asst-0" placeholder="Nombre ayudante" style="flex:1;margin-bottom:0"/><button type="button" class="asst-rm" onclick="this.closest('.asst-row').remove()">✕</button></div>`}</div><button type="button" class="btn-asst-add" onclick="addAsstRow('${id}')">+ Añadir ayudante</button></div>
     <div class="fg"><label class="fl">📅 Días y horarios</label><div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:4px 12px;">${dayScheduleRows(id,init?.schedule)}</div></div>
@@ -6609,14 +6633,15 @@ function saveTeam(mid,eid){
   // para coherencia con cómo se muestran en la UI y con la confirmación tipografiada de borrado.
   const name=document.getElementById(mid+"-n").value.trim().toUpperCase();if(!name)return false;
   const cat=document.getElementById(mid+"-cat").value;
+  const gender=document.getElementById(mid+"-gender")?.value||"";
   const c0=document.getElementById(mid+"-coach0")?.value.trim()||"";
   const asstList=document.getElementById(mid+"-asst-list");
   const assistants=asstList?[...asstList.querySelectorAll(".asst-inp")].map(x=>x.value.trim()).filter(Boolean):[];
   const coaches=[c0,...assistants].filter(Boolean);
   const schedule={};for(let i=0;i<7;i++){const cb=document.getElementById(mid+"-day-"+i),ti=document.getElementById(mid+"-time-"+i);if(cb?.checked||ti?.value)schedule[i]=ti?ti.value:"";}
   const colorEl=document.querySelector("#"+mid+"-cols .cdot.s");const color=colorEl?(colorEl.dataset.col||colorEl.style.background):COLORS[0];
-  if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,schedule,color,coaches}:t);toast("✅ Actualizado");}
-  else{S.teams.push({id:uid(),name,category:cat,schedule,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
+  if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,gender,schedule,color,coaches}:t);toast("✅ Actualizado");}
+  else{S.teams.push({id:uid(),name,category:cat,gender,schedule,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
   clearDirty();
   document.getElementById(mid)?.remove();save();render();
   return true;
@@ -6663,23 +6688,30 @@ function delPlayer(id){
 // stats/asistencia ya existente, sin tener que duplicar lógica en ningún
 // sitio.
 /* ═══════════════════════════════════════
-   JUGADOR PUNTUAL · picker mejorado (v3.0.0-dev.58 · B-GUEST4)
-   Antes era solo un formulario manual (nombre+dorsal+nota) -- cada alta
-   creaba SIEMPRE un jugador nuevo, así que el mismo puntual que sube varias
-   veces acababa duplicado. Ahora el modal ofrece, además del formulario de
-   siempre (que se mantiene intacto, nada desaparece), dos vías de reutilizar
-   sin duplicar:
-    1) "Ya han estado" -- puntuales que ya se han usado antes con este
-       equipo (attOnly para entreno / matchOnly para partido), con el más
-       usado primero, para volver a marcarlos con un toque.
-    2) "Categoría inferior" -- roster real del equipo de categoría de edad
-       inmediatamente inferior del club (_lowerCategoryTeams), para traer a
-       varios de golpe. Se guardan como copia independiente (no enlazada al
-       original -- decisión explícita de Mario), y a partir de ahí quedan
-       en "Ya han estado" como cualquier otro puntual de este equipo.
+   JUGADOR PUNTUAL · picker mejorado (v3.0.0-dev.59 · B-GUEST5)
+   Reemplaza al selector de dev.58 (chips sueltos + checkboxes de HTML) por
+   un único mecanismo de selección múltiple reutilizado de la convocatoria
+   de partido (.conv-row/.conv-cb/.pnum: insignia con dorsal + check que se
+   pone naranja al tocar la fila) -- mismo componente para "Más frecuentes"
+   Y "Categoría inferior", con un solo botón "Añadir seleccionados" al
+   final. La categoría inferior ahora respeta también el GÉNERO del equipo
+   (masculino con masculino, femenino con femenino -- ver GENDERS y
+   _lowerCategoryTeams). El alta manual ("Es alguien nuevo") se mantiene
+   intacta pero pasa a un segundo plano (colapsada por defecto), porque lo
+   normal es reutilizar a alguien frecuente o traerlo de categoría inferior,
+   no escribir un nombre desde cero.
+   También evita duplicar por NOMBRE (además del dedup por origen que ya
+   había): si al traer de categoría inferior o al añadir manualmente ya
+   existe un puntual del mismo modo (entreno/partido) con el mismo nombre en
+   este equipo, se reutiliza esa entrada en vez de crear una segunda -- así
+   sus estadísticas individuales quedan siempre unificadas en una sola.
 ═══════════════════════════════════════ */
+// Normaliza un nombre para comparar duplicados (may/min, acentos, espacios).
+function _normName(s){
+  return (s||"").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
+}
 // Cuenta de veces que un puntual ha contado para este equipo, para ordenar
-// "Ya han estado" por quién es más probable que repita.
+// "Más frecuentes" por quién es más probable que repita.
 function _guestUseCount(p,mode){
   if(mode==="att")return Array.isArray(p.attDates)?p.attDates.length:(p.addedAt?1:0);
   return mlist(S.teamId).filter(m=>(m.convocados||[]).includes(p.id)).length;
@@ -6691,83 +6723,138 @@ function _guestMarkAttDate(p,date){
   if(!dates.includes(date))dates.push(date);
   p.attDates=dates;
 }
-function _guestRecentSectionHtml(mode){
+// Fila de selección reutilizada de la convocatoria de partido (mismo look:
+// insignia con dorsal + check que se pone naranja), para que "Más
+// frecuentes" y "Categoría inferior" se vean y se usen exactamente igual.
+function _guestCardRowHtml(kind,item,selected,subtitle){
+  return `<div class="conv-row" onclick="_guestToggle('${kind}','${item.id}')">
+    <div class="conv-cb ${selected?"on":""}">${selected?"✓":""}</div>
+    <div class="pnum" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)">${item.number!=null?item.number:"?"}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:15px">${esc(item.name)}</div>
+      <div style="font-size:12px;color:var(--td)">${subtitle}</div>
+    </div>
+  </div>`;
+}
+function _guestToggle(kind,id){
+  const picker=window._guestPicker;if(!picker)return;
+  const set=kind==="freq"?picker.selectedFrequent:picker.selectedLower;
+  if(set.has(id))set.delete(id);else set.add(id);
+  _refreshGuestPickerBody();
+}
+function _guestToggleLowerOpen(){
+  const picker=window._guestPicker;if(!picker)return;
+  picker.lowerOpen=!picker.lowerOpen;
+  _refreshGuestPickerBody();
+}
+function _guestToggleManualOpen(){
+  const picker=window._guestPicker;if(!picker)return;
+  picker.manualOpen=!picker.manualOpen;
+  _refreshGuestPickerBody();
+  if(picker.manualOpen)setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
+}
+function _refreshGuestPickerBody(){
+  const el=document.getElementById("guest-picker-body");
+  if(el)el.innerHTML=_guestPickerBodyHtml();
+}
+function _guestPickerBodyHtml(){
+  const picker=window._guestPicker;if(!picker)return "";
+  const {frequent,lowerRows,selectedFrequent,selectedLower,lowerOpen,manualOpen}=picker;
+  const totalSelected=selectedFrequent.size+selectedLower.size;
+  const freqHtml=frequent.length?`<label class="fl">🔁 Más frecuentes</label>
+    <div class="card" style="margin-bottom:14px;max-height:220px;overflow-y:auto">
+      ${frequent.map(p=>_guestCardRowHtml("freq",p,selectedFrequent.has(p.id),`Usad${p.useCount===1?"o":"os"} ${p.useCount} ve${p.useCount===1?"z":"ces"}`)).join("")}
+    </div>`:"";
+  const lowerTeamNames=[...new Set(lowerRows.map(r=>r.teamName))].join(" · ");
+  const lowerToggleHtml=lowerRows.length?`<button class="btn-s" onclick="_guestToggleLowerOpen()" style="margin-bottom:${lowerOpen?"8":"14"}px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>⬇️ Categoría inferior <span style="color:var(--tm);font-weight:400">(${esc(lowerTeamNames)})</span></span>
+      <span>${lowerOpen?"▲":"▼"}</span>
+    </button>`:"";
+  const lowerListHtml=(lowerRows.length&&lowerOpen)?`<div class="card" style="margin-bottom:14px;max-height:220px;overflow-y:auto">
+      ${lowerRows.map(r=>_guestCardRowHtml("lower",r,selectedLower.has(r.id),esc(r.teamName))).join("")}
+    </div>`:"";
+  const addBtnHtml=(frequent.length||lowerRows.length)?`<button class="btn-p" id="guest-add-btn" onclick="_guestPickerCommit()" ${totalSelected===0?"disabled":""} style="margin-bottom:12px">✅ Añadir seleccionados${totalSelected?` (${totalSelected})`:""}</button>`:"";
+  const manualToggleHtml=(frequent.length||lowerRows.length)?`<button class="btn-s" onclick="_guestToggleManualOpen()" style="margin-bottom:${manualOpen?"10":"4"}px;color:var(--td)">${manualOpen?"▲ ":"＋ "}Es alguien nuevo <span style="font-weight:400">(no está en ninguna lista)</span></button>`:`<label class="fl">🆕 Nueva persona</label>`;
+  const manualFormHtml=manualOpen?`<div class="frow">
+      <div class="fg" style="flex:2"><label class="fl">Nombre</label><input class="fi" id="gp-name" placeholder="Nombre Apellido"/></div>
+      <div class="fg" style="flex:1"><label class="fl">Dorsal</label><input class="fi" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" id="gp-num" placeholder="9" style="text-align:center" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)"/></div>
+    </div>
+    <div class="fg"><label class="fl">Nota (opcional)</label><input class="fi" id="gp-note" placeholder="ej. Infantil Masculino · sube puntualmente"/></div>
+    <button class="btn-p" onclick="_guestPlayerCommit('${picker.mode}')" style="margin-bottom:14px">✅ Añadir nueva persona</button>`:"";
+  return `${freqHtml}${lowerToggleHtml}${lowerListHtml}${addBtnHtml}${manualToggleHtml}${manualFormHtml}`;
+}
+function openGuestPlayerModal(opts){
+  const mode=(opts&&opts.mode)||"att"; // "match" | "att"
+  document.getElementById("m-guest-player")?.remove();
   const flag=mode==="att"?"attOnly":"matchOnly";
   const m=mode==="match"?mById(S.teamId,S.matchId):null;
-  const pool=pl(S.teamId).filter(p=>p.guest&&p[flag]).filter(p=>{
+  // "Más frecuentes": puntuales ya usados con este equipo para este modo,
+  // ordenados por más veces usados. Se excluye a quien ya está activo/
+  // convocado HOY (no tiene sentido volver a añadirlo).
+  const frequent=pl(S.teamId).filter(p=>p.guest&&p[flag]).filter(p=>{
     if(mode==="att")return !(Array.isArray(p.attDates)&&p.attDates.includes(S.date));
     return !(m&&(m.convocados||[]).includes(p.id));
-  }).sort((a,b)=>_guestUseCount(b,mode)-_guestUseCount(a,mode)||(a.name||"").localeCompare(b.name||""));
-  if(!pool.length)return "";
-  return `<label class="fl">🔁 Ya han estado</label>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
-      ${pool.map(p=>`<button onclick="_guestQuickAdd('${p.id}','${mode}')" style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:20px;font-size:12.5px;font-weight:700;background:rgba(139,92,246,.1);color:#8b5cf6;border:1px solid rgba(139,92,246,.3);cursor:pointer">${p.number!=null?("#"+p.number+" "):""}${esc(p.name)}</button>`).join("")}
-    </div>`;
+  }).map(p=>({id:p.id,name:p.name,number:p.number??null,useCount:_guestUseCount(p,mode)}))
+    .sort((a,b)=>b.useCount-a.useCount||(a.name||"").localeCompare(b.name||""));
+  // "Categoría inferior": roster real (no puntuales) del equipo de la
+  // categoría de edad Y GÉNERO inmediatamente inferior (_lowerCategoryTeams,
+  // B-GUEST5), sin repetir a quien ya se trajo antes para este mismo modo.
+  const lowerTeams=_lowerCategoryTeams(S.teamId);
+  const alreadyBrought=new Set(pl(S.teamId).filter(p=>p.guest&&p[flag]&&p.sourceTeamId).map(p=>p.sourceTeamId+"::"+p.sourcePlayerId));
+  const lowerRows=lowerTeams.flatMap(t=>pl(t.id).filter(p=>!p.guest&&!alreadyBrought.has(t.id+"::"+p.id)).map(p=>({id:p.id,name:p.name,number:p.number??null,teamId:t.id,teamName:t.name})))
+    .sort((a,b)=>(a.number??999)-(b.number??999));
+  window._guestPicker={mode,frequent,lowerRows,selectedFrequent:new Set(),selectedLower:new Set(),lowerOpen:false,manualOpen:!frequent.length&&!lowerRows.length};
+  const el=document.createElement("div");
+  el.id="m-guest-player";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔄 Jugador puntual</div>
+    <div class="msub">No se queda en la plantilla fija — solo para ${mode==="match"?"este partido":"este entrenamiento"}. Cuenta igual en las estadísticas del equipo.</div>
+    <div id="guest-picker-body">${_guestPickerBodyHtml()}</div>
+    <button class="btn-s" onclick="document.getElementById('m-guest-player').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+  if(window._guestPicker.manualOpen)setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
 }
-function _refreshGuestRecentSection(mode){
-  const el=document.getElementById("guest-recent-section");
-  if(el)el.innerHTML=_guestRecentSectionHtml(mode);
-}
-function _guestQuickAdd(pid,mode){
-  const p=pl(S.teamId).find(x=>x.id===pid);
-  if(!p)return;
-  if(mode==="match"){
-    const m=mById(S.teamId,S.matchId);
-    if(!m)return;
-    if(!(m.convocados||[]).includes(pid))m.convocados=[...(m.convocados||[]),pid];
-    save();
-    _refreshGuestRecentSection(mode);
-    const t=S.teams.find(x=>x.id===S.teamId);
-    const wiz=document.getElementById("m-conv-setup");
-    if(wiz&&t)wiz.innerHTML=_convSetupHtml(m,t,wiz._step||0);
-    toast(`✅ ${p.name} convocado`);
-  } else {
-    _guestMarkAttDate(p,S.date);
-    const k=sk(S.teamId,S.date);
-    const sess={...S.sessions[k]||{}};
-    sess[pid]="present";
-    S.sessions[k]=sess;
-    save();
-    _refreshGuestRecentSection(mode);
-    render();
-    toast(`✅ ${p.name} añadido`);
-  }
-}
-function _guestLowerSectionHtml(rows){
-  if(!rows.length)return "";
-  const teamNames=[...new Set(rows.map(r=>r.teamName))].join(" · ");
-  return `<label class="fl">⬇️ Categoría inferior <span style="color:var(--tm)">(${esc(teamNames)})</span></label>
-    <div id="guest-lower-list" style="max-height:190px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:8px">${_guestLowerRowsHtml(rows)}</div>
-    <button class="btn-s" id="guest-lower-btn" onclick="_guestLowerCommit()" disabled style="margin-bottom:16px">+ Añadir seleccionados</button>`;
-}
-function _guestLowerRowsHtml(rows){
-  return rows.map(r=>{
-    const on=window._guestPicker.selected.has(r.id);
-    return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;color:var(--tx)">
-      <input type="checkbox" ${on?"checked":""} onchange="_guestLowerToggle('${r.id}')"/>
-      <span style="flex:1">${r.number!=null?("#"+r.number+" "):""}${esc(r.name)}</span>
-      <span style="font-size:10.5px;color:var(--tm)">${esc(r.teamName)}</span>
-    </label>`;
-  }).join("");
-}
-function _guestLowerToggle(pid){
-  const sel=window._guestPicker?.selected;
-  if(!sel)return;
-  if(sel.has(pid))sel.delete(pid);else sel.add(pid);
-  const btn=document.getElementById("guest-lower-btn");
-  if(btn){btn.disabled=sel.size===0;btn.textContent=sel.size?`+ Añadir ${sel.size} seleccionado${sel.size>1?"s":""}`:"+ Añadir seleccionados";}
-}
-function _guestLowerCommit(){
+// Confirma TODA la selección de golpe (frecuentes reutilizados + copias
+// nuevas de categoría inferior), con dedup por nombre para no crear
+// duplicados si ya existe un puntual de este modo con ese mismo nombre.
+function _guestPickerCommit(){
   const picker=window._guestPicker;
-  if(!picker||!picker.selected.size)return;
+  if(!picker)return;
   const mode=picker.mode;
-  const rows=picker.lowerRows.filter(r=>picker.selected.has(r.id));
+  const freqIds=[...picker.selectedFrequent];
+  const lowerSel=picker.lowerRows.filter(r=>picker.selectedLower.has(r.id));
+  if(!freqIds.length&&!lowerSel.length)return;
   if(!S.players[S.teamId])S.players[S.teamId]=[];
   const list=S.players[S.teamId];
-  let numberClashes=0;
-  const addedIds=[];
+  const flag=mode==="att"?"attOnly":"matchOnly";
   const today=mode==="att"?S.date:td();
-  rows.forEach(r=>{
+  const addedIds=[];
+  const names=[];
+  let numberClashes=0;
+  freqIds.forEach(pid=>{
+    const p=list.find(x=>x.id===pid);
+    if(!p)return;
+    if(mode==="att")_guestMarkAttDate(p,S.date);
+    addedIds.push(pid);
+    names.push(p.name);
+  });
+  lowerSel.forEach(r=>{
+    // v3.0.0-dev.59 · B-GUEST5: si YA existe un puntual de este mismo modo
+    // con el mismo nombre (normalizado) en este equipo, se reutiliza en vez
+    // de crear una entrada duplicada -- unifica sus estadísticas desde el
+    // principio, que es justo el sentido de tener este picker.
+    const existing=list.find(x=>x.guest&&x[flag]&&_normName(x.name)===_normName(r.name));
+    if(existing){
+      if(mode==="att")_guestMarkAttDate(existing,S.date);
+      if(existing.number==null&&r.number!=null&&!list.some(x=>x.id!==existing.id&&String(x.number)===String(r.number)))existing.number=r.number;
+      addedIds.push(existing.id);
+      names.push(existing.name);
+      return;
+    }
     let number=r.number;
     if(number!=null&&list.some(x=>String(x.number)===String(number))){number=null;numberClashes++;}
     const id=uid();
@@ -6779,10 +6866,11 @@ function _guestLowerCommit(){
     if(mode==="att")np.attDates=[today];
     list.push(np);
     addedIds.push(id);
+    names.push(r.name);
   });
   if(mode==="match"){
     const m=mById(S.teamId,S.matchId);
-    if(m)m.convocados=[...(m.convocados||[]),...addedIds];
+    if(m)m.convocados=[...new Set([...(m.convocados||[]),...addedIds])];
   } else {
     const k=sk(S.teamId,S.date);
     const sess={...S.sessions[k]||{}};
@@ -6800,91 +6888,55 @@ function _guestLowerCommit(){
   } else {
     render();
   }
-  toast(`✅ ${rows.length} jugador${rows.length>1?"es":""} añadido${rows.length>1?"s":""}`+(numberClashes?` (${numberClashes} sin dorsal por estar repetido)`:""));
-}
-function openGuestPlayerModal(opts){
-  const mode=(opts&&opts.mode)||"att"; // "match" | "att"
-  document.getElementById("m-guest-player")?.remove();
-  const lowerTeams=_lowerCategoryTeams(S.teamId);
-  // No repetir en la lista a quien ya se trajo antes PARA ESTE MISMO MODO (ya
-  // vive en "Ya han estado"). Ojo: attOnly/matchOnly son excluyentes en el
-  // modelo de puntuales, así que el mismo chaval puede traerse una vez como
-  // puntual de entreno y, aparte, otra vez como puntual de partido -- no es
-  // un duplicado real, son dos entradas con propósitos distintos.
-  const _lowerFlag=mode==="att"?"attOnly":"matchOnly";
-  const alreadyBrought=new Set(pl(S.teamId).filter(p=>p.guest&&p[_lowerFlag]&&p.sourceTeamId).map(p=>p.sourceTeamId+"::"+p.sourcePlayerId));
-  const lowerRows=lowerTeams.flatMap(t=>pl(t.id).filter(p=>!p.guest&&!alreadyBrought.has(t.id+"::"+p.id)).map(p=>({id:p.id,name:p.name,number:p.number??null,teamId:t.id,teamName:t.name})))
-    .sort((a,b)=>(a.number??999)-(b.number??999));
-  window._guestPicker={mode,selected:new Set(),lowerRows};
-  const el=document.createElement("div");
-  el.id="m-guest-player";
-  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
-  el.onclick=e=>{if(e.target===el)el.remove();};
-  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
-    <div class="mhandle"></div>
-    <div class="mtitle">🔄 Jugador puntual</div>
-    <div class="msub">No se queda en la plantilla fija — solo para ${mode==="match"?"este partido":"este entrenamiento"}. Cuenta igual en las estadísticas del equipo.</div>
-    <div id="guest-recent-section">${_guestRecentSectionHtml(mode)}</div>
-    <div id="guest-lower-section">${_guestLowerSectionHtml(lowerRows)}</div>
-    <label class="fl">🆕 Nueva persona</label>
-    <div class="frow">
-      <div class="fg" style="flex:2"><label class="fl">Nombre</label><input class="fi" id="gp-name" placeholder="Nombre Apellido"/></div>
-      <div class="fg" style="flex:1"><label class="fl">Dorsal</label><input class="fi" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" id="gp-num" placeholder="9" style="text-align:center" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)"/></div>
-    </div>
-    <div class="fg"><label class="fl">Nota (opcional)</label><input class="fi" id="gp-note" placeholder="ej. Infantil Masculino · sube puntualmente"/></div>
-    <button class="btn-p" onclick="_guestPlayerCommit('${mode}')">✅ Añadir</button>
-    <button class="btn-s" onclick="document.getElementById('m-guest-player').remove()">Cancelar</button>
-  </div>`;
-  document.body.appendChild(el);
-  setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
+  const uniqueNames=[...new Set(names)];
+  toast(`✅ ${uniqueNames.length} jugador${uniqueNames.length>1?"es":""} añadido${uniqueNames.length>1?"s":""}`+(numberClashes?` (${numberClashes} sin dorsal por estar repetido)`:""));
 }
 function _guestPlayerCommit(mode){
   const name=(document.getElementById("gp-name")?.value||"").trim();
   if(!name){toast("Ponle un nombre al jugador");return;}
   const numV=(document.getElementById("gp-num")?.value||"").replace(/[^0-9]/g,"").slice(0,2);
-  // Mismo guard de dorsal duplicado que savePlayer() (B-ADV4) -- un invitado
-  // con el mismo número que alguien de la plantilla fija sería igual de
-  // ilegal en pista.
-  if(numV!==""){
-    const dupe=pl(S.teamId).find(x=>String(x.number)===numV);
-    if(dupe){toast("⚠️ El dorsal #"+numV+" ya lo lleva "+esc(dupe.name||"otro jugador"));return;}
-  }
   const note=(document.getElementById("gp-note")?.value||"").trim();
   if(!S.players[S.teamId])S.players[S.teamId]=[];
-  const id=uid();
-  // v3.0.0-dev · B-GUEST2: un puntual añadido para un PARTIDO (mode="match")
-  // se guardaba igual que uno añadido desde un entrenamiento (mode="att"),
-  // así que a partir de esa fecha (addedAt) empezaba a aparecer también en
-  // el pase de lista de TODOS los entrenamientos siguientes -- contradice
-  // el propio texto del modal ("solo para este partido") y no tiene
-  // sentido: alguien convocado puntualmente para un partido no entrena con
-  // el equipo. matchOnly:true lo excluye del pase de lista y de las
-  // estadísticas de asistencia (sigue contando igual en las estadísticas
-  // DEL PARTIDO). Si el jugador acaba subiendo de categoría de verdad, eso
-  // se gestiona aparte (editarlo para quitarle matchOnly, o añadirlo como
-  // jugador normal en ese momento).
-  // v3.0.0-dev.37 · B-GUEST3: idem matchOnly pero al reves -- un puntual
-  // añadido desde un ENTRENAMIENTO (mode="att") lleva attOnly:true, para
-  // que _isPlayerActiveOn() lo cuente solo el día exacto (addedAt) y quede
-  // excluido de toda convocatoria de partidos/eventos (nunca "sube" solo
-  // por haberse dado de alta un día).
-  // v3.0.0-dev.37 · B-GUEST3: para un puntual de entreno, addedAt tiene que
-  // ser la fecha de la SESIÓN que se está pasando lista (S.date), no la
-  // fecha real de hoy (td()) -- si el entrenador añade el puntual pasando
-  // lista de un día atrasado (flujo habitual, "ayer se me olvidó apuntar
-  // esto"), td() y S.date no coinciden y el puntual desaparecería incluso
-  // del día para el que se le dio de alta.
+  const list=S.players[S.teamId];
+  const flag=mode==="att"?"attOnly":"matchOnly";
+  // v3.0.0-dev · B-GUEST2/B-GUEST3: matchOnly/attOnly son excluyentes --
+  // marcan si el puntual es "solo para este partido" o "solo para este
+  // entrenamiento" respectivamente, y con qué fecha cuenta cada uno
+  // (addedAt para partido = hoy real; para entreno = la fecha de la sesión
+  // que se está pasando lista, no la fecha real de hoy, por si se pasa
+  // lista de un día atrasado).
   const addedAt=mode==="att"?S.date:td();
-  const np={id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt,matchOnly:mode==="match",attOnly:mode==="att"};
-  // v3.0.0-dev.58 · B-GUEST4: attDates arranca con el día de alta, para que
-  // este mismo puntual pueda reutilizarse en días futuros (picker "Ya han
-  // estado") sin crear una segunda entrada duplicada.
-  if(mode==="att")np.attDates=[addedAt];
-  S.players[S.teamId].push(np);
+  // v3.0.0-dev.59 · B-GUEST5: si ya existe un puntual de este mismo modo con
+  // el mismo nombre (normalizado) en este equipo, se reutiliza esa entrada
+  // en vez de crear una segunda -- evita fragmentar sus estadísticas.
+  const existing=list.find(x=>x.guest&&x[flag]&&_normName(x.name)===_normName(name));
+  let id;
+  if(existing){
+    id=existing.id;
+    if(mode==="att")_guestMarkAttDate(existing,S.date);
+    if(numV!==""&&existing.number==null&&!list.some(x=>x.id!==existing.id&&String(x.number)===numV))existing.number=numV;
+    if(note&&!existing.guestNote)existing.guestNote=note;
+  } else {
+    // Mismo guard de dorsal duplicado que savePlayer() (B-ADV4) -- un
+    // invitado con el mismo número que alguien de la plantilla fija sería
+    // igual de ilegal en pista. Solo aplica al crear uno nuevo -- si se
+    // reutiliza uno existente no tiene sentido bloquear el alta por esto.
+    if(numV!==""){
+      const dupe=pl(S.teamId).find(x=>String(x.number)===numV);
+      if(dupe){toast("⚠️ El dorsal #"+numV+" ya lo lleva "+esc(dupe.name||"otro jugador"));return;}
+    }
+    id=uid();
+    const np={id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt,matchOnly:mode==="match",attOnly:mode==="att"};
+    // v3.0.0-dev.58 · B-GUEST4: attDates arranca con el día de alta, para
+    // que este mismo puntual pueda reutilizarse en días futuros ("Más
+    // frecuentes") sin crear una segunda entrada duplicada.
+    if(mode==="att")np.attDates=[addedAt];
+    list.push(np);
+  }
   if(mode==="match"){
     const m=mById(S.teamId,S.matchId);
     if(m){
-      m.convocados=[...(m.convocados||[]),id];
+      if(!(m.convocados||[]).includes(id))m.convocados=[...(m.convocados||[]),id];
       save();
       document.getElementById("m-guest-player")?.remove();
       // Redibuja el paso "nuestro equipo" del wizard de convocatoria con el
@@ -6905,6 +6957,134 @@ function _guestPlayerCommit(mode){
   document.getElementById("m-guest-player")?.remove();
   render();
   toast(`✅ ${name} añadido`);
+}
+/* ═══════════════════════════════════════
+   PUNTUALES DUPLICADOS · fusionar (v3.0.0-dev.59 · B-GUEST5)
+   Duplicados que ya existieran ANTES de este cambio (o que se cuelen por
+   cualquier otra vía) se pueden revisar y fusionar en una sola entrada por
+   persona desde la pantalla Equipo. No se borra ningún dato: se combinan
+   attDates/estadísticas/convocatorias del/de los duplicado(s) "perdedor(es)"
+   en la entrada "superviviente" (la más antigua), y solo entonces se quita
+   la entrada redundante ya vacía de contenido propio.
+═══════════════════════════════════════ */
+function _findDuplicateGuestGroups(teamId){
+  const guests=pl(teamId).filter(p=>p.guest&&(p.attOnly||p.matchOnly));
+  const groups={};
+  guests.forEach(p=>{
+    const key=(p.attOnly?"att":"match")+"::"+_normName(p.name);
+    (groups[key]=groups[key]||[]).push(p);
+  });
+  return Object.values(groups).filter(g=>g.length>1);
+}
+function _remapIdArr(arr,oldId,newId){
+  if(!Array.isArray(arr))return arr;
+  return [...new Set(arr.map(id=>id===oldId?newId:id))];
+}
+function _remapStatsObj(obj,oldId,newId){
+  if(!obj||!obj[oldId])return obj;
+  if(obj[newId]){
+    const merged={...obj[newId]};
+    Object.keys(obj[oldId]).forEach(k=>{merged[k]=(merged[k]||0)+(obj[oldId][k]||0);});
+    obj[newId]=merged;
+  } else obj[newId]=obj[oldId];
+  delete obj[oldId];
+  return obj;
+}
+function _remapSumObj(obj,oldId,newId){
+  if(!obj||obj[oldId]==null)return obj;
+  obj[newId]=(obj[newId]||0)+obj[oldId];
+  delete obj[oldId];
+  return obj;
+}
+// Fusiona un grupo de duplicados (mismo nombre normalizado + mismo modo) en
+// una única entrada superviviente (la más antigua por addedAt), reasignando
+// TODA referencia a los ids "perdedores" en el resto de los datos del
+// equipo. Un puntual de ENTRENO (attOnly) nunca aparece en partidos/eventos
+// (excluido por diseño), así que solo hace falta tocar S.sessions; uno de
+// PARTIDO (matchOnly) nunca aparece en el pase de lista, así que solo hace
+// falta tocar S.matches/S.events -- por construcción del propio modelo de
+// puntuales, nunca hace falta tocar ambos a la vez para un mismo grupo.
+function _mergeGuestGroup(teamId,group){
+  if(!group||group.length<2)return null;
+  const sorted=[...group].sort((a,b)=>(a.addedAt||"9999-99-99").localeCompare(b.addedAt||"9999-99-99"));
+  const survivor=sorted[0];
+  const losers=sorted.slice(1);
+  const isAtt=!!survivor.attOnly;
+  losers.forEach(loser=>{
+    if(survivor.number==null&&loser.number!=null)survivor.number=loser.number;
+    if(!survivor.guestNote&&loser.guestNote)survivor.guestNote=loser.guestNote;
+    if(isAtt){
+      const dates=new Set([...(survivor.attDates||(survivor.addedAt?[survivor.addedAt]:[])),...(loser.attDates||(loser.addedAt?[loser.addedAt]:[]))]);
+      survivor.attDates=[...dates].sort();
+      if(survivor.attDates.length)survivor.addedAt=survivor.attDates[0];
+      Object.keys(S.sessions).filter(k=>k.startsWith(teamId+"_")).forEach(k=>{
+        const sess=S.sessions[k];
+        Object.keys(sess).forEach(sk2=>{
+          if(sk2===loser.id||sk2.startsWith(loser.id+"_")){
+            const newKey=survivor.id+sk2.slice(loser.id.length);
+            if(sess[newKey]===undefined)sess[newKey]=sess[sk2];
+            delete sess[sk2];
+          }
+        });
+      });
+    } else {
+      (S.matches[teamId]||[]).forEach(m=>{
+        m.convocados=_remapIdArr(m.convocados,loser.id,survivor.id);
+        m.titulares=_remapIdArr(m.titulares,loser.id,survivor.id);
+        if(m.capitan===loser.id)m.capitan=survivor.id;
+        if(m.live){
+          m.live.onCourt=_remapIdArr(m.live.onCourt,loser.id,survivor.id);
+          if(m.live.stats)m.live.stats=_remapStatsObj(m.live.stats,loser.id,survivor.id);
+          if(m.live.minTracked)m.live.minTracked=_remapSumObj(m.live.minTracked,loser.id,survivor.id);
+          if(m.live.plusMinusTracked)m.live.plusMinusTracked=_remapSumObj(m.live.plusMinusTracked,loser.id,survivor.id);
+          if(m.live.inSince&&m.live.inSince[loser.id]!=null){if(m.live.inSince[survivor.id]==null)m.live.inSince[survivor.id]=m.live.inSince[loser.id];delete m.live.inSince[loser.id];}
+          if(m.live.plusMinusBaseline&&m.live.plusMinusBaseline[loser.id]!=null){if(m.live.plusMinusBaseline[survivor.id]==null)m.live.plusMinusBaseline[survivor.id]=m.live.plusMinusBaseline[loser.id];delete m.live.plusMinusBaseline[loser.id];}
+          if(Array.isArray(m.live.shots))m.live.shots.forEach(s=>{if(s.pid===loser.id)s.pid=survivor.id;});
+        }
+      });
+      (S.events[teamId]||[]).forEach(ev=>{
+        ev.convocados=_remapIdArr(ev.convocados,loser.id,survivor.id);
+      });
+    }
+  });
+  S.players[teamId]=(S.players[teamId]||[]).filter(p=>!losers.some(l=>l.id===p.id));
+  return {survivor,mergedCount:losers.length};
+}
+function openGuestDuplicatesModal(){
+  document.getElementById("m-guest-dupes")?.remove();
+  const groups=_findDuplicateGuestGroups(S.teamId);
+  if(!groups.length){toast("✅ No hay puntuales duplicados en este equipo");return;}
+  const el=document.createElement("div");el.id="m-guest-dupes";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const rowsHtml=groups.map(g=>{
+    const tipo=g[0].attOnly?"Entreno":"Partido";
+    return `<div style="padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
+      <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(g[0].name)} <span style="font-size:11px;font-weight:400;color:var(--tm)">(${tipo})</span></div>
+      <div style="font-size:12px;color:var(--td)">${g.length} entradas repetidas → se fusionan en una sola, sin perder nada de su historial</div>
+    </div>`;
+  }).join("");
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔍 Puntuales duplicados</div>
+    <div class="msub">Mismo nombre, varias entradas -- probablemente el mismo jugador dado de alta más de una vez. Al fusionar se combinan en una única entrada: se suman sus estadísticas y días/convocatorias, no se pierde nada.</div>
+    ${rowsHtml}
+    <button class="btn-p" style="background:#f59e0b" onclick="_confirmMergeAllGuestDuplicates()">🔗 Fusionar ${groups.length>1?"todos":""}</button>
+    <button class="btn-s" onclick="document.getElementById('m-guest-dupes').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _confirmMergeAllGuestDuplicates(){
+  const groups=_findDuplicateGuestGroups(S.teamId);
+  if(!groups.length)return;
+  _confirm(`¿Fusionar ${groups.length} grupo${groups.length>1?"s":""} de puntuales duplicados?<br><span style="font-size:12px;color:var(--td)">No se pierde ningún dato -- se combinan en una sola entrada por persona.</span>`,"🔗 Fusionar",()=>{
+    let merged=0;
+    groups.forEach(g=>{const r=_mergeGuestGroup(S.teamId,g);if(r)merged+=r.mergedCount;});
+    save();
+    document.getElementById("m-guest-dupes")?.remove();
+    render();
+    toast(`✅ ${merged} entrada${merged>1?"s":""} fusionada${merged>1?"s":""}`);
+  });
 }
 function delTeam(){
   // v1.8.6 · B-NEW-2: nombre se resolvía desde el onclick (`delTeam('${esc(t.name)}')`),
