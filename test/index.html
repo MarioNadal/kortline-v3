@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.59";
+const APP_VERSION = "3.0.0-dev.60";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2889,8 +2889,13 @@ function _countAtt(p,sessList){
   const rel=_sessForPlayer(p,sessList);
   let pr=0,ab=0,la=0,ex=0;
   rel.forEach(s=>{
-    const v=s.data?s.data[p.id]:undefined;
-    if(v==="present"||v===undefined)pr++;
+    // v3.0.0-dev.60 · B-INJ2: pasa por _effAttState() -- si la sesión no
+    // tiene marca explícita para el jugador y ya estaba lesionado ese día,
+    // cuenta como justificado en vez de presente (ver el comentario de
+    // _effAttState). Antes de esto un jugador de baja podía salir con 100%
+    // de asistencia en Historial/Stats/PDF.
+    const v=_effAttState(p,s.date,s.data?s.data[p.id]:undefined);
+    if(v==="present")pr++;
     else if(v==="absent")ab++;
     else if(v==="late")la++;
     else if(v==="excused")ex++;
@@ -2901,6 +2906,57 @@ function _countAtt(p,sessList){
 /* ═══════════════════════════════════════
    INJURY HELPERS
 ═══════════════════════════════════════ */
+// v3.0.0-dev.60 · B-INJ1: tipos de lesión con una duración TÍPICA orientativa
+// (en días) para sugerir sola una "vuelta prevista" al elegir el tipo -- el
+// entrenador siempre puede ajustar la fecha a mano después. "other" no tiene
+// duración típica (0 = no autorrellena nada) porque no tiene sentido
+// inventar un número para un caso sin clasificar. Son estimaciones generales,
+// no un diagnóstico -- el criterio médico real manda siempre.
+const INJURY_TYPES=[
+  ["ankle_mild","🦶 Esguince de tobillo (leve)",10],
+  ["ankle_severe","🦶 Esguince de tobillo (grave)",30],
+  ["muscle_strain","💪 Rotura fibrilar / fibra muscular",21],
+  ["tendinitis","🦵 Tendinitis",14],
+  ["contracture","🦵 Contractura muscular",7],
+  ["knee","🦵 Rodilla (menisco/ligamentos)",60],
+  ["fracture","🦴 Fractura ósea",45],
+  ["bruise","🤕 Golpe / contusión",5],
+  ["other","❔ Otra / sin estimar",0]
+];
+function injuryTypeLabel(id){const f=INJURY_TYPES.find(x=>x[0]===id);return f?f[1]:"";}
+function injuryTypicalDays(id){const f=INJURY_TYPES.find(x=>x[0]===id);return f?f[2]:0;}
+// Suma/resta días a una fecha ISO YYYY-MM-DD sin arrastrar problemas de huso
+// horario (mediodía fijo, igual que el resto de helpers de fecha de la app).
+function _addDaysISO(dateStr,days){
+  const d=new Date((dateStr||td())+"T12:00:00");
+  d.setDate(d.getDate()+days);
+  return d.toISOString().split("T")[0];
+}
+// Diferencia con signo en días entre dos fechas ISO (b-a). Positivo = b es
+// posterior a a. A diferencia de injuryDays() (siempre ≥0, pensado para
+// "cuántos días lleva"), aquí necesitamos el signo para saber si la vuelta
+// prevista ya quedó atrás o todavía queda por llegar.
+function _daysBetweenISO(a,b){
+  const da=new Date(a+"T12:00:00"),db=new Date(b+"T12:00:00");
+  return Math.round((db-da)/(1000*60*60*24));
+}
+// Info de la vuelta prevista de un jugador lesionado, o null si no tiene
+// fecha estimada guardada (lesiones antiguas, o tipo "other" sin ajustar).
+function injuryEstimatedReturnInfo(p){
+  if(!p||!isInjured(p))return null;
+  const est=p.injury&&p.injury.estimatedReturn;
+  if(!est)return null;
+  const diff=_daysBetweenISO(td(),est);
+  return{date:est,diff,overdue:diff<0};
+}
+// Etiqueta corta para badges/filas ("vuelta ~15/10 (5d)" / "⚠️ vuelta prevista hace 3d").
+function injuryEstimatedReturnShort(p){
+  const info=injuryEstimatedReturnInfo(p);
+  if(!info)return"";
+  if(info.overdue)return`⚠️ vuelta prevista hace ${Math.abs(info.diff)}d`;
+  if(info.diff===0)return"🔔 vuelta prevista hoy";
+  return`vuelta ~${fdCompact(info.date)} (${info.diff}d)`;
+}
 // Determina si un jugador está actualmente lesionado. Orden de prioridad:
 // 1) p.injury.active (modelo nuevo v1.6.3) · 2) p.injured booleano legacy ·
 // 3) patrón "lesion" en notas (retrocompat con datos muy antiguos).
@@ -2929,8 +2985,11 @@ function computeInjurySnapshot(p,startDate,sessList){
   if(!rel.length)return{pct:100,tot:0};
   let pr=0;
   rel.forEach(s=>{
-    const v=s.data?s.data[p.id]:undefined;
-    if(v==="present"||v==="late"||v===undefined)pr++;
+    // v3.0.0-dev.60 · B-INJ2: _effAttState() -- si el jugador ya venía de una
+    // lesión ANTERIOR (ya dada de alta) sin marca explícita ese día, no debe
+    // contar como presente en el snapshot previo a la lesión nueva.
+    const v=_effAttState(p,s.date,s.data?s.data[p.id]:undefined);
+    if(v==="present"||v==="late")pr++;
   });
   return{pct:pc(pr,rel.length),tot:rel.length};
 }
@@ -2954,11 +3013,33 @@ function injuryDays(startDate,endDate){
 // ¿Estaba lesionado el jugador en la fecha indicada? Clave para pase de lista de
 // días anteriores: aunque hoy esté lesionado, en sesiones previas a startDate
 // NO debe marcarse como lesionado (ni badge visual ni auto-justificación).
+// v3.0.0-dev.60 · B-INJ2: también mira el HISTORIAL de lesiones ya dadas de
+// alta, no solo la activa -- así una sesión que se confirma más tarde (o el
+// cómputo de asistencia en Historial/Stats, ver _countAtt) sigue sabiendo que
+// ese día en concreto el jugador estaba de baja, aunque ya se haya recuperado.
 function isInjuredOn(p,date){
-  if(!p||!isInjured(p))return false;
-  const st=injuryStart(p);
-  if(!st)return true; // legacy sin startDate → comportamiento antiguo
-  return date>=st;
+  if(!p)return false;
+  if(isInjured(p)){
+    const st=injuryStart(p);
+    return !st||date>=st; // legacy sin startDate → comportamiento antiguo
+  }
+  if(Array.isArray(p.injuryHistory)){
+    return p.injuryHistory.some(h=>h&&h.startDate&&date>=h.startDate&&(!h.endDate||date<=h.endDate));
+  }
+  return false;
+}
+// v3.0.0-dev.60 · B-INJ2: estado efectivo de asistencia PARA CONTAR (distinto
+// del effectiveState() de att(), que es solo para pintar el pase de lista del
+// día actual). Cuando una sesión no tiene marca explícita para el jugador, el
+// valor por defecto históricamente era "present" -- correcto la inmensa
+// mayoría de las veces (el entrenador solo marca excepciones), pero
+// incorrecto para un jugador que ya estaba lesionado ese día y a quien nadie
+// llegó a tocarle el estado en esa sesión concreta: contaba como presente en
+// Historial/Stats/PDF aunque el pase de lista lo mostrara ya lesionado. Usado
+// por _countAtt() y por Historial para que ambos den siempre el mismo número.
+function _effAttState(p,date,v){
+  if(v!==undefined)return v;
+  return isInjuredOn(p,date)?"excused":"present";
 }
 // Fecha compacta DD/MM (sin año ni día de la semana) para filas estrechas.
 function fdCompact(d){
@@ -3096,7 +3177,7 @@ function _buildStatsCharts(){
     const data=recent.map(s=>{
       const act=activeIn(s);
       if(!act.length)return 0;
-      const pr=act.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
+      const pr=act.filter(p=>{const v=_effAttState(p,s.date,s.data[p.id]);return v==="present"||v==="late";}).length;
       return pc(pr,act.length);
     });
     _charts.trend=new Chart(trendEl,{
@@ -3124,7 +3205,7 @@ function _buildStatsCharts(){
     let tot={present:0,absent:0,late:0,excused:0};
     allSess.forEach(s=>{
       activeIn(s).forEach(p=>{
-        const v=s.data[p.id]||"present";
+        const v=_effAttState(p,s.date,s.data[p.id]);
         if(tot[v]!==undefined)tot[v]++;
       });
     });
@@ -3144,7 +3225,7 @@ function _buildStatsCharts(){
       const act=activeIn(s);
       if(!act.length)return;
       byM[m].n++;
-      const pr=act.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
+      const pr=act.filter(p=>{const v=_effAttState(p,s.date,s.data[p.id]);return v==="present"||v==="late";}).length;
       byM[m].sum+=pc(pr,act.length);
     });
     const mks=Object.keys(byM).filter(k=>byM[k].n>0).sort();
@@ -3357,11 +3438,11 @@ function exportExcel(){
     const dayName=d.toLocaleDateString("es-ES",{weekday:"long"});
     const cells=sortedP.map(p=>{
       if(!_isPlayerActiveOn(p,s.date,allSess))return "N/A";
-      const v=s.data[p.id]||"present";
+      const v=_effAttState(p,s.date,s.data[p.id]);
       return{present:"P",absent:"A",late:"T",excused:"J"}[v]||"P";
     });
     const activeP=sortedP.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
-    const pr=activeP.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
+    const pr=activeP.filter(p=>{const v=_effAttState(p,s.date,s.data[p.id]);return v==="present"||v==="late";}).length;
     const pct=activeP.length?pc(pr,activeP.length)/100:0;
     sRows.push([s.date,dayName,...cells,pct,s.data._notes||"",s.data._exercises||""]);
   });
@@ -3382,7 +3463,7 @@ function exportExcel(){
     sortedP.forEach(p=>{
       if(!_isPlayerActiveOn(p,s.date,seasonSess))return;
       byM[m].sumPs++;
-      const v=s.data[p.id]||"present";
+      const v=_effAttState(p,s.date,s.data[p.id]);
       if(v==="present"||v==="late")byM[m].sumPr++;
     });
   });
@@ -3915,10 +3996,11 @@ function hoy(){
     const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===today));
     const marked=players.filter(p=>sess[p.id]).length;
     const done=players.length>0&&marked>0;
-    const pr=players.filter(p=>(sess[p.id]||"present")==="present").length;
-    const ab=players.filter(p=>sess[p.id]==="absent").length;
-    const la=players.filter(p=>sess[p.id]==="late").length;
-    const ex=players.filter(p=>sess[p.id]==="excused").length;
+    const effSt=players.map(p=>_effAttState(p,today,sess[p.id]));
+    const pr=effSt.filter(v=>v==="present").length;
+    const ab=effSt.filter(v=>v==="absent").length;
+    const la=effSt.filter(v=>v==="late").length;
+    const ex=effSt.filter(v=>v==="excused").length;
     const pct=pc(pr+la,players.length);
     const coaches=(t.coaches||[]).filter(Boolean);
     return`<div style="background:var(--s);border:1px solid ${done?"rgba(34,197,94,.3)":"rgba(249,115,22,.3)"};border-radius:14px;margin-bottom:12px;overflow:hidden">
@@ -4285,10 +4367,14 @@ function stats(){
     const injNotes=p.isInj&&p.injury?p.injury.notes:"";
     const injDys=p.isInj&&p.injStart?injuryDays(p.injStart):0;
     const injInfoLine=[p.injStart?"desde "+fdCompact(p.injStart):"",origLbl].filter(Boolean).join(" · ");
+    // v3.0.0-dev.60 · B-INJ1: vuelta estimada (si se puso al marcar la lesión),
+    // visible también en Riesgo FEB tal y como pidió Mario.
+    const injEstShort=p.isInj?injuryEstimatedReturnShort(p):"";
     const injBox=p.isInj
       ?`<div style="font-size:12px;background:rgba(122,156,200,.1);border:1px solid rgba(122,156,200,.25);border-radius:6px;padding:6px 8px;color:#7a9cc8;margin-bottom:6px">
           <div><span style="font-weight:700">🚑 Lesionado · ${injDys} día${injDys===1?"":"s"}</span>${p.wasAtRisk?` <span style="color:#ef4444;font-weight:700">· ⚠️ ya en riesgo al lesionarse (${p.injury?.snapshotPct??"—"}%)</span>`:""}</div>
           ${injInfoLine?`<div style="font-size:11px;color:var(--tm);margin-top:2px">${esc(injInfoLine)}</div>`:""}
+          ${injEstShort?`<div style="font-size:11px;font-weight:700;color:${injEstShort.startsWith("⚠️")?"#ef4444":"#7a9cc8"};margin-top:2px">${esc(injEstShort)}</div>`:""}
           ${injNotes?`<div style="font-size:11px;color:var(--tm);margin-top:2px;font-style:italic">"${esc(injNotes)}"</div>`:""}
           <div style="font-size:10px;color:var(--td);margin-top:2px">${p.wasAtRisk?"Sigue contando en Riesgo FEB con el % congelado.":"Excluido del riesgo FEB mientras dure la lesión."}</div>
         </div>`
@@ -4473,7 +4559,10 @@ function hist(){
       players.forEach(p=>{
         if(!_isDateInSeason(e.date)||!_isPlayerActiveOn(p,e.date,allEntries))return;
         sumPs++;
-        const v=e.data[p.id]||"present";
+        // v3.0.0-dev.60 · B-INJ2: _effAttState() en vez de "||\"present\"" --
+        // si no hay marca explícita y el jugador ya estaba lesionado ese día,
+        // cuenta como justificado, no como presente (mismo fix que _countAtt).
+        const v=_effAttState(p,e.date,e.data[p.id]);
         if(v==="present"||v==="late")sumPr++;
       });
     });
@@ -4490,10 +4579,12 @@ function hist(){
     `<div class="card">${entries.map((e,i)=>{
       // Solo cuenta jugadores de alta en la fecha de la sesión
       const activeP=players.filter(p=>_isPlayerActiveOn(p,e.date,allEntries));
-      const pr=activeP.filter(p=>(e.data[p.id]||"present")==="present").length;
-      const ab=activeP.filter(p=>e.data[p.id]==="absent").length;
-      const la=activeP.filter(p=>e.data[p.id]==="late").length;
-      const ex=activeP.filter(p=>e.data[p.id]==="excused").length;
+      // v3.0.0-dev.60 · B-INJ2: _effAttState() por jugador -- ver _countAtt.
+      const activeSt=activeP.map(p=>_effAttState(p,e.date,e.data[p.id]));
+      const pr=activeSt.filter(v=>v==="present").length;
+      const ab=activeSt.filter(v=>v==="absent").length;
+      const la=activeSt.filter(v=>v==="late").length;
+      const ex=activeSt.filter(v=>v==="excused").length;
       const p2=activeP.length?pc(pr+la,activeP.length):0;const c=p2>=90?"#22c55e":p2>=thr?"#f59e0b":"#ef4444";
       const ts=e.data._teamScore;
       return`<div class="he" style="${i===entries.length-1?"border-bottom:none":""}">
@@ -4650,7 +4741,10 @@ function team(){
       const pnum=`<div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}99)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>`;
       const avatar=p.photo?`<img class="pavatar" src="${p.photo}" alt=""/>`:"";
       // Formato compacto para no cortar en filas estrechas: "🚑 10/04 (6d)"
-      const injLine=isInj?`🚑 ${iStart?fdCompact(iStart):""}${iDays?` (${iDays}d)`:""}`:"";
+      // v3.0.0-dev.60 · B-INJ1: + vuelta estimada, si se puso, tal y como pidió
+      // Mario ("también en la plantilla y en Riesgo FEB").
+      const injEst=isInj?injuryEstimatedReturnShort(p):"";
+      const injLine=isInj?`🚑 ${iStart?fdCompact(iStart):""}${iDays?` (${iDays}d)`:""}${injEst?` · ${injEst}`:""}`:"";
       const subLine=[p.position||"—",injLine,p.notes].filter(Boolean).join(" · ");
       // Botón dedicado de lesión entre ✏️ y 🗑. Rojo si activa (abre alta rápida),
       // gris si no (abre modal para marcar).
@@ -4749,10 +4843,10 @@ function buildDailyText(tid,date,showMotivo,opts){
   if(showMotivo&&sess._teamScore&&S.cfg.features.teamScore)lines.push(`⭐ Valoración equipo: ${sess._teamScore}/10 (${_scoreLabel(sess._teamScore)})`);
   lines.push("");
   const sorted=[...players].sort((a,b)=>(a.number||99)-(b.number||99));
-  const pr=sorted.filter(p=>(sess[p.id]||"present")==="present");
+  const pr=sorted.filter(p=>_effAttState(p,date,sess[p.id])==="present");
   const la=sorted.filter(p=>sess[p.id]==="late");
   const ab=sorted.filter(p=>sess[p.id]==="absent");
-  const ex=sorted.filter(p=>sess[p.id]==="excused");
+  const ex=sorted.filter(p=>_effAttState(p,date,sess[p.id])==="excused");
   lines.push(`✅ *Presentes (${pr.length}):*`);pr.forEach(p=>{const ps=getPS(sess,p.id);lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}${showMotivo&&S.cfg.features.playerScore&&ps?" ("+ps+"/10 ★)":""}`);}); 
   if(la.length){lines.push(`\n⏱ *Tarde (${la.length}):*`);la.forEach(p=>lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}`));}
   if(ab.length){lines.push(`\n❌ *Ausentes (${ab.length}):*`);ab.forEach(p=>lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}`));}
@@ -4785,7 +4879,7 @@ function buildWeeklyText(tid,showMotivo,opts){
   // añadido aparecía "presente" en entrenamientos previos a que existiera.
   allSess.forEach(s=>{
     const activeP=players.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
-    const pr2=activeP.filter(p=>(s.data[p.id]||"present")==="present").length;
+    const pr2=activeP.filter(p=>_effAttState(p,s.date,s.data[p.id])==="present").length;
     const la2=activeP.filter(p=>s.data[p.id]==="late").length;
     const pv=activeP.length?pc(pr2+la2,activeP.length):0;const ts2=s.data._teamScore;
     lines.push(`${pv>=90?"🟢":pv>=75?"🟡":"🔴"} *${cap(fd(s.date,true))}* — ${pv}%${showMotivo&&ts2&&S.cfg.features.teamScore?" · "+ts2+"★":""}`);
@@ -6208,9 +6302,10 @@ function openInjuryModal(pid){
   if(isInjured(p)){openInjuryRecoveryModal(pid);return;}
   openInjuryNewModal(pid);
 }
-// Modal de NUEVA lesión: startDate, origen y explicación. Sin estimación de tiempo
-// (las lesiones pueden durar desde horas hasta meses, no tiene sentido un único campo
-// de semanas). Si se necesita la estimación puede incluirse en la explicación.
+// Modal de NUEVA lesión: startDate, origen, TIPO de lesión (con vuelta
+// estimada sugerida automáticamente según el tipo -- v3.0.0-dev.60 · B-INJ1)
+// y explicación libre. La vuelta estimada es orientativa y siempre editable
+// a mano; el tipo "Otra/sin estimar" no sugiere ninguna fecha.
 function openInjuryNewModal(pid){
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return;
   const id="m-inj-"+pid;
@@ -6220,6 +6315,7 @@ function openInjuryNewModal(pid){
   el.onclick=e=>{if(e.target===el)_closeModal(id);};
   const injDate=td();
   const injOrigin="unknown";
+  const injType="other";
   const lastInjury=(Array.isArray(p.injuryHistory)&&p.injuryHistory.length)?p.injuryHistory[p.injuryHistory.length-1]:null;
   const ORIGINS=[["training","🏀 Entreno"],["match","🏆 Partido"],["out","🌐 Fuera"],["unknown","❔ Desconocido"]];
   el.innerHTML=`<div class="modal">
@@ -6228,12 +6324,18 @@ function openInjuryNewModal(pid){
     <div class="msub">👤 ${esc(p.name)}${p.number!=null?` · #${p.number}`:""}</div>
     ${lastInjury?`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--td)">📋 Última lesión: ${fdCompact(lastInjury.startDate||"")} → ${fdCompact(lastInjury.endDate||"")} (${lastInjury.days||0} d)</div>`:""}
     <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--td);line-height:1.5">Auto-justifica el pase de lista desde la fecha de inicio y congela su % FEB.</div>
-    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" value="${esc(injDate)}"/></div>
+    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" oninput="_recalcInjEstimate('${id}')" value="${esc(injDate)}"/></div>
     <div class="fg"><label class="fl">Origen</label>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px" id="${id}-origins">${ORIGINS.map(([k,lb])=>`<button type="button" class="inj-origin${injOrigin===k?" sel":""}" data-k="${k}" onclick="setInjOrigin('${id}','${k}')" style="padding:10px 8px;border-radius:8px;border:1px solid ${injOrigin===k?"#ef4444":"var(--border)"};background:${injOrigin===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injOrigin===k?"#ef4444":"var(--tx)"};font-size:12px;font-weight:700;cursor:pointer">${lb}</button>`).join("")}</div>
       <select class="fi" id="${id}-src" style="display:none"></select>
     </div>
-    <div class="fg"><label class="fl">Explicación (opcional)</label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Esguince, tendinitis, zona afectada, estimación..."></textarea>
+    <div class="fg"><label class="fl">Tipo de lesión</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px" id="${id}-types">${INJURY_TYPES.map(([k,lb])=>`<button type="button" class="inj-type${injType===k?" sel":""}" data-k="${k}" onclick="setInjType('${id}','${k}')" style="padding:9px 8px;border-radius:8px;border:1px solid ${injType===k?"#ef4444":"var(--border)"};background:${injType===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injType===k?"#ef4444":"var(--tx)"};font-size:11px;font-weight:700;cursor:pointer;text-align:left">${lb}</button>`).join("")}</div>
+    </div>
+    <div class="fg"><label class="fl">Vuelta estimada (orientativa)</label><input class="fi" type="date" id="${id}-est" value=""/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Se sugiere sola según el tipo de lesión -- ajústala si el caso concreto lo pide. No sustituye el criterio médico.</div>
+    </div>
+    <div class="fg"><label class="fl">Explicación (opcional)</label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Esguince, tendinitis, zona afectada..."></textarea>
       <div style="font-size:11px;color:var(--tm);margin-top:4px">Se usará como motivo en las justificaciones diarias durante la baja</div>
     </div>
     <button class="btn-p" onclick="saveInjury('${id}','${pid}')">🚑 Guardar lesión</button>
@@ -6255,6 +6357,8 @@ function openInjuryRecoveryModal(pid){
   el.onclick=e=>{if(e.target===el)el.remove();};
   const days=inj.startDate?injuryDays(inj.startDate):0;
   const origLbl=injuryOriginLabel(p);
+  const typeLbl=inj.type?injuryTypeLabel(inj.type):"";
+  const estInfo=injuryEstimatedReturnInfo(p);
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">🚑 Lesión activa</div>
@@ -6263,6 +6367,8 @@ function openInjuryRecoveryModal(pid){
       <div style="font-weight:700;font-size:14px;color:#ef4444;margin-bottom:6px">Lleva ${days} día${days===1?"":"s"} lesionado</div>
       ${inj.startDate?`<div style="font-size:12px;color:var(--td)">Desde: ${fd(inj.startDate,false)}</div>`:""}
       ${origLbl?`<div style="font-size:12px;color:var(--td);margin-top:2px">Origen: ${esc(origLbl)}</div>`:""}
+      ${typeLbl?`<div style="font-size:12px;color:var(--td);margin-top:2px">Tipo: ${esc(typeLbl)}</div>`:""}
+      ${estInfo?`<div style="font-size:12px;margin-top:2px;font-weight:700;color:${estInfo.overdue?"#ef4444":"var(--td)"}">${estInfo.overdue?`⚠️ Vuelta prevista superada (${fd(estInfo.date,false)}, hace ${Math.abs(estInfo.diff)} día${Math.abs(estInfo.diff)===1?"":"s"})`:`📅 Vuelta prevista: ${fd(estInfo.date,false)} (en ${estInfo.diff} día${estInfo.diff===1?"":"s"})`}</div>`:""}
       ${inj.notes?`<div style="font-size:12px;color:var(--tm);margin-top:4px;font-style:italic">"${esc(inj.notes)}"</div>`:""}
     </div>
     <button class="btn-p" style="background:linear-gradient(135deg,#22c55e,#16a34a)" onclick="confirmInjuryRecovery('${pid}')">✅ Dar de alta médica</button>
@@ -6283,7 +6389,7 @@ function confirmInjuryRecovery(pid){
   const tid=S.teamId;
   applyInjuryToSessions(tid,pid,startDate,endDate,prev.notes||"");
   const hist=Array.isArray(p.injuryHistory)?p.injuryHistory.slice():[];
-  hist.push({startDate,endDate,days,origin:prev.origin||"unknown",originId:prev.originId||"",originLabel:prev.originLabel||"",notes:prev.notes||"",snapshotPct:prev.snapshotPct,snapshotWasAtRisk:!!prev.snapshotWasAtRisk});
+  hist.push({startDate,endDate,days,origin:prev.origin||"unknown",originId:prev.originId||"",originLabel:prev.originLabel||"",type:prev.type||"other",typeLabel:prev.typeLabel||"",estimatedReturn:prev.estimatedReturn||"",notes:prev.notes||"",snapshotPct:prev.snapshotPct,snapshotWasAtRisk:!!prev.snapshotWasAtRisk});
   S.players[S.teamId]=pl(S.teamId).map(x=>x.id===pid?{...x,injured:false,injury:null,injuryHistory:hist}:x);
   document.getElementById("m-inj-"+pid)?.remove();
   save();render();
@@ -6302,16 +6408,24 @@ function openInjuryEditModal(pid){
   const injDate=inj.startDate||td();
   const injOrigin=inj.origin||"unknown";
   const injOriginId=inj.originId||"";
+  const injType=inj.type||"other";
+  const injEst=inj.estimatedReturn||"";
   const injNotes=inj.notes||"";
   const ORIGINS=[["training","🏀 Entreno"],["match","🏆 Partido"],["out","🌐 Fuera"],["unknown","❔ Desconocido"]];
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">✏️ Editar lesión</div>
     <div class="msub">👤 ${esc(p.name)}${p.number!=null?` · #${p.number}`:""}</div>
-    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" value="${esc(injDate)}"/></div>
+    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" oninput="_recalcInjEstimate('${id}')" value="${esc(injDate)}"/></div>
     <div class="fg"><label class="fl">Origen</label>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px" id="${id}-origins">${ORIGINS.map(([k,lb])=>`<button type="button" class="inj-origin${injOrigin===k?" sel":""}" data-k="${k}" onclick="setInjOrigin('${id}','${k}')" style="padding:10px 8px;border-radius:8px;border:1px solid ${injOrigin===k?"#ef4444":"var(--border)"};background:${injOrigin===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injOrigin===k?"#ef4444":"var(--tx)"};font-size:12px;font-weight:700;cursor:pointer">${lb}</button>`).join("")}</div>
       <select class="fi" id="${id}-src" style="display:${injOrigin==="training"||injOrigin==="match"?"block":"none"}">${buildInjSourceOptions(injOrigin,injOriginId)}</select>
+    </div>
+    <div class="fg"><label class="fl">Tipo de lesión</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px" id="${id}-types">${INJURY_TYPES.map(([k,lb])=>`<button type="button" class="inj-type${injType===k?" sel":""}" data-k="${k}" onclick="setInjType('${id}','${k}')" style="padding:9px 8px;border-radius:8px;border:1px solid ${injType===k?"#ef4444":"var(--border)"};background:${injType===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injType===k?"#ef4444":"var(--tx)"};font-size:11px;font-weight:700;cursor:pointer;text-align:left">${lb}</button>`).join("")}</div>
+    </div>
+    <div class="fg"><label class="fl">Vuelta estimada (orientativa)</label><input class="fi" type="date" id="${id}-est" value="${esc(injEst)}"/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Se sugiere sola según el tipo de lesión -- ajústala si el caso concreto lo pide. No sustituye el criterio médico.</div>
     </div>
     <div class="fg"><label class="fl">Explicación (opcional)</label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Esguince, tendinitis, zona afectada...">${esc(injNotes)}</textarea>
       <div style="font-size:11px;color:var(--tm);margin-top:4px">Se usará como motivo en las justificaciones diarias durante la baja</div>
@@ -6348,6 +6462,44 @@ function setInjOrigin(mid,k){
     }
   }
 }
+// v3.0.0-dev.60 · B-INJ1: cambia el TIPO de lesión seleccionado (visual, igual
+// que setInjOrigin) y además sugiere sola la fecha de "vuelta estimada" según
+// la duración típica de ese tipo (ver INJURY_TYPES) sumada a la fecha de
+// inicio ya puesta en el formulario. "other" no tiene duración típica → no
+// autorrellena nada, el entrenador la deja en blanco o la pone a mano.
+// Siempre se puede ajustar el campo de fecha a mano después: esto es solo
+// un punto de partida orientativo, no un valor bloqueado.
+function setInjType(mid,k){
+  const wrap=document.getElementById(mid+"-types");if(!wrap)return;
+  wrap.querySelectorAll(".inj-type").forEach(btn=>{
+    const on=btn.dataset.k===k;
+    btn.classList.toggle("sel",on);
+    btn.style.border="1px solid "+(on?"#ef4444":"var(--border)");
+    btn.style.background=on?"rgba(239,68,68,.12)":"var(--s3)";
+    btn.style.color=on?"#ef4444":"var(--tx)";
+  });
+  const days=injuryTypicalDays(k);
+  const estEl=document.getElementById(mid+"-est");
+  if(estEl&&days>0){
+    const dateEl=document.getElementById(mid+"-date");
+    estEl.value=_addDaysISO(dateEl?.value||td(),days);
+  }
+}
+// v3.0.0-dev.60 · B-INJ1: si el entrenador cambia la fecha de INICIO después
+// de haber elegido ya un tipo con duración típica, recalcula la vuelta
+// estimada para que siga siendo coherente (p.ej. mueve la fecha de lesión 3
+// días hacia atrás → la vuelta prevista también se adelanta 3 días). Si no
+// hay tipo seleccionado (o es "other"), no toca el campo -- puede que el
+// entrenador ya lo haya editado a mano y no queremos pisarlo sin motivo.
+function _recalcInjEstimate(mid){
+  const selBtn=document.querySelector(`#${mid}-types .inj-type.sel`);
+  if(!selBtn)return;
+  const days=injuryTypicalDays(selBtn.dataset.k);
+  if(!days)return;
+  const estEl=document.getElementById(mid+"-est");
+  const dateEl=document.getElementById(mid+"-date");
+  if(estEl&&dateEl)estEl.value=_addDaysISO(dateEl.value||td(),days);
+}
 // Persiste la lesión activa (nueva o editada). El alta se gestiona por separado
 // en confirmInjuryRecovery. Siempre crea/mantiene p.injury.active=true y
 // backfillea las sesiones desde startDate hasta hoy como excused+injury para
@@ -6362,7 +6514,13 @@ function saveInjury(mid,pid){
   const srcEl=document.getElementById(mid+"-src");
   const originId=(origin==="training"||origin==="match")&&srcEl?srcEl.value||"":"";
   const originLabel=srcEl&&srcEl.selectedOptions&&srcEl.selectedOptions[0]&&srcEl.value?srcEl.selectedOptions[0].textContent:"";
-  const injNotesVal=document.getElementById(mid+"-notes")?.value.trim()||"";applyInjuryToSessions(tid,pid,startDate,null,injNotesVal);
+  const injNotesVal=document.getElementById(mid+"-notes")?.value.trim()||"";
+  // v3.0.0-dev.60 · B-INJ1: tipo de lesión (lista predefinida, botón .sel) +
+  // vuelta estimada (fecha sugerida sola o ajustada a mano por el entrenador).
+  const typeBtn=document.querySelector(`#${mid}-types .inj-type.sel`);
+  const type=typeBtn?.dataset.k||"other";
+  const typeLabel=injuryTypeLabel(type);
+  const estimatedReturn=document.getElementById(mid+"-est")?.value||"";
   // Preserva el snapshot si la fecha no cambia; recalcula si es nueva lesión o cambió la fecha.
   let snapshotPct,snapshotWasAtRisk;
   if(prev&&prev.active&&prev.startDate===startDate&&typeof prev.snapshotPct==="number"){
@@ -6375,7 +6533,7 @@ function saveInjury(mid,pid){
     const thr=S.cfg.riskThreshold||75;
     snapshotWasAtRisk=snap.tot>0&&snap.pct<thr;
   }
-  const injuryObj={active:true,startDate,origin,originId,originLabel,notes:injNotesVal,snapshotPct,snapshotWasAtRisk};
+  const injuryObj={active:true,startDate,origin,originId,originLabel,type,typeLabel,estimatedReturn,notes:injNotesVal,snapshotPct,snapshotWasAtRisk};
   // Backfill: todas las sesiones entre startDate y hoy → excused + motivo lesión.
   // También limpia marcas _jr='injury' que queden fuera del nuevo rango (p.ej. si
   // el entrenador mueve la fecha hacia adelante).
@@ -6558,7 +6716,7 @@ function deleteIncident(pid,incId){
 function openDeleteConfirm(teamId,date){
   document.getElementById("m-del")?.remove();
   const players=pl(teamId);const sess=so(teamId,date);
-  const pr=players.filter(p=>(sess[p.id]||"present")==="present").length;
+  const pr=players.filter(p=>_effAttState(p,date,sess[p.id])==="present").length;
   const p2=pc(pr,players.length);
   const el=document.createElement("div");el.id="m-del";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
@@ -7119,24 +7277,22 @@ function chgDate(d){
 function cycleAtt(pid){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  // Para lesionados el estado efectivo es "excused" (auto). Si no hay estado
-  // explícito, arrancamos desde el auto para que el ciclo tenga sentido visual.
+  // Para lesionados (activa o archivada, ver isInjuredOn) el estado efectivo
+  // es "excused" (auto). Si no hay estado explícito, arrancamos desde el
+  // auto para que el ciclo tenga sentido visual.
   let cur=sess[pid];
   if(!cur){
     const p=pl(S.teamId).find(x=>x.id===pid);
-    if(p&&isInjured(p)){
-      const st=injuryStart(p);
-      if(!st||st<=S.date)cur="excused";
-    }
+    if(p&&isInjuredOn(p,S.date))cur="excused";
     if(!cur)cur="present";
   }
   const next=ASTS[(ASTS.indexOf(cur)+1)%ASTS.length];
   sess[pid]=next;
   if(next!=="excused"){delete sess[pid+"_jr"];delete sess[pid+"_jn"];}
   else if(!sess[pid+"_jr"]){
-    // Si el jugador está lesionado y pasamos a excused sin motivo, ponemos "injury".
+    // Si el jugador estaba lesionado ese día y pasamos a excused sin motivo, ponemos "injury".
     const p=pl(S.teamId).find(x=>x.id===pid);
-    if(p&&isInjured(p))sess[pid+"_jr"]="injury";
+    if(p&&isInjuredOn(p,S.date))sess[pid+"_jr"]="injury";
   }
   S.sessions[k]=sess;save();render();
 }
@@ -7235,18 +7391,20 @@ function _tsLongPressEnd(el){
 function _flushSess(){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  // Auto-justifica lesionados (con startDate<=fecha) cuando no hay estado
-  // explícito. Persiste excused + _jr='injury' para que el motivo se note
-  // en exports y en la tabla de justificaciones.
+  // Auto-justifica lesionados cuando no hay estado explícito. Persiste
+  // excused + _jr='injury' para que el motivo se note en exports y en la
+  // tabla de justificaciones.
+  // v3.0.0-dev.60 · B-INJ2: usa isInjuredOn() (activa O ya archivada en
+  // injuryHistory) en vez de solo isInjured()+injuryStart() -- así confirmar
+  // una sesión de un día ATRASADO en el que el jugador ya estaba lesionado
+  // (aunque hoy ya esté recuperado) también se auto-justifica bien, en vez
+  // de quedar como "present" por defecto.
   pl(S.teamId).forEach(p=>{
     if(!sess[p.id]){
-      if(isInjured(p)){
-        const st=injuryStart(p);
-        if(!st||st<=S.date){
-          sess[p.id]="excused";
-          if(!sess[p.id+"_jr"])sess[p.id+"_jr"]="injury";
-          return;
-        }
+      if(isInjuredOn(p,S.date)){
+        sess[p.id]="excused";
+        if(!sess[p.id+"_jr"])sess[p.id+"_jr"]="injury";
+        return;
       }
       sess[p.id]="present";
     }
