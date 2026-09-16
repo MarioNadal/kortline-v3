@@ -2134,7 +2134,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.55";
+const APP_VERSION = "3.0.0-dev.56";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3611,6 +3611,7 @@ function render(){
   else if(S.screen==="matchSummary")r.innerHTML=matchSummaryScreen();
   else if(S.screen==="trainingNote")r.innerHTML=trainingNoteScreen();
   else if(S.screen==="trainingNotesWeek")r.innerHTML=trainingNotesWeekScreen();
+  else if(S.screen==="b11live")r.innerHTML=screenB11Live();
   // v1.8.24: marcamos el body con la clase 'in-live' solo cuando estamos en
   // el live game. Lo usan las media queries landscape para aplicar el layout
   // full-width sólo a esa pantalla, manteniendo el resto a 430px centrado.
@@ -4070,6 +4071,14 @@ function att(){
       <button onclick="openDrillPickerModal()" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;background:var(--s2);color:var(--td);border:1px dashed var(--border);cursor:pointer">+ Añadir</button>
     </div>
   </div>`:"";
+  // v3.0.0-dev.56 · B-B11-1: acceso fijo (no es un ejercicio más del
+  // catálogo, siempre visible) al ejercicio "Contraataque de 11" en vivo.
+  const b11Sess=f.exercises?_b11():null;
+  const b11ChipHtml=f.exercises?(
+    !b11Sess?`<div class="fg"><button class="btn-s" style="width:100%" onclick="openB11SetupModal()">🏀 Iniciar Contraataque de 11</button></div>`
+    :b11Sess.status==="finished"?`<div class="fg"><button class="btn-s" style="width:100%" onclick="openB11SummaryModal()">🏀 Contraataque de 11 · ✅ ver resultado</button></div>`
+    :`<div class="fg"><button class="btn-p" style="width:100%" onclick="openB11ResumeOrLive()">🏀 Contraataque de 11 · en curso (${_fmtClock(b11Sess.remainingSec)}) · Continuar</button></div>`
+  ):"";
   const isAutoMode=f.playerScore&&!sess._teamScoreManual;
   const hasIndivScores=f.playerScore&&players.some(p=>sess[p.id+"_score"]>0);
   // v1.8.36 · B-SCORE1: la fila de 10 estrellas (dificil de ver de un vistazo
@@ -4135,7 +4144,7 @@ function att(){
     <div style="text-align:center;margin:8px 0 12px">
       <button onclick="openGuestPlayerModal({mode:'att'})" style="background:none;border:1px dashed var(--border);color:var(--td);cursor:pointer;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;width:100%">🔄 + Invitado puntual (jugador de otra categoría / externo)</button>
     </div>
-    ${exercisesHtml}${drillsChipsHtml}${photoHtml}${teamScoreHtml}
+    ${exercisesHtml}${drillsChipsHtml}${b11ChipHtml}${photoHtml}${teamScoreHtml}
     <div class="fg"><label class="fl">📝 Notas del entrenador</label><input class="fi" id="att-notes" value="${esc(notesVal)}" placeholder="Solo visibles para el entrenador..." oninput="_attAutoSave()"/></div>
     <div style="display:flex;gap:8px;align-items:stretch">
       ${!sessionExists
@@ -5460,6 +5469,358 @@ function deleteDrill(drillId){
     toast("🗑 Eliminado del catálogo");
     _refreshDrillPickerList();_refreshDrillLibraryList();
   });
+}
+/* ═══════════════════════════════════════
+   CONTRAATAQUE DE 11 · ejercicio en vivo (v3.0.0-dev.56 · B-B11-1)
+   Ejercicio especifico del club (3x2 continuo): NO es un partido -- sin
+   marcador ni equipos fijos, solo captura rapida de estadisticas
+   individuales durante el ejercicio. Va ligado al entrenamiento del dia
+   (S.sessions[k].b11), igual que los ejercicios del catalogo -- no toca ni
+   el catalogo ni las sesiones de partido. v1 acotada: la pantalla de
+   estadisticas agregadas entre varios dias queda para una fase posterior;
+   aqui se guarda bien guardado (por jugador + log de eventos) para poder
+   construirla luego sin perder nada de lo capturado ahora.
+═══════════════════════════════════════ */
+function _b11(){
+  const k=sk(S.teamId,S.date);
+  return (S.sessions[k]&&S.sessions[k].b11)||null;
+}
+function _b11EmptyStats(){return {p2m:0,p2a:0,p3m:0,p3a:0,reb:0,to:0,stl:0,ast:0,blk:0};}
+const _B11_ACT_LABELS={p2m:"+2 anotado",p3m:"+3 anotado",p2a:"Fallo de 2",p3a:"Fallo de 3",reb:"Rebote",to:"Pérdida",stl:"Robo",ast:"Asistencia",blk:"Tapón"};
+function _b11ActiveRoster(){
+  const tid=S.teamId;
+  const prefix=tid+"_";
+  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>({date:k.slice(prefix.length),data:v}));
+  return pl(tid).filter(p=>_isPlayerActiveOn(p,S.date,allSess)).sort((a,b)=>(a.number??999)-(b.number??999));
+}
+/* ── Configuración inicial ── */
+function openB11SetupModal(){
+  const existing=_b11();
+  if(existing&&existing.status!=="finished"){openB11ResumeOrLive();return;}
+  document.getElementById("m-b11-setup")?.remove();
+  const roster=_b11ActiveRoster();
+  window._b11Setup={selected:new Set(roster.map(p=>p.id)),temps:[]};
+  const el=document.createElement("div");el.id="m-b11-setup";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🏀 Contraataque de 11</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 14px">Configura quién participa y qué se registra antes de arrancar el cronómetro.</div>
+    <label class="fl">Jugadores</label>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="flex:1;padding:8px" onclick="_b11ToggleAll(true)">Todos</button>
+      <button class="btn-s" style="flex:1;padding:8px" onclick="_b11ToggleAll(false)">Ninguno</button>
+    </div>
+    <div id="b11-roster-list" style="margin-bottom:10px">${_b11RosterListHtml(roster)}</div>
+    <div id="b11-temps-list">${_b11TempsListHtml()}</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input class="fi" id="b11-temp-name" placeholder="+ jugador nuevo (no cuenta en stats de temporada)" style="flex:1"/>
+      <button class="btn-s" onclick="_b11AddTemp()" style="padding:0 16px">Añadir</button>
+    </div>
+    <label class="fl">¿Qué registramos además de tiros, rebotes y pérdidas/robos?</label>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="b11-chk-ast" checked/> Asistencias</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="b11-chk-blk" checked/> Tapones</label>
+    </div>
+    <div class="fg"><label class="fl">Minutos</label><input class="fi" type="number" id="b11-minutes" min="1" max="90" value="12"/></div>
+    <button class="btn-p" onclick="startB11()">▶ Empezar</button>
+    <button class="btn-s" onclick="document.getElementById('m-b11-setup').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _b11RosterListHtml(roster){
+  if(!roster.length)return `<div style="font-size:12px;color:var(--tm);padding:8px 0">Sin jugadores en la plantilla.</div>`;
+  return roster.map(p=>{
+    const on=window._b11Setup.selected.has(p.id);
+    const guestBadge=p.guest?' <span style="color:#8b5cf6;font-size:10px;font-weight:800">🔄</span>':"";
+    return `<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);font-size:13px;color:var(--tx)">
+      <input type="checkbox" ${on?"checked":""} onchange="_b11TogglePlayer('${p.id}')"/>
+      <span>${p.number!=null?("#"+p.number+" "):""}${esc(p.name)}${guestBadge}</span>
+    </label>`;
+  }).join("");
+}
+function _b11TogglePlayer(pid){
+  const s=window._b11Setup.selected;
+  if(s.has(pid))s.delete(pid);else s.add(pid);
+}
+function _b11ToggleAll(all){
+  const roster=_b11ActiveRoster();
+  window._b11Setup.selected=new Set(all?roster.map(p=>p.id):[]);
+  const list=document.getElementById("b11-roster-list");
+  if(list)list.innerHTML=_b11RosterListHtml(roster);
+}
+function _b11TempsListHtml(){
+  const temps=window._b11Setup?.temps||[];
+  if(!temps.length)return "";
+  return `<div style="margin-bottom:8px">${temps.map(t=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(139,92,246,.12);color:#8b5cf6;border:1px solid rgba(139,92,246,.3);margin:0 6px 6px 0">${esc(t.name)}<button onclick="_b11RemoveTemp('${t.id}')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;line-height:1">✕</button></span>`).join("")}</div>`;
+}
+function _b11AddTemp(){
+  const inp=document.getElementById("b11-temp-name");
+  const name=(inp?.value||"").trim();
+  if(!name){toast("⚠️ Ponle un nombre");return;}
+  window._b11Setup.temps.push({id:"tmp_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name});
+  inp.value="";
+  const list=document.getElementById("b11-temps-list");
+  if(list)list.innerHTML=_b11TempsListHtml();
+}
+function _b11RemoveTemp(tid){
+  window._b11Setup.temps=window._b11Setup.temps.filter(t=>t.id!==tid);
+  const list=document.getElementById("b11-temps-list");
+  if(list)list.innerHTML=_b11TempsListHtml();
+}
+function startB11(){
+  const setup=window._b11Setup;
+  if(!setup)return;
+  const roster=pl(S.teamId);
+  const chosen=roster.filter(p=>setup.selected.has(p.id)).sort((a,b)=>(a.number??999)-(b.number??999)).map(p=>({id:p.id,name:p.name,number:p.number??null,guest:!!p.guest}));
+  const temps=setup.temps.map(t=>({id:t.id,name:t.name,number:null,temp:true}));
+  const players=[...chosen,...temps];
+  if(!players.length){toast("⚠️ Elige al menos un jugador");return;}
+  const minutes=Math.max(1,Math.min(90,parseInt(document.getElementById("b11-minutes")?.value)||12));
+  const ast=!!document.getElementById("b11-chk-ast")?.checked;
+  const blk=!!document.getElementById("b11-chk-blk")?.checked;
+  const stats={};
+  players.forEach(p=>{stats[p.id]=_b11EmptyStats();});
+  const k=sk(S.teamId,S.date);
+  const sess={...S.sessions[k]||{}};
+  sess.b11={status:"running",startedAt:Date.now(),checklist:{ast,blk},durationSec:minutes*60,remainingSec:minutes*60,players,stats,log:[]};
+  S.sessions[k]=sess;
+  save();
+  document.getElementById("m-b11-setup")?.remove();
+  window._b11Setup=null;
+  S.screen="b11live";
+  render();
+  startB11Timer();
+}
+/* ── Cronómetro (cuenta atrás, pausable) ── */
+let _b11Timer=null;
+function startB11Timer(){
+  if(_b11Timer)return;
+  _b11Timer=setInterval(()=>{
+    const b=_b11();
+    if(!b||S.screen!=="b11live"||b.status!=="running"){clearInterval(_b11Timer);_b11Timer=null;return;}
+    if(b.remainingSec>0){
+      b.remainingSec--;
+      const el=document.getElementById("b11-clock");
+      if(el){el.textContent=_fmtClock(b.remainingSec);el.style.color=b.remainingSec===0?"#ef4444":b.remainingSec<60?"#f59e0b":"var(--tx)";}
+      save();
+    }else{
+      b.status="paused";
+      clearInterval(_b11Timer);_b11Timer=null;
+      save();render();
+      toast("⏱ ¡Tiempo! Termina el ejercicio o añade más minutos.");
+    }
+  },1000);
+}
+function toggleB11Clock(){
+  const b=_b11();if(!b||b.status==="finished")return;
+  b.status=b.status==="running"?"paused":"running";
+  if(b.status==="running")startB11Timer();else{clearInterval(_b11Timer);_b11Timer=null;}
+  save();render();
+}
+function addB11Minutes(mins){
+  const b=_b11();if(!b)return;
+  b.remainingSec=Math.max(0,(b.remainingSec||0)+mins*60);
+  save();render();
+}
+function openB11ResumeOrLive(){
+  const b=_b11();if(!b)return;
+  S.screen="b11live";render();
+  if(b.status==="running")startB11Timer();
+}
+/* ── Captura de estadísticas ── */
+function _b11Log(pid,action){
+  const b=_b11();if(!b)return;
+  if(!b.stats[pid])b.stats[pid]=_b11EmptyStats();
+  b.stats[pid][action]=(b.stats[pid][action]||0)+1;
+  b.log=[...(b.log||[]),{pid,action,ts:Date.now()}];
+  save();render();
+}
+window._b11Pending=null;
+function _b11OpenPicker(cfg){
+  const b=_b11();if(!b)return;
+  document.getElementById("m-b11-picker")?.remove();
+  window._b11Pending=cfg;
+  const players=b.players.filter(p=>p.id!==cfg.excludeId);
+  const cards=players.map(p=>`<button onclick="_b11PickerConfirm('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;border-radius:12px;border:2px solid ${cfg.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">
+    <div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--orange),#b83808);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fff">${p.number??"?"}</div>
+    <div style="font-weight:800;font-size:12px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(_shortName(p.name))}</div>
+  </button>`).join("");
+  const el=document.createElement("div");
+  el.id="m-b11-picker";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.96);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;";
+  el.innerHTML=`<div style="width:100%;max-width:380px">
+    <div style="text-align:center;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:${cfg.color};margin-bottom:4px">${cfg.emoji} ${esc(cfg.label||"")}</div>
+      <div style="font-family:var(--font-d);font-weight:900;font-size:17px;color:var(--tx)">${esc(cfg.title)}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(${Math.min(players.length||1,4)},1fr);gap:7px;margin-bottom:12px">${cards||'<div style="grid-column:1/-1;color:var(--tm);text-align:center;padding:14px">Nadie disponible</div>'}</div>
+    ${cfg.skipLabel?`<button onclick="_b11PickerSkip()" style="width:100%;padding:12px;border-radius:9px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-weight:700">${esc(cfg.skipLabel)}</button>`:""}
+  </div>`;
+  document.body.appendChild(el);
+}
+function _b11PickerConfirm(pid){
+  document.getElementById("m-b11-picker")?.remove();
+  const cfg=window._b11Pending;window._b11Pending=null;
+  if(cfg&&cfg.onPick)cfg.onPick(pid);
+}
+function _b11PickerSkip(){
+  document.getElementById("m-b11-picker")?.remove();
+  const cfg=window._b11Pending;window._b11Pending=null;
+  if(cfg&&cfg.onSkip)cfg.onSkip();
+}
+function b11Shot(value,made){
+  const b=_b11();if(!b)return;
+  _b11OpenPicker({
+    title:made?("¿Quién anotó de "+value+"?"):("¿Quién falló de "+value+"?"),
+    label:_B11_ACT_LABELS[(value===3?"p3":"p2")+(made?"m":"a")],
+    emoji:made?"✅":"❌",color:made?"#22c55e":"#ef4444",
+    onPick:(pid)=>{
+      _b11Log(pid,(value===3?"p3":"p2")+(made?"m":"a"));
+      const bb=_b11();
+      if(made&&bb&&bb.checklist.ast){
+        _b11OpenPicker({
+          title:"¿Quién dio la asistencia?",label:"Asistencia",emoji:"🎁",color:"#06b6d4",
+          excludeId:pid,skipLabel:"Sin asistencia · Saltar",
+          onPick:(aid)=>{_b11Log(aid,"ast");_b11AskRebound();},
+          onSkip:()=>_b11AskRebound()
+        });
+      }else{
+        _b11AskRebound();
+      }
+    }
+  });
+}
+function _b11AskRebound(){
+  _b11OpenPicker({
+    title:"¿Quién cogió el rebote?",label:"Rebote",emoji:"📦",color:"#a855f7",
+    skipLabel:"Sin rebote · Saltar",
+    onPick:(pid)=>_b11Log(pid,"reb")
+  });
+}
+function b11Turnover(){
+  _b11OpenPicker({
+    title:"¿Quién ha perdido el balón?",label:"Pérdida",emoji:"🔀",color:"#ef4444",
+    onPick:(pid)=>{
+      _b11Log(pid,"to");
+      _b11OpenPicker({
+        title:"¿Alguien ha robado el balón?",label:"Robo",emoji:"✋",color:"#3b82f6",
+        excludeId:pid,skipLabel:"Nadie ha robado · Omitir",
+        onPick:(sid)=>_b11Log(sid,"stl")
+      });
+    }
+  });
+}
+function b11Block(){
+  _b11OpenPicker({
+    title:"¿Quién ha tapado el tiro?",label:"Tapón",emoji:"🚫",color:"#8b5cf6",
+    onPick:(pid)=>_b11Log(pid,"blk")
+  });
+}
+function undoB11Last(){
+  const b=_b11();if(!b||!b.log||!b.log.length){toast("Nada que deshacer");return;}
+  const last=b.log[b.log.length-1];
+  b.log=b.log.slice(0,-1);
+  if(b.stats[last.pid]&&b.stats[last.pid][last.action]>0)b.stats[last.pid][last.action]--;
+  save();render();
+  const pname=(b.players.find(p=>p.id===last.pid)||{}).name||"?";
+  toast("↩️ Deshecho: "+(_B11_ACT_LABELS[last.action]||last.action)+" de "+_shortName(pname));
+}
+function confirmEndB11(){
+  const b=_b11();if(!b)return;
+  _confirm("¿Terminar el ejercicio? Los datos quedan guardados igualmente — puedes volver a abrirlo luego para ver el resultado.","⏹ Terminar",()=>{
+    const bb=_b11();if(!bb)return;
+    bb.status="finished";
+    bb.finishedAt=Date.now();
+    clearInterval(_b11Timer);_b11Timer=null;
+    save();
+    S.screen="att";
+    render();
+    openB11SummaryModal();
+  });
+}
+/* ── Pantalla en vivo ── */
+function screenB11Live(){
+  const b=_b11();
+  if(!b){S.screen="att";return att();}
+  const t=S.teams.find(x=>x.id===S.teamId);
+  const players=b.players;
+  const totalMade=Object.values(b.stats).reduce((s,x)=>s+x.p2m+x.p3m,0);
+  const totalMissed=Object.values(b.stats).reduce((s,x)=>s+x.p2a+x.p3a,0);
+  const cards=players.map(p=>{
+    const st=b.stats[p.id]||_b11EmptyStats();
+    return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
+      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.number!=null?("#"+p.number+" "):""}${esc(_shortName(p.name))}</div>
+      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb</div>
+    </div>`;
+  }).join("");
+  const blkBtn=b.checklist.blk?`<button class="btn-s" onclick="b11Block()" style="padding:12px">🚫 Tapón</button>`:"";
+  return `<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1;min-width:0"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">🏀 Contraataque de 11</div><div style="font-size:11px;color:var(--orange);font-weight:700">${esc(t?.name||"")} · ${cap(fd(S.date,true))}</div></div>
+  </div></header>
+  <div class="content">
+    <div style="display:flex;align-items:center;gap:10px;background:var(--s2);border-radius:12px;padding:12px;margin-bottom:14px">
+      <div id="b11-clock" style="font-family:var(--font-d);font-weight:900;font-size:32px;flex:1;color:${b.remainingSec===0?"#ef4444":b.remainingSec<60?"#f59e0b":"var(--tx)"}">${_fmtClock(b.remainingSec)}</div>
+      <button onclick="toggleB11Clock()" style="width:46px;height:46px;border-radius:10px;border:none;background:var(--orange);color:#fff;font-size:18px;cursor:pointer">${b.status==="running"?"⏸":"▶"}</button>
+      <button onclick="addB11Minutes(2)" title="+2 min" style="width:40px;height:46px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:800">+2'</button>
+    </div>
+    <div style="font-size:12px;color:var(--tm);text-align:center;margin-bottom:10px">✅ ${totalMade} anotadas · ❌ ${totalMissed} falladas</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px">${cards}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-p" style="background:#22c55e" onclick="b11Shot(2,true)">✅ +2</button>
+      <button class="btn-s" onclick="b11Shot(2,false)">❌ Fallo 2</button>
+      <button class="btn-p" style="background:#22c55e" onclick="b11Shot(3,true)">✅ +3</button>
+      <button class="btn-s" onclick="b11Shot(3,false)">❌ Fallo 3</button>
+    </div>
+    <div style="display:grid;grid-template-columns:${blkBtn?"1fr 1fr":"1fr"};gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#ef4444" onclick="b11Turnover()">🔀 Pérdida</button>
+      ${blkBtn}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn-s" style="flex:1" onclick="undoB11Last()">↩️ Deshacer última</button>
+      <button class="btn-s" style="flex:1;color:#ef4444" onclick="confirmEndB11()">⏹ Terminar</button>
+    </div>
+  </div>`;
+}
+/* ── Resumen (v1: por jugador, esta sesión — la pantalla agregada entre
+   varios días queda para una fase posterior) ── */
+function openB11SummaryModal(){
+  const b=_b11();if(!b)return;
+  document.getElementById("m-b11-summary")?.remove();
+  const rows=b.players.map(p=>{
+    const st=b.stats[p.id]||_b11EmptyStats();
+    return `<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${p.number!=null?("#"+p.number+" "):""}${esc(_shortName(p.name))}</td>
+      <td style="text-align:center;font-size:12px">${st.p2m}/${st.p2m+st.p2a}</td>
+      <td style="text-align:center;font-size:12px">${st.p3m}/${st.p3m+st.p3a}</td>
+      <td style="text-align:center;font-size:12px">${st.reb}</td>
+      <td style="text-align:center;font-size:12px">${st.to}</td>
+      <td style="text-align:center;font-size:12px">${st.stl}</td>
+      ${b.checklist.ast?`<td style="text-align:center;font-size:12px">${st.ast}</td>`:""}
+      ${b.checklist.blk?`<td style="text-align:center;font-size:12px">${st.blk}</td>`:""}
+    </tr>`;
+  }).join("");
+  const playedMin=Math.round((b.durationSec-b.remainingSec)/60);
+  const totalMin=Math.round(b.durationSec/60);
+  const el=document.createElement("div");el.id="m-b11-summary";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🏀 Contraataque de 11 · Resultado</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${b.status==="finished"?"✅ Ejercicio terminado":"⏳ En curso"} · ${playedMin} min de ${totalMin}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+      <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
+      <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Pérd</th><th style="font-size:10px;color:var(--tm)">Rob</th>
+      ${b.checklist.ast?'<th style="font-size:10px;color:var(--tm)">Ast</th>':""}
+      ${b.checklist.blk?'<th style="font-size:10px;color:var(--tm)">Tap</th>':""}
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-b11-summary').remove();S.screen='b11live';render();startB11Timer();" style="margin-top:12px">▶ Volver al ejercicio</button>`:""}
+    <button class="btn-s" onclick="document.getElementById('m-b11-summary').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
 }
 function dayScheduleRows(mid,initSched){
   const sc=initSched||{};
