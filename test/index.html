@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.61";
+const APP_VERSION = "3.0.0-dev.62";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2981,6 +2981,40 @@ function _injReminderDue(teamId){
     const info=injuryEstimatedReturnInfo(p);
     return info&&info.diff<=0&&!_injReminderDismissedToday(p.id);
   });
+}
+/* ═══════════════════════════════════════
+   CUMPLEAÑOS (v3.0.0-dev.62 · B-BDAY1)
+   Campo opcional p.birthDate ("YYYY-MM-DD") puesto a mano en el alta/edición
+   del jugador. Solo se usa para avisar del cumpleaños -- no afecta a nada
+   más (asistencia, riesgo FEB, etc.). Pedido explícito de Mario, visible
+   tanto en el pase de lista del equipo como en la pantalla "Hoy" (para que
+   no se pierda un cumpleaños en un día en que ese equipo no entrena).
+═══════════════════════════════════════ */
+// ¿Es hoy el cumpleaños del jugador? Compara solo día y mes (el año se usa
+// aparte para saber qué edad cumple, ver playerBirthdayAge) -- así funciona
+// igual todos los años sin tener que tocar nada.
+function isBirthdayToday(p){
+  if(!p||!p.birthDate||p.birthDate.length<10)return false;
+  return p.birthDate.slice(5)===td().slice(5);
+}
+// Edad que cumple HOY (asume que isBirthdayToday(p) ya es true). null si por
+// lo que sea no hay año válido registrado.
+function playerBirthdayAge(p){
+  if(!p||!p.birthDate)return null;
+  const y=parseInt(p.birthDate.slice(0,4),10);
+  if(!y)return null;
+  return parseInt(td().slice(0,4),10)-y;
+}
+// Todos los cumpleaños de HOY en todo el club (todos los equipos), para la
+// pantalla "Hoy". Cada entrada lleva el equipo para poder etiquetarla.
+function _todaysBirthdays(){
+  const out=[];
+  (S.teams||[]).forEach(t=>{
+    (S.players[t.id]||[]).forEach(p=>{
+      if(isBirthdayToday(p))out.push({player:p,team:t});
+    });
+  });
+  return out;
 }
 // Determina si un jugador está actualmente lesionado. Orden de prioridad:
 // 1) p.injury.active (modelo nuevo v1.6.3) · 2) p.injured booleano legacy ·
@@ -4082,10 +4116,25 @@ function hoy(){
   const emptyState=totalToday===0
     ?`<div class="empty"><div style="font-size:56px;margin-bottom:16px">😴</div><div style="font-family:var(--font-d);font-weight:900;font-size:20px;margin-bottom:8px">Sin actividad hoy</div><div style="font-size:14px;color:var(--tm);line-height:1.6">No hay entrenamientos ni partidos<br/>programados para hoy.</div></div>`
     :"";
-  const content=emptyState
+  // v3.0.0-dev.62 · B-BDAY1: cumpleaños de HOY de cualquier equipo del club.
+  // Va FUERA del if/else de emptyState a propósito: si el cumpleaños cae en
+  // un día sin entreno ni partido, es precisamente cuando más falta hace que
+  // salga aquí (en el pase de lista de ese equipo nunca se vería ese día).
+  const bdayToday=_todaysBirthdays();
+  const bdayBannerHoy=bdayToday.length?`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px">
+    ${bdayToday.map(({player,team})=>{
+      const age=playerBirthdayAge(player);
+      const label=age?`🎉 ¡Hoy cumple ${age} años!`:"🎉 ¡Hoy es su cumpleaños!";
+      return`<div style="display:flex;align-items:center;gap:10px${bdayToday.length>1?";margin-bottom:8px":""}">
+        <span style="font-size:22px">🎂</span>
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(player.name)} <span style="font-weight:500;color:var(--td);font-size:12px">· ${esc(team.name)}</span></div><div style="font-size:12px;color:#ec4899;font-weight:700">${label}</div></div>
+      </div>`;
+    }).join("")}
+  </div>`:"";
+  const content=bdayBannerHoy+(emptyState
     ||nextTrainingBar
     +(todayMatches.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin-bottom:10px">🏀 PARTIDOS</div>${matchCards}`:"")
-    +(todayTeams.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin:${todayMatches.length>0?"14px 0":"0 0"} 10px">🏋️ ENTRENAMIENTOS</div>${trainingCards}`:"");
+    +(todayTeams.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin:${todayMatches.length>0?"14px 0":"0 0"} 10px">🏋️ ENTRENAMIENTOS</div>${trainingCards}`:""));
   // v1.6.12: el título del header usa el nombre del club si está configurado
   const _hasClub=S.clubName&&S.clubName.trim()&&S.clubName!=="Kortline";
   const _title=_hasClub?esc(S.clubName):"Hoy";
@@ -4135,6 +4184,21 @@ function att(){
           <button onclick="openInjuryEditModal('${p.id}')" style="padding:8px 4px;border-radius:8px;border:1px solid var(--border);background:var(--s3);color:var(--tx);font-size:11px;font-weight:700;cursor:pointer">🔄 Nueva fecha</button>
           <button onclick="_dismissInjReminder('${p.id}')" style="padding:8px 4px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--tm);font-size:11px;font-weight:700;cursor:pointer">✕ Omitir</button>
         </div>
+      </div>`;
+    }).join("");
+  })();
+  // v3.0.0-dev.62 · B-BDAY1: aviso de cumpleaños de HOY para jugadores de
+  // este equipo (solo decorativo, sin botones -- no hay ninguna acción que
+  // tomar, a diferencia del aviso de lesión de arriba).
+  const bdayReminderHtml=(()=>{
+    const todays=players.filter(isBirthdayToday);
+    if(!todays.length)return"";
+    return todays.map(p=>{
+      const age=playerBirthdayAge(p);
+      const label=age?`🎉 ¡Hoy cumple ${age} años!`:"🎉 ¡Hoy es su cumpleaños!";
+      return`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">🎂</span>
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(p.name)}</div><div style="font-size:12px;color:#ec4899;font-weight:700">${label}</div></div>
       </div>`;
     }).join("");
   })();
@@ -4298,6 +4362,7 @@ function att(){
       <button onclick="chgDate(1)" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:22px;padding:0 6px">›</button>
       <button onclick="_guardedExit(()=>{_attFlushDraft();S.date=td();S._attDraft=null;S._attNoCaptureOnRender=true;render();})" style="background:rgba(240,99,24,.15);color:var(--orange);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:700">HOY</button>
     </div>
+    ${bdayReminderHtml}
     ${injReminderHtml}
     <div class="agrid">${agrid}</div>
     ${filterBanner}
@@ -6107,6 +6172,9 @@ function openPlayerModal(init){
       </div>
     </div>
     <div class="fg"><label class="fl">Posición</label><select class="fi" id="${id}-p">${["", ...POSITIONS].map(p=>`<option value="${p}" ${(init?.position||"")==p?"selected":""}>${p||"Sin especificar"}</option>`).join("")}</select></div>
+    <div class="fg"><label class="fl">Fecha de nacimiento <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label><input class="fi" type="date" id="${id}-bd" value="${esc(init?.birthDate||"")}"/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Si la pones, avisamos el día de su cumpleaños en el pase de lista y en Hoy</div>
+    </div>
     <div class="fg"><label class="fl">Notas</label><input class="fi" id="${id}-o" value="${esc(init?.notes||"")}" placeholder="Capitán, rol, rotación..."/></div>
     <button class="btn-p" onclick="savePlayer('${id}','${init?.id||""}')">${init?"Guardar":"Añadir"}</button>
     <button class="btn-s" onclick="_closeModal('${id}')">Cancelar</button>
@@ -6867,9 +6935,13 @@ function savePlayer(mid,eid){
   let notes=document.getElementById(mid+"-o").value.trim();
   const img=document.getElementById(mid+"-photo-img");
   const photo=(img&&img.src&&img.style.display!=="none"&&img.src.startsWith("data:"))?img.src:"";
+  // v3.0.0-dev.62 · B-BDAY1: fecha de nacimiento opcional -- solo para poder
+  // avisar del cumpleaños (ver isBirthdayToday/playerTurningAge), no se usa
+  // para nada más de momento.
+  const birthDate=document.getElementById(mid+"-bd")?.value||"";
   // Limpia rastros legacy de "Lesionado" en notas. La lesión se gestiona con el botón 🚑.
   notes=notes.replace(/\b[lL]esionad[oa]\b[\s·,:;-]*/,"").replace(/^[\s·,:;-]+|[\s·,:;-]+$/g,"").trim();
-  const patch={name,number:numV!==""?numV:null,position:pos,notes,photo};
+  const patch={name,number:numV!==""?numV:null,position:pos,notes,photo,birthDate};
   if(eid){S.players[S.teamId]=pl(S.teamId).map(x=>x.id===eid?{...x,...patch}:x);toast("✅ Actualizado");}
   else{if(!S.players[S.teamId])S.players[S.teamId]=[];S.players[S.teamId].push({id:uid(),addedAt:td(),...patch});toast("✅ Añadido");}
   clearDirty();
