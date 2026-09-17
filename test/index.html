@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.62";
+const APP_VERSION = "3.0.0-dev.63";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3082,8 +3082,18 @@ function isInjuredOn(p,date){
     const st=injuryStart(p);
     return !st||date>=st; // legacy sin startDate → comportamiento antiguo
   }
+  // v3.0.0-dev.63 · B-INJ4: endDate es EXCLUSIVO a propósito (date<h.endDate,
+  // no <=). confirmInjuryRecovery() siempre pone endDate=hoy en el momento
+  // exacto de dar el alta médica -- si fuera inclusivo, ese MISMO día se
+  // seguiría considerando "lesionado" (ambulancia/badge en el pase de lista,
+  // y _effAttState() lo seguiría auto-justificando) hasta medianoche, aunque
+  // el entrenador acabase de decir explícitamente que ya está recuperado/a.
+  // Con endDate exclusivo, el día del alta pasa a comportarse como un día
+  // normal en cuanto se da de alta (sin ambulancia, presente por defecto),
+  // que es lo que se espera al pulsar el botón. Los días ANTERIORES al alta
+  // (startDate <= date < endDate) siguen contando como lesión igual que antes.
   if(Array.isArray(p.injuryHistory)){
-    return p.injuryHistory.some(h=>h&&h.startDate&&date>=h.startDate&&(!h.endDate||date<=h.endDate));
+    return p.injuryHistory.some(h=>h&&h.startDate&&date>=h.startDate&&(!h.endDate||date<h.endDate));
   }
   return false;
 }
