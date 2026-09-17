@@ -185,6 +185,21 @@ async function run() {
   report.assert(win._dls().stats.p3.reb === 1, "elegir jugador en el selector de rebote suma reb a quien lo coge");
   report.assert(!document.getElementById("m-dls-picker"), "el selector se cierra tras completar la cadena");
 
+  // ── B-DLS5 (dev.69): rejilla estable -- se muestra SIEMPRE la plantilla completa, el excluido se ve atenuado en su sitio en vez de desaparecer y recolocar a los demás ──
+  // (pedido explícito de Mario: "el juego va muy rápido... tienes que encontrar o acordarte de tres nombres en 2 segundos")
+  win.dlsShot(2, true);
+  win._dlsPickerConfirm("p1"); // anota p1 -- se abre el selector de asistencia excluyendo a p1
+  const assistPickerCards = [...document.querySelectorAll("#m-dls-picker [data-pid]")];
+  report.assert(assistPickerCards.length === 3, "B-DLS5: el selector de '¿quién dio la asistencia?' muestra la PLANTILLA COMPLETA (3 jugadores de la sesión), no solo los elegibles -- antes el anotador desaparecía de la rejilla y recolocaba a los demás");
+  const p1Card = assistPickerCards.find(c => c.dataset.pid === "p1");
+  report.assert(!!p1Card && p1Card.dataset.excluded === "1" && p1Card.tagName === "DIV", "el propio anotador (p1) se muestra atenuado, en su sitio de siempre, y no se puede pulsar (es un <div>, no un <button>) en vez de desaparecer");
+  const p3Card = assistPickerCards.find(c => c.dataset.pid === "p3");
+  report.assert(!!p3Card && !p3Card.dataset.excluded && p3Card.tagName === "BUTTON", "el resto de jugadores (p3) se sigue pudiendo elegir con normalidad, en la misma posición de siempre");
+  report.assert(p3Card.innerHTML.includes("font-size:14px"), "B-DLS5: el nombre de la tarjeta usa un tamaño de letra más grande que antes (14px, antes 13px) para leerlo de un vistazo bajo presión");
+  report.assert(/padding:16px/.test(p3Card.getAttribute("style")) && /padding:16px/.test(p1Card.getAttribute("style")), "B-DLS5: las tarjetas (elegibles y atenuadas por igual) tienen más padding que antes (16px, antes 14px) -- más grandes y fáciles de tocar/leer");
+  win._dlsCancelChain(); // deshace también el tiro de p1 registrado justo arriba -- deja las estadísticas como estaban antes de esta comprobación
+  report.assert(win._dls().stats.p1.p2m === 1, "tras cancelar esta comprobación, p1.p2m vuelve a su valor de antes (1) -- no interfiere con el resto del test");
+
   // ── B-DLS2: Cancelar a mitad de una cadena deshace TODO lo ya registrado en ella ──
   win.dlsShot(2, true);
   win._dlsPickerConfirm("p1"); // p1.p2m pasa a 2
