@@ -2083,7 +2083,7 @@ const JUST_REASONS=[{id:"sick",label:"Enfermo/a",icon:"🤒"},{id:"injury",label
 // pretemporada) a propósito -- es una decisión que tiene que tomar el
 // entrenador desde Ajustes -> Estadísticas cada temporada, no un valor que
 // aparezca solo. null/vacío = comportamiento de siempre (nada excluido).
-const DEFAULT_CFG={riskThreshold:75,seasonStart:null,features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
+const DEFAULT_CFG={riskThreshold:75,seasonStart:null,dlsNameMode:"nombre",features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
 // v3.0.0-dev.34 · B-DRILL1: catalogo de ejercicios reutilizables por equipo
 // (planificacion de entrenamientos, v1 acotada). No sustituye al campo libre
 // "Ejercicios del entrenamiento" (f.exercises) -- es un catalogo aparte,
@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.65";
+const APP_VERSION = "3.0.0-dev.66";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5487,6 +5487,15 @@ function openClubSettings(){
       ${toggleHtml("playerScore","👤 Valoración individual","Puntúa a cada jugador presente con 1-10 ★. Requiere más tiempo por sesión")}
     </div>
     <div class="stg-sec">
+      <div class="stg-sec-title">🏀 Ejercicios en vivo</div>
+      <div class="fg"><label class="fl">Cómo mostrar a los jugadores</label>
+        <select class="fi" id="cfg-dls-name-mode">
+          ${[["nombre","Nombre"],["apodo","Apodo"],["apellido","Apellido"]].map(([v,l])=>`<option value="${v}" ${(S.cfg.dlsNameMode||"nombre")===v?"selected":""}>${l}</option>`).join("")}
+        </select>
+        <div style="font-size:12px;color:var(--tm);margin-top:5px">Se usa en el selector de jugador y en el resumen de los ejercicios con estadísticas en vivo (catálogo de ejercicios). Si eliges "Apodo" y un jugador no tiene ninguno puesto (se añade en su ficha), se usa su nombre.</div>
+      </div>
+    </div>
+    <div class="stg-sec">
       <div class="stg-sec-title">🚀 Modo rápido (live game)</div>
       <div style="font-size:12px;color:var(--tm);margin:-4px 0 12px;line-height:1.5">Pensado para anotadores que quieren mantener el ritmo del partido sin distraerse con preguntas extra.</div>
       ${toggleHtml("chainPrompt","🔗 Preguntar asistencia y rebote","Tras anotar canasta pregunta quién dio la asistencia; tras un fallo, quién cogió el rebote. Actívalo para estadísticas más completas.")}
@@ -5593,15 +5602,31 @@ function _drillPickerListHtml(){
   return lib.map(d=>{
     const cat=_drillCat(d.category);
     const on=chosen.has(d.id);
-    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.1)":"var(--s2)"};border-radius:10px;margin-bottom:8px">
-      <button onclick="toggleSessionDrill('${d.id}')" style="flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;cursor:pointer;padding:0">
-        <span style="font-size:18px">${on?"✅":cat.icon}</span>
-        <span style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}</div>
-          <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}</div>
-        </span>
-      </button>
-      <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
+    // v3.0.0-dev.66 · B-DLS2: mismos accesos a "en vivo" que ya tenía el
+    // catálogo (Equipo → Catálogo de ejercicios) pero AQUÍ, en "Ejercicios
+    // de la sesión" de hoy -- pedido explícito de Mario para no tener que
+    // salir de la planificación del entrenamiento del día para arrancar,
+    // continuar o revisar el historial de un ejercicio con estadísticas.
+    const active=d.liveStats?_dlsActive(S.teamId,d.id):null;
+    const lastFinished=(d.liveStats&&!active)?_dlsLastFinished(S.teamId,d.id):null;
+    const liveBtnHtml=!d.liveStats?"":`<div style="display:flex;gap:6px;margin-top:8px">
+      ${active
+        ?`<button class="btn-p" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="openDlsResumeOrLive('${d.id}')">▶ Continuar (${_fmtClock(active.remainingSec)})</button>`
+        :`<button class="btn-s" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="openDlsSetupModal('${d.id}')">🏀 Iniciar en vivo</button>`}
+      ${lastFinished?`<button class="btn-s" style="padding:9px 12px;font-size:12.5px;margin:0" onclick="openDlsSummaryModal('${d.id}')" title="Ver historial">📊</button>`:""}
+    </div>`;
+    return `<div style="padding:10px;border:1px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.1)":"var(--s2)"};border-radius:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="toggleSessionDrill('${d.id}')" style="flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;cursor:pointer;padding:0">
+          <span style="font-size:18px">${on?"✅":cat.icon}</span>
+          <span style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}${d.liveStats?' <span style="font-size:9.5px;font-weight:800;color:var(--orange);background:rgba(240,99,24,.12);border-radius:6px;padding:2px 6px;margin-left:2px;white-space:nowrap">🎯 EN VIVO</span>':""}</div>
+            <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}</div>
+          </span>
+        </button>
+        <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
+      </div>
+      ${liveBtnHtml}
     </div>`;
   }).join("");
 }
@@ -5762,6 +5787,45 @@ function _dlsLastFinished(teamId,drillId){ const l=_dlsList(teamId,drillId).filt
 function _dls(){ return S._dlsDrillId?_dlsActive(S.teamId,S._dlsDrillId):null; }
 function _dlsEmptyStats(){return {p2m:0,p2a:0,p3m:0,p3a:0,reb:0,to:0,stl:0,ast:0,blk:0};}
 const _DLS_ACT_LABELS={p2m:"+2 anotado",p3m:"+3 anotado",p2a:"Fallo de 2",p3a:"Fallo de 3",reb:"Rebote",to:"Pérdida",stl:"Robo",ast:"Asistencia",blk:"Tapón"};
+// v3.0.0-dev.66 · B-DLS2: cómo se identifica a un jugador en las pantallas
+// de Ejercicios -- ajuste FIJO de club (Ajustes → 🏀 Ejercicios en vivo),
+// no algo que se elija cada vez. "Apodo" cae a nombre si el jugador no
+// tiene uno puesto; "Apellido" coge todo lo que va después de la primera
+// palabra del nombre (mismo criterio de "primera palabra = nombre" que ya
+// usa _shortNameBase en el resto de la app), y si no hay más que una
+// palabra, también cae al nombre completo. Los jugadores temporales
+// (S._dlsSetup.temps, solo existen dentro de un ejercicio) no tienen
+// apodo/apellido reales -- siempre se muestran tal cual se escribieron.
+function _dlsPlayerLabel(p){
+  if(!p)return"?";
+  if(p.temp)return p.name||"?";
+  const mode=S.cfg?.dlsNameMode||"nombre";
+  if(mode==="apodo"){
+    if(p.nickname&&p.nickname.trim())return p.nickname.trim();
+    return _shortName(p.name||"");
+  }
+  if(mode==="apellido"){
+    const parts=(p.name||"").trim().split(/\s+/).filter(Boolean);
+    if(parts.length>1)return parts.slice(1).join(" ");
+    return p.name||"?";
+  }
+  return _shortName(p.name||"");
+}
+// Valoración propia de Ejercicios (v3.0.0-dev.66 · B-DLS2) -- DISTINTA de
+// _calcEFF (partidos): un 2 anotado vale 1 y un 3 anotado vale 2 (si no,
+// en un ejercicio de tiro repetitivo los puntos se disparan y la
+// valoración deja de servir para comparar). El resto (rebote, asistencia,
+// robo, tapón, pérdida) vale igual que en _calcEFF. Los tiros fallados
+// solo restan si el propio ejercicio lo tiene activado (missPenalty) --
+// por defecto NO restan (se registran solo para llevar la cuenta de
+// volumen de tiro, a petición explícita de Mario).
+function _dlsValoracion(st,missPenalty){
+  if(!st)return 0;
+  const pts=(st.p2m||0)*1+(st.p3m||0)*2;
+  const base=pts+(st.reb||0)+(st.ast||0)+(st.stl||0)+(st.blk||0)-(st.to||0);
+  const fallados=missPenalty?((st.p2a||0)+(st.p3a||0)):0;
+  return base-fallados;
+}
 function _dlsActiveRoster(){
   const tid=S.teamId;
   const prefix=tid+"_";
@@ -5789,17 +5853,19 @@ function openDlsSetupModal(drillId){
       <button class="btn-s" style="flex:1;padding:8px" onclick="_dlsToggleAll(true)">Todos</button>
       <button class="btn-s" style="flex:1;padding:8px" onclick="_dlsToggleAll(false)">Ninguno</button>
     </div>
-    <div id="dls-roster-list" style="margin-bottom:10px">${_dlsRosterListHtml(roster)}</div>
+    <div class="card" id="dls-roster-list" style="margin-bottom:10px;max-height:38vh;overflow-y:auto">${_dlsRosterListHtml(roster)}</div>
     <div id="dls-temps-list">${_dlsTempsListHtml()}</div>
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <input class="fi" id="dls-temp-name" placeholder="+ jugador nuevo (no cuenta en stats de temporada)" style="flex:1"/>
       <button class="btn-s" onclick="_dlsAddTemp()" style="padding:0 16px">Añadir</button>
     </div>
-    <label class="fl">¿Qué registramos además de tiros, rebotes y pérdidas/robos?</label>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="dls-chk-ast" checked/> Asistencias</label>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="dls-chk-blk" checked/> Tapones</label>
+    <label class="fl">¿Qué registramos?</label>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="dls-chk-ast" checked/> Preguntar asistencia automáticamente tras cada canasta</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="dls-chk-misstrack" checked onchange="document.getElementById('dls-misspenalty-wrap').style.display=this.checked?'flex':'none'"/> Registrar los tiros fallados</label>
+      <label id="dls-misspenalty-wrap" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx);padding-left:24px"><input type="checkbox" id="dls-chk-misspenalty"/> Restar -1 a la valoración por cada fallo</label>
     </div>
+    <div style="font-size:11px;color:var(--tm);margin:0 0 14px">👆 Da igual lo que marques aquí — los botones de rebote, robo, asistencia y tapón están siempre disponibles durante el ejercicio, por si hace falta apuntar algo que no viste venir.</div>
     <div class="fg"><label class="fl">Minutos</label><input class="fi" type="number" id="dls-minutes" min="1" max="90" value="12"/></div>
     <button class="btn-p" onclick="startDls()">▶ Empezar</button>
     <button class="btn-s" onclick="document.getElementById('m-dls-setup').remove()">Cancelar</button>
@@ -5811,10 +5877,18 @@ function _dlsRosterListHtml(roster){
   return roster.map(p=>{
     const on=window._dlsSetup.selected.has(p.id);
     const guestBadge=p.guest?' <span style="color:#8b5cf6;font-size:10px;font-weight:800">🔄</span>':"";
-    return `<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);font-size:13px;color:var(--tx)">
-      <input type="checkbox" ${on?"checked":""} onchange="_dlsTogglePlayer('${p.id}')"/>
-      <span>${p.number!=null?("#"+p.number+" "):""}${esc(p.name)}${guestBadge}</span>
-    </label>`;
+    // v3.0.0-dev.66 · B-DLS2: mismo componente visual que la convocatoria
+    // de partido (.conv-row/.conv-cb) en vez de un <label>+checkbox suelto
+    // -- más grande, más fácil de tocar y coherente con el resto de la app.
+    // El dorsal se muestra pequeño y en segundo plano (en entrenamientos no
+    // suele llevarse puesto): el protagonista es el nombre/apodo.
+    return `<div class="conv-row" onclick="_dlsTogglePlayer('${p.id}');this.querySelector('.conv-cb').classList.toggle('on')">
+      <div class="conv-cb ${on?"on":""}">${on?"✓":""}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:15px;color:var(--tx)">${esc(_dlsPlayerLabel(p))}${guestBadge}</div>
+        ${p.number!=null?`<div style="font-size:11px;color:var(--tm)">#${p.number}</div>`:""}
+      </div>
+    </div>`;
   }).join("");
 }
 function _dlsTogglePlayer(pid){
@@ -5853,25 +5927,39 @@ function startDls(){
   const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
   if(!drill){toast("⚠️ Ejercicio no encontrado en el catálogo");return;}
   const roster=pl(S.teamId);
-  const chosen=roster.filter(p=>setup.selected.has(p.id)).sort((a,b)=>(a.number??999)-(b.number??999)).map(p=>({id:p.id,name:p.name,number:p.number??null,guest:!!p.guest}));
+  // v3.0.0-dev.66 · B-DLS2: se guarda también el apodo -- la sesión guarda
+  // una COPIA de los jugadores (no una referencia viva a S.players), así
+  // que si no se copia aquí, _dlsPlayerLabel nunca podría mostrar el apodo
+  // en modo "Apodo" para sesiones ya empezadas.
+  const chosen=roster.filter(p=>setup.selected.has(p.id)).sort((a,b)=>(a.number??999)-(b.number??999)).map(p=>({id:p.id,name:p.name,nickname:p.nickname||"",number:p.number??null,guest:!!p.guest}));
   const temps=setup.temps.map(t=>({id:t.id,name:t.name,number:null,temp:true}));
   const players=[...chosen,...temps];
   if(!players.length){toast("⚠️ Elige al menos un jugador");return;}
   const minutes=Math.max(1,Math.min(90,parseInt(document.getElementById("dls-minutes")?.value)||12));
   const ast=!!document.getElementById("dls-chk-ast")?.checked;
-  const blk=!!document.getElementById("dls-chk-blk")?.checked;
+  // v3.0.0-dev.66 · B-DLS2: sustituye al viejo checkbox "Tapones" (ya no
+  // hacía nada -- el botón de tapón está siempre disponible, ver
+  // screenDlsLive) por las dos opciones nuevas de tiros fallados que pidió
+  // Mario: si se registran o no, y si penalizan la valoración o no.
+  const missTrack=!!document.getElementById("dls-chk-misstrack")?.checked;
+  const missPenalty=missTrack&&!!document.getElementById("dls-chk-misspenalty")?.checked;
   const stats={};
   players.forEach(p=>{stats[p.id]=_dlsEmptyStats();});
   if(!S.drillLive)S.drillLive={};
   if(!S.drillLive[S.teamId])S.drillLive[S.teamId]={};
   if(!S.drillLive[S.teamId][drillId])S.drillLive[S.teamId][drillId]=[];
-  const sess={id:"dls_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),drillId,drillName:drill.name,date:td(),status:"running",startedAt:Date.now(),checklist:{ast,blk},durationSec:minutes*60,remainingSec:minutes*60,players,stats,log:[]};
+  const sess={id:"dls_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),drillId,drillName:drill.name,date:td(),status:"running",startedAt:Date.now(),checklist:{ast,missTrack,missPenalty},durationSec:minutes*60,remainingSec:minutes*60,players,stats,log:[]};
   S.drillLive[S.teamId][drillId].push(sess);
   save();
   document.getElementById("m-dls-setup")?.remove();
   window._dlsSetup=null;
   S._dlsDrillId=drillId;
+  // v3.0.0-dev.66 · B-DLS2: se puede arrancar tanto desde el catálogo
+  // (m-drill-library) como desde "Ejercicios de la sesión" al planificar el
+  // entrenamiento del día (m-drill-picker) -- hay que cerrar el que esté
+  // abierto en cada caso, si no se queda flotando detrás del ejercicio.
   document.getElementById("m-drill-library")?.remove();
+  document.getElementById("m-drill-picker")?.remove();
   navTo("dlsLive");
   startDlsTimer();
 }
@@ -5910,6 +5998,7 @@ function openDlsResumeOrLive(drillId){
   const b=_dlsActive(S.teamId,drillId);if(!b)return;
   S._dlsDrillId=drillId;
   document.getElementById("m-drill-library")?.remove();
+  document.getElementById("m-drill-picker")?.remove();
   navTo("dlsLive");
   if(b.status==="running")startDlsTimer();
 }
@@ -5919,17 +6008,55 @@ function _dlsLog(pid,action){
   if(!b.stats[pid])b.stats[pid]=_dlsEmptyStats();
   b.stats[pid][action]=(b.stats[pid][action]||0)+1;
   b.log=[...(b.log||[]),{pid,action,ts:Date.now()}];
+  // v3.0.0-dev.66 · B-DLS2: si hay una "cadena" cancelable en curso (ver
+  // _dlsChainStart/_dlsCancelChain), cada acción registrada mientras dura
+  // se apunta también aquí para poder deshacerla entera de un tirón.
+  if(window._dlsChain)window._dlsChain.push({pid,action});
   save();render();
 }
 window._dlsPending=null;
+window._dlsChain=null;
+// v3.0.0-dev.66 · B-DLS2: botón "Cancelar" pedido por Mario -- antes, si
+// pulsabas "+2" por error, la única salida era completar todo el flujo
+// (elegir anotador, asistencia, rebote...) y luego usar "Deshacer última
+// acción" para cada paso ya registrado. Ahora cada acción que abre uno o
+// varios pickers encadenados arranca una "cadena" cancelable: mientras esté
+// abierta, cualquier estadística que se registre queda apuntada en
+// window._dlsChain, y el botón Cancelar (presente en TODOS los pickers de
+// esta acción) deshace de golpe todo lo registrado en ella y cierra sin
+// dejar rastro -- exactamente como si nunca se hubiera tocado el botón.
+function _dlsChainStart(){window._dlsChain=[];}
+function _dlsChainEnd(){window._dlsChain=null;}
+function _dlsCancelChain(){
+  const chain=window._dlsChain||[];
+  const b=_dls();
+  if(b&&chain.length){
+    [...chain].reverse().forEach(({pid,action})=>{
+      if(b.stats[pid]&&b.stats[pid][action]>0)b.stats[pid][action]--;
+      for(let i=(b.log||[]).length-1;i>=0;i--){
+        if(b.log[i].pid===pid&&b.log[i].action===action){b.log.splice(i,1);break;}
+      }
+    });
+    save();
+  }
+  window._dlsChain=null;
+  document.getElementById("m-dls-picker")?.remove();
+  window._dlsPending=null;
+  render();
+  toast("✕ Acción cancelada");
+}
 function _dlsOpenPicker(cfg){
   const b=_dls();if(!b)return;
   document.getElementById("m-dls-picker")?.remove();
   window._dlsPending=cfg;
   const players=b.players.filter(p=>p.id!==cfg.excludeId);
-  const cards=players.map(p=>`<button onclick="_dlsPickerConfirm('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;border-radius:12px;border:2px solid ${cfg.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">
-    <div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--orange),#b83808);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fff">${p.number??"?"}</div>
-    <div style="font-weight:800;font-size:12px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(_shortName(p.name))}</div>
+  // v3.0.0-dev.66 · B-DLS2: dorsal discreto (texto pequeño bajo el nombre)
+  // en vez del badge grande de siempre -- en entrenamientos no suele
+  // llevarse puesto, así que el protagonista pasa a ser el nombre/apodo
+  // (_dlsPlayerLabel, según Ajustes → 🏀 Ejercicios en vivo).
+  const cards=players.map(p=>`<button onclick="_dlsPickerConfirm('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 6px;border-radius:12px;border:2px solid ${cfg.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">
+    <div style="font-weight:800;font-size:13px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
+    ${p.number!=null?`<div style="font-size:10px;color:var(--tm)">#${p.number}</div>`:""}
   </button>`).join("");
   const el=document.createElement("div");
   el.id="m-dls-picker";
@@ -5940,7 +6067,8 @@ function _dlsOpenPicker(cfg){
       <div style="font-family:var(--font-d);font-weight:900;font-size:17px;color:var(--tx)">${esc(cfg.title)}</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(${Math.min(players.length||1,4)},1fr);gap:7px;margin-bottom:12px">${cards||'<div style="grid-column:1/-1;color:var(--tm);text-align:center;padding:14px">Nadie disponible</div>'}</div>
-    ${cfg.skipLabel?`<button onclick="_dlsPickerSkip()" style="width:100%;padding:12px;border-radius:9px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-weight:700">${esc(cfg.skipLabel)}</button>`:""}
+    ${cfg.skipLabel?`<button onclick="_dlsPickerSkip()" style="width:100%;padding:12px;border-radius:9px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-weight:700;margin-bottom:8px">${esc(cfg.skipLabel)}</button>`:""}
+    <button onclick="_dlsCancelChain()" style="width:100%;padding:10px;border-radius:9px;border:none;background:none;color:var(--tm);cursor:pointer;font-weight:700;font-size:13px">✕ Cancelar</button>
   </div>`;
   document.body.appendChild(el);
 }
@@ -5956,6 +6084,7 @@ function _dlsPickerSkip(){
 }
 function dlsShot(value,made){
   const b=_dls();if(!b)return;
+  _dlsChainStart();
   _dlsOpenPicker({
     title:made?("¿Quién anotó de "+value+"?"):("¿Quién falló de "+value+"?"),
     label:_DLS_ACT_LABELS[(value===3?"p3":"p2")+(made?"m":"a")],
@@ -5967,23 +6096,28 @@ function dlsShot(value,made){
         _dlsOpenPicker({
           title:"¿Quién dio la asistencia?",label:"Asistencia",emoji:"🎁",color:"#06b6d4",
           excludeId:pid,skipLabel:"Sin asistencia · Saltar",
-          onPick:(aid)=>{_dlsLog(aid,"ast");_dlsAskRebound();},
-          onSkip:()=>_dlsAskRebound()
+          onPick:(aid)=>{_dlsLog(aid,"ast");_dlsAskReboundStep();},
+          onSkip:()=>_dlsAskReboundStep()
         });
       }else{
-        _dlsAskRebound();
+        _dlsAskReboundStep();
       }
     }
   });
 }
-function _dlsAskRebound(){
+// Paso final (no cancelable de por sí, pero SÍ forma parte de la cadena
+// abierta por dlsShot -- cancelar aquí deshace también el tiro/asistencia
+// ya registrados en esta misma cadena) del flujo encadenado tras un tiro.
+function _dlsAskReboundStep(){
   _dlsOpenPicker({
     title:"¿Quién cogió el rebote?",label:"Rebote",emoji:"📦",color:"#a855f7",
     skipLabel:"Sin rebote · Saltar",
-    onPick:(pid)=>_dlsLog(pid,"reb")
+    onPick:(pid)=>{_dlsLog(pid,"reb");_dlsChainEnd();},
+    onSkip:()=>_dlsChainEnd()
   });
 }
 function dlsTurnover(){
+  _dlsChainStart();
   _dlsOpenPicker({
     title:"¿Quién ha perdido el balón?",label:"Pérdida",emoji:"🔀",color:"#ef4444",
     onPick:(pid)=>{
@@ -5991,15 +6125,43 @@ function dlsTurnover(){
       _dlsOpenPicker({
         title:"¿Alguien ha robado el balón?",label:"Robo",emoji:"✋",color:"#3b82f6",
         excludeId:pid,skipLabel:"Nadie ha robado · Omitir",
-        onPick:(sid)=>_dlsLog(sid,"stl")
+        onPick:(sid)=>{_dlsLog(sid,"stl");_dlsChainEnd();},
+        onSkip:()=>_dlsChainEnd()
       });
     }
   });
 }
 function dlsBlock(){
+  _dlsChainStart();
   _dlsOpenPicker({
     title:"¿Quién ha tapado el tiro?",label:"Tapón",emoji:"🚫",color:"#8b5cf6",
-    onPick:(pid)=>_dlsLog(pid,"blk")
+    onPick:(pid)=>{_dlsLog(pid,"blk");_dlsChainEnd();}
+  });
+}
+// v3.0.0-dev.66 · B-DLS2: accesos SUELTOS a rebote/robo/asistencia, además
+// de los ya existentes encadenados tras un tiro fallado o una pérdida --
+// pedido explícito de Mario ("por si acaso no has visto un tiro fallado
+// pero apuntas quién ha cogido el rebote"). Siempre visibles en la pantalla
+// en vivo, sin depender de ninguna casilla marcada en la configuración.
+function dlsRebound(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha cogido el rebote?",label:"Rebote",emoji:"📦",color:"#a855f7",
+    onPick:(pid)=>{_dlsLog(pid,"reb");_dlsChainEnd();}
+  });
+}
+function dlsAssist(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha dado la asistencia?",label:"Asistencia",emoji:"🎁",color:"#06b6d4",
+    onPick:(pid)=>{_dlsLog(pid,"ast");_dlsChainEnd();}
+  });
+}
+function dlsSteal(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha robado el balón?",label:"Robo",emoji:"✋",color:"#3b82f6",
+    onPick:(pid)=>{_dlsLog(pid,"stl");_dlsChainEnd();}
   });
 }
 function undoDlsLast(){
@@ -6008,8 +6170,8 @@ function undoDlsLast(){
   b.log=b.log.slice(0,-1);
   if(b.stats[last.pid]&&b.stats[last.pid][last.action]>0)b.stats[last.pid][last.action]--;
   save();render();
-  const pname=(b.players.find(p=>p.id===last.pid)||{}).name||"?";
-  toast("↩️ Deshecho: "+(_DLS_ACT_LABELS[last.action]||last.action)+" de "+_shortName(pname));
+  const pname=(b.players.find(p=>p.id===last.pid)||{});
+  toast("↩️ Deshecho: "+(_DLS_ACT_LABELS[last.action]||last.action)+" de "+_dlsPlayerLabel(pname));
 }
 function confirmEndDls(){
   const b=_dls();if(!b)return;
@@ -6030,16 +6192,41 @@ function screenDlsLive(){
   if(!b){S.screen="team";return team();}
   const t=S.teams.find(x=>x.id===S.teamId);
   const players=b.players;
+  // v3.0.0-dev.66 · B-DLS2: sesiones de antes de este cambio no tienen
+  // missTrack/missPenalty en su checklist (solo tenían ast/blk) -- se
+  // asume missTrack=true (los fallos SIEMPRE se registraban antes de esta
+  // opción) y missPenalty=false (no existía ninguna valoración todavía, así
+  // que no hay ningún comportamiento previo que romper).
+  const missTrack=b.checklist.missTrack!==undefined?!!b.checklist.missTrack:true;
+  const missPenalty=!!b.checklist.missPenalty;
   const totalMade=Object.values(b.stats).reduce((s,x)=>s+x.p2m+x.p3m,0);
   const totalMissed=Object.values(b.stats).reduce((s,x)=>s+x.p2a+x.p3a,0);
   const cards=players.map(p=>{
     const st=b.stats[p.id]||_dlsEmptyStats();
+    const val=_dlsValoracion(st,missPenalty);
+    // v3.0.0-dev.66 · B-DLS2: dorsal pequeño y en segundo plano bajo el
+    // nombre/apodo (_dlsPlayerLabel) -- ya no lleva el mismo peso visual
+    // que el nombre, coherente con que en los entrenamientos no suele
+    // llevarse puesto.
     return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
-      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.number!=null?("#"+p.number+" "):""}${esc(_shortName(p.name))}</div>
-      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb</div>
+      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
+      ${p.number!=null?`<div style="font-size:9px;color:var(--tm)">#${p.number}</div>`:""}
+      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb · <span style="color:var(--orange);font-weight:700">${val} val</span></div>
     </div>`;
   }).join("");
-  const blkBtn=b.checklist.blk?`<button class="btn-s" onclick="dlsBlock()" style="padding:12px">🚫 Tapón</button>`:"";
+  // v3.0.0-dev.66 · B-DLS2: panel COMPLETO -- todos los tipos de
+  // estadística tienen su propio botón siempre visible (rebote, robo y
+  // asistencia sueltos, además de los ya encadenados tras un tiro fallado o
+  // una pérdida), independientemente de lo marcado en la configuración
+  // inicial del ejercicio. "¿Qué registramos?" solo decide si se pregunta
+  // la asistencia AUTOMÁTICAMENTE tras una canasta y si se registran/restan
+  // los tiros fallados -- nunca oculta ningún botón.
+  const shotsRow2=missTrack
+    ?`<button class="btn-p" style="background:#22c55e" onclick="dlsShot(2,true)">✅ +2</button><button class="btn-s" onclick="dlsShot(2,false)">❌ Fallo 2</button>`
+    :`<button class="btn-p" style="background:#22c55e;grid-column:1/-1" onclick="dlsShot(2,true)">✅ +2</button>`;
+  const shotsRow3=missTrack
+    ?`<button class="btn-p" style="background:#22c55e" onclick="dlsShot(3,true)">✅ +3</button><button class="btn-s" onclick="dlsShot(3,false)">❌ Fallo 3</button>`
+    :`<button class="btn-p" style="background:#22c55e;grid-column:1/-1" onclick="dlsShot(3,true)">✅ +3</button>`;
   return `<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1;min-width:0"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">🏀 ${esc(b.drillName||"")}</div><div style="font-size:11px;color:var(--orange);font-weight:700">${esc(t?.name||"")} · ${cap(fd(b.date||td(),true))}</div></div>
@@ -6050,17 +6237,20 @@ function screenDlsLive(){
       <button onclick="toggleDlsClock()" style="width:46px;height:46px;border-radius:10px;border:none;background:var(--orange);color:#fff;font-size:18px;cursor:pointer">${b.status==="running"?"⏸":"▶"}</button>
       <button onclick="addDlsMinutes(2)" title="+2 min" style="width:40px;height:46px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:800">+2'</button>
     </div>
-    <div style="font-size:12px;color:var(--tm);text-align:center;margin-bottom:10px">✅ ${totalMade} anotadas · ❌ ${totalMissed} falladas</div>
+    <div style="font-size:12px;color:var(--tm);text-align:center;margin-bottom:10px">✅ ${totalMade} anotadas${missTrack?` · ❌ ${totalMissed} falladas`:""}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px">${cards}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow2}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow3}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-      <button class="btn-p" style="background:#22c55e" onclick="dlsShot(2,true)">✅ +2</button>
-      <button class="btn-s" onclick="dlsShot(2,false)">❌ Fallo 2</button>
-      <button class="btn-p" style="background:#22c55e" onclick="dlsShot(3,true)">✅ +3</button>
-      <button class="btn-s" onclick="dlsShot(3,false)">❌ Fallo 3</button>
-    </div>
-    <div style="display:grid;grid-template-columns:${blkBtn?"1fr 1fr":"1fr"};gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#a855f7" onclick="dlsRebound()">📦 Rebote</button>
       <button class="btn-s" style="color:#ef4444" onclick="dlsTurnover()">🔀 Pérdida</button>
-      ${blkBtn}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#3b82f6" onclick="dlsSteal()">✋ Robo</button>
+      <button class="btn-s" style="color:#06b6d4" onclick="dlsAssist()">🎁 Asistencia</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#8b5cf6" onclick="dlsBlock()">🚫 Tapón</button>
     </div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn-s" style="flex:1" onclick="undoDlsLast()">↩️ Deshacer última</button>
@@ -6076,16 +6266,27 @@ function openDlsSummaryModal(drillId){
   const b=_dlsActive(S.teamId,targetId)||_dlsLastFinished(S.teamId,targetId);
   if(!b)return;
   document.getElementById("m-dls-summary")?.remove();
-  const rows=b.players.map(p=>{
-    const st=b.stats[p.id]||_dlsEmptyStats();
-    return `<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${p.number!=null?("#"+p.number+" "):""}${esc(_shortName(p.name))}</td>
+  // v3.0.0-dev.66 · B-DLS2: (1) valoración propia de Ejercicios (_dlsValoracion
+  // -- 2 anotado=1, 3 anotado=2, resto igual que en partidos), (2) la tabla
+  // se ordena por valoración de mayor a menor tal y como pidió Mario, y (3)
+  // se muestran SIEMPRE todas las columnas -- antes "Ast"/"Tap" solo salían
+  // si se habían marcado en la configuración inicial, pero como ahora esos
+  // botones están siempre disponibles ("por si acaso"), ocultar la columna
+  // escondería estadísticas que sí se llegaron a registrar.
+  const missPenalty=!!b.checklist.missPenalty;
+  const rows=[...b.players].map(p=>({p,st:b.stats[p.id]||_dlsEmptyStats()}))
+    .map(x=>({...x,val:_dlsValoracion(x.st,missPenalty)}))
+    .sort((a,b2)=>b2.val-a.val)
+    .map(({p,st,val})=>{
+      return `<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(p))}${p.number!=null?` <span style="color:var(--tm);font-size:10px">#${p.number}</span>`:""}</td>
       <td style="text-align:center;font-size:12px">${st.p2m}/${st.p2m+st.p2a}</td>
       <td style="text-align:center;font-size:12px">${st.p3m}/${st.p3m+st.p3a}</td>
       <td style="text-align:center;font-size:12px">${st.reb}</td>
       <td style="text-align:center;font-size:12px">${st.to}</td>
       <td style="text-align:center;font-size:12px">${st.stl}</td>
-      ${b.checklist.ast?`<td style="text-align:center;font-size:12px">${st.ast}</td>`:""}
-      ${b.checklist.blk?`<td style="text-align:center;font-size:12px">${st.blk}</td>`:""}
+      <td style="text-align:center;font-size:12px">${st.ast}</td>
+      <td style="text-align:center;font-size:12px">${st.blk}</td>
+      <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${val}</td>
     </tr>`;
   }).join("");
   const playedMin=Math.round((b.durationSec-b.remainingSec)/60);
@@ -6096,13 +6297,13 @@ function openDlsSummaryModal(drillId){
   el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
     <div class="mhandle"></div>
     <div class="mtitle">🏀 ${esc(b.drillName||"")} · Resultado</div>
-    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${cap(fd(b.date||td(),true))} · ${b.status==="finished"?"✅ Ejercicio terminado":"⏳ En curso"} · ${playedMin} min de ${totalMin}</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${cap(fd(b.date||td(),true))} · ${b.status==="finished"?"✅ Ejercicio terminado":"⏳ En curso"} · ${playedMin} min de ${totalMin} · ordenado por valoración</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
       <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
       <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
       <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Pérd</th><th style="font-size:10px;color:var(--tm)">Rob</th>
-      ${b.checklist.ast?'<th style="font-size:10px;color:var(--tm)">Ast</th>':""}
-      ${b.checklist.blk?'<th style="font-size:10px;color:var(--tm)">Tap</th>':""}
+      <th style="font-size:10px;color:var(--tm)">Ast</th><th style="font-size:10px;color:var(--tm)">Tap</th>
+      <th style="font-size:10px;color:var(--orange)">Val</th>
     </tr></thead><tbody>${rows}</tbody></table></div>
     ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-dls-summary').remove();S._dlsDrillId='${targetId}';navTo('dlsLive');startDlsTimer();" style="margin-top:12px">▶ Volver al ejercicio</button>`:""}
     <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
@@ -6171,6 +6372,9 @@ function openPlayerModal(init){
       <input type="file" id="${id}-photo" accept="image/*" style="display:none" onchange="handlePlayerPhoto(this,'${id}')"/>
     </div>
     <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-n" value="${esc(init?.name||"")}" placeholder="Nombre Apellido"/></div>
+    <div class="fg"><label class="fl">Apodo <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label><input class="fi" id="${id}-nick" value="${esc(init?.nickname||"")}" placeholder="Cómo le llamáis en el equipo"/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">v3.0.0-dev.66 · B-DLS2: se usa en Ejercicios si el modo de nombre está puesto en "Apodo" (ver Ajustes del club)</div>
+    </div>
     <div class="fg"><label class="fl">Dorsal ${init?"":`<span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· sugerido #${sugg}</span>`}</label>
       <div class="dorsal-wrap">
         <button type="button" class="dorsal-btn" onclick="adjDorsal('${id}-d',-1)">−</button>
@@ -6911,6 +7115,10 @@ function saveClubSettings(){
   // -- volver al comportamiento de siempre), así que no se usa "if(valor)".
   const seasonStartEl=document.getElementById("cfg-season-start");
   if(seasonStartEl)S.cfg.seasonStart=seasonStartEl.value||null;
+  // v3.0.0-dev.66 · B-DLS2: cómo se identifica a cada jugador en los
+  // ejercicios con estadísticas en vivo (apodo/nombre/apellido).
+  const dlsNameModeEl=document.getElementById("cfg-dls-name-mode");
+  if(dlsNameModeEl)S.cfg.dlsNameMode=dlsNameModeEl.value;
   save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
 function saveTeam(mid,eid){
   // Normalización v1.6.9: los nombres de equipo se guardan siempre en MAYÚSCULAS
@@ -6949,9 +7157,13 @@ function savePlayer(mid,eid){
   // avisar del cumpleaños (ver isBirthdayToday/playerTurningAge), no se usa
   // para nada más de momento.
   const birthDate=document.getElementById(mid+"-bd")?.value||"";
+  // v3.0.0-dev.66 · B-DLS2: apodo opcional -- solo se usa para decidir cómo
+  // se muestra al jugador en Ejercicios (ver _dlsPlayerLabel/dlsNameMode),
+  // no afecta a ninguna otra pantalla.
+  const nickname=document.getElementById(mid+"-nick")?.value.trim()||"";
   // Limpia rastros legacy de "Lesionado" en notas. La lesión se gestiona con el botón 🚑.
   notes=notes.replace(/\b[lL]esionad[oa]\b[\s·,:;-]*/,"").replace(/^[\s·,:;-]+|[\s·,:;-]+$/g,"").trim();
-  const patch={name,number:numV!==""?numV:null,position:pos,notes,photo,birthDate};
+  const patch={name,nickname,number:numV!==""?numV:null,position:pos,notes,photo,birthDate};
   if(eid){S.players[S.teamId]=pl(S.teamId).map(x=>x.id===eid?{...x,...patch}:x);toast("✅ Actualizado");}
   else{if(!S.players[S.teamId])S.players[S.teamId]=[];S.players[S.teamId].push({id:uid(),addedAt:td(),...patch});toast("✅ Añadido");}
   clearDirty();
