@@ -31,7 +31,13 @@ jobs:
         run: npm ci
 
       - name: Correr suite de regresion
-        run: node run-all.js
+        # v3.0.0-dev.63 · B-CI1: valida test/index.html (lo realmente
+        # desplegado y probado en /test/), no la raiz -- la raiz se queda
+        # deliberadamente atras mientras una funcion nueva esta en pruebas y
+        # aun no la ha aprobado Mario, asi que testearla aqui daria falsos
+        # positivos en rojo por funciones que sencillamente aun no han
+        # llegado a produccion. Ver harness.js para el detalle completo.
+        run: KORTLINE_TEST_INDEX=test/index.html node run-all.js
 
       - name: Audit de dependencias
         run: npm audit --audit-level=high
