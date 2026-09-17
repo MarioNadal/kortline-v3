@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.63";
+const APP_VERSION = "3.0.0-dev.64";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -7094,7 +7094,13 @@ function openGuestPlayerModal(opts){
   window._guestPicker={mode,frequent,lowerRows,selectedFrequent:new Set(),selectedLower:new Set(),lowerOpen:false,manualOpen:!frequent.length&&!lowerRows.length};
   const el=document.createElement("div");
   el.id="m-guest-player";
-  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
+  // v3.0.0-dev.64 · B-GUEST6: mismo fallo de z-index que m-guest-dupes (ver
+  // comentario allí) -- este modal también quedaba por ENCIMA del techo real
+  // de _confirm()/_confirmTyped() (99999). Ahora mismo ningún botón de este
+  // picker abre un _confirm() por encima, así que no se veía como bug
+  // todavía, pero se corrige igual para que no aparezca en cuanto se
+  // encadene una confirmación desde aquí en el futuro.
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
   el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
     <div class="mhandle"></div>
@@ -7343,7 +7349,16 @@ function openGuestDuplicatesModal(){
   const groups=_findDuplicateGuestGroups(S.teamId);
   if(!groups.length){toast("✅ No hay puntuales duplicados en este equipo");return;}
   const el=document.createElement("div");el.id="m-guest-dupes";
-  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
+  // v3.0.0-dev.64 · B-GUEST6: este modal usaba z-index:100000 -- por ENCIMA
+  // del que usa _confirm() (99999, el techo real de toda la app para diálogos
+  // de confirmación). Al pulsar "Fusionar" aquí, _confirmMergeAllGuestDuplicates()
+  // abre el _confirm() de "¿Fusionar N grupos?" pero, al quedar por DEBAJO en
+  // z-index, aparecía tapado detrás de este mismo modal en vez de encima --
+  // Mario tenía que cancelar este modal para poder ver y pulsar el botón real
+  // de confirmación. Se baja a 9999 (el mismo z-index que usan el resto de
+  // modales de contenido normal de la app) para que _confirm() quede siempre
+  // por encima, como en todos los demás flujos de confirmación.
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
   const rowsHtml=groups.map(g=>{
     const tipo=g[0].attOnly?"Entreno":"Partido";
