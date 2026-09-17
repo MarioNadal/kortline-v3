@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.64";
+const APP_VERSION = "3.0.0-dev.65";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6964,7 +6964,40 @@ function delPlayer(id){
   // pl(S.teamId) y escapamos para el render.
   const p=pl(S.teamId).find(x=>x.id===id);
   if(!p)return;
-  _confirm("¿Eliminar a <b>"+esc(p.name||"")+"</b>?","🗑 Eliminar",()=>{S.players[S.teamId]=pl(S.teamId).filter(x=>x.id!==id);save();render();toast("🗑 Eliminado");});
+  // v3.0.0-dev.65 · B-DELP1: si está en pista AHORA MISMO en un partido en
+  // directo, no lo dejamos borrar -- desaparecería de la plantilla pero
+  // seguiría "en pista" en m.live.onCourt, un hueco invisible imposible de
+  // arreglar desde la sustitución normal. Mismo bloqueo que ya existía para
+  // este caso en toggleConvocado (B-ADV5).
+  const liveMatch=(S.matches[S.teamId]||[]).find(m=>m.live&&(m.live.onCourt||[]).includes(id));
+  if(liveMatch){toast("⛔ Está en pista ahora mismo en un partido en directo — sustitúyelo antes de eliminarlo");return;}
+  _confirm("¿Eliminar a <b>"+esc(p.name||"")+"</b>?","🗑 Eliminar",()=>{
+    S.players[S.teamId]=pl(S.teamId).filter(x=>x.id!==id);
+    // v3.0.0-dev.65 · B-DELP1: bug real encontrado en pruebas de "casos
+    // raros del día a día" -- borrar a un jugador NO lo quitaba de la
+    // convocatoria/titulares/capitán de ningún partido (ni de la
+    // convocatoria de eventos). El hueco fantasma se quedaba para siempre
+    // porque "máximo 12 convocados"/"máximo 5 titulares" cuentan el tamaño
+    // BRUTO del array, sin filtrar por si el jugador sigue existiendo en la
+    // plantilla -- así que un solo jugador borrado que ya estuviera
+    // convocado o de titular en un partido bloqueaba silenciosamente ese
+    // hueco para siempre, sin ninguna pista visual (el resto de la UI SÍ
+    // filtra por jugadores existentes, así que la fila fantasma ni se
+    // pintaba). Se limpian aquí los campos de SELECCIÓN -- los datos
+    // históricos de rendimiento ya registrado (live.stats de partidos ya
+    // jugados) NO se tocan, igual que al fusionar puntuales duplicados
+    // (_mergeGuestGroup) ya hacía con la convocatoria pero no con las stats.
+    (S.matches[S.teamId]||[]).forEach(m=>{
+      if(m.convocados)m.convocados=m.convocados.filter(x=>x!==id);
+      if(m.titulares)m.titulares=m.titulares.filter(x=>x!==id);
+      if(m.reducedMinutesDismissed)m.reducedMinutesDismissed=m.reducedMinutesDismissed.filter(x=>x!==id);
+      if(m.capitan===id)m.capitan=null;
+    });
+    (S.events[S.teamId]||[]).forEach(e=>{
+      if(e.convocados)e.convocados=e.convocados.filter(x=>x!==id);
+    });
+    save();render();toast("🗑 Eliminado");
+  });
 }
 // v1.8.32 · B-GUEST1: jugadores puntuales/invitados -- alguien que no es
 // de la plantilla fija (sube de categoría solo para un partido, o un
@@ -7406,6 +7439,20 @@ function delTeam(){
       delete S.players[S.teamId];
       Object.keys(S.sessions).filter(k=>k.startsWith(S.teamId+"_")).forEach(k=>delete S.sessions[k]);
       if(S.matches[S.teamId])delete S.matches[S.teamId];
+      // v3.0.0-dev.65 · B-DELT1: el mensaje de confirmación ya decía "se
+      // borrarán todos los jugadores, entrenamientos y partidos" pero el
+      // código solo limpiaba jugadores/sesiones/partidos -- los eventos y
+      // convocatorias (S.events), el catálogo de ejercicios (S.drills), su
+      // historial de estadísticas en vivo (S.drillLive) y las notas de
+      // entreno (S.trainingNotes, clave `teamId_fecha`) se quedaban
+      // huérfanos para siempre (nunca vuelven a aparecer en ningún sitio,
+      // porque el equipo ya no existe, pero siguen ocupando espacio real en
+      // Firestore/localStorage indefinidamente). Se completa la limpieza
+      // para que "eliminar equipo" borre de verdad TODO lo que dice borrar.
+      if(S.events&&S.events[S.teamId])delete S.events[S.teamId];
+      if(S.drills&&S.drills[S.teamId])delete S.drills[S.teamId];
+      if(S.drillLive&&S.drillLive[S.teamId])delete S.drillLive[S.teamId];
+      if(S.trainingNotes)Object.keys(S.trainingNotes).filter(k=>k.startsWith(S.teamId+"_")).forEach(k=>delete S.trainingNotes[k]);
       save();S.screen="equipos";render();toast("🗑 Equipo eliminado");
     }
   );
