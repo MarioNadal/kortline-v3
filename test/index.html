@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.68";
+const APP_VERSION = "3.0.0-dev.69";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2324,10 +2324,45 @@ function _scheduleCloudSync(){
     _runCloudSync();
   }, wait);
 }
+// v3.0.0-dev.69 · B-DLS4: S.drillLive vive como {teamId:{drillId:[sesión,...]}}
+// (cómodo para leerlo desde las pantallas de un ejercicio concreto), pero
+// Firestore/el resto del sync trabaja por colección "plana" de documentos
+// con id único por equipo (como ya hace "drills"). Cada sesión ya tiene su
+// propio id único (dls_.../dlm_...) y guarda su propio drillId, así que se
+// puede aplanar/reconstruir sin perder nada.
+function _flattenDrillLive(dlByTid){
+  const out={};
+  for(const tid in (dlByTid||{})){
+    out[tid]=[];
+    const byDrill=dlByTid[tid]||{};
+    for(const did in byDrill){ (byDrill[did]||[]).forEach(s=>out[tid].push(s)); }
+  }
+  return out;
+}
+function _unflattenDrillLiveTeam(flatArr){
+  const out={};
+  (flatArr||[]).forEach(s=>{
+    if(!s||!s.drillId)return;
+    if(!out[s.drillId])out[s.drillId]=[];
+    out[s.drillId].push(s);
+  });
+  return out;
+}
+// Igual que _matchCmpView pero para sesiones de ejercicio en vivo: mientras
+// el cronómetro corre, startDlsTimer() llama a save() una vez por segundo
+// (para refrescar remainingSec en pantalla) -- sin excluirlo de la
+// comparación, eso dispararía una sincronización a Firestore cada segundo
+// de CUALQUIER ejercicio o mini-partido en marcha, con el mismo "parón"
+// que ya se arregló para el reloj de partidos en vivo (B-live-sync).
+function _dlsCmpView(s){
+  if(!s)return s;
+  const {remainingSec, ...rest}=s;
+  return rest;
+}
 function _snapshotState(){
   return JSON.parse(JSON.stringify({
     club:{clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg},
-    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills, trainingNotes:S.trainingNotes
+    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills, drillLive:_flattenDrillLive(S.drillLive), trainingNotes:S.trainingNotes
   }));
 }
 // v3 · B-live-clock: el reloj del partido cambia m.live.clockSec una vez
@@ -2400,6 +2435,11 @@ async function _runCloudSync(){
     for(const tid of teamIds3) n+=_diffArrayById(batch, _teamDocRef(tid).collection("events"), cur.events[tid]||[], prev?.events?.[tid]);
     const teamIds4=new Set([...Object.keys(cur.drills||{}), ...Object.keys(prev?.drills||{})]);
     for(const tid of teamIds4) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drills"), cur.drills[tid]||[], prev?.drills?.[tid]);
+    // v3.0.0-dev.69 · B-DLS4: ver _flattenDrillLive -- cada sesión de
+    // ejercicio en vivo (b11/endgame) se sincroniza como documento propio,
+    // igual que ya se hace con "drills"/"matches"/"events".
+    const teamIds6=new Set([...Object.keys(cur.drillLive||{}), ...Object.keys(prev?.drillLive||{})]);
+    for(const tid of teamIds6) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drillLive"), cur.drillLive[tid]||[], prev?.drillLive?.[tid], _dlsCmpView);
     n+=_diffSessions(batch, cur.sessions, prev?.sessions);
     n+=_diffSessions(batch, cur.trainingNotes, prev?.trainingNotes, "trainingNotes");
     if(n>0) await batch.commit();
@@ -2417,7 +2457,7 @@ let _sessionUnsubsByTid={};
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
-  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:tn",S.trainingNotes);lsSet("cbj:logo",S.clubLogo);
+  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:dl",S.drillLive);lsSet("cbj:tn",S.trainingNotes);lsSet("cbj:logo",S.clubLogo);
   lsSet("cbj:name",S.clubName);lsSet("cbj:cabrev",S.clubAbrev);lsSet("cbj:clema",S.clubLema);lsSet("cbj:cfg",S.cfg);
   // Referencia al día para que el próximo sync saliente no reenvíe lo que
   // acabamos de recibir de otro entrenador.
@@ -2565,6 +2605,17 @@ function _attachTeamListeners(tid){
     _applyingRemote=true;if(!S.drills)S.drills={};S.drills[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
+  // v3.0.0-dev.69 · B-DLS4: historial de estadísticas en vivo de ejercicios
+  // (b11/endgame) -- ver _flattenDrillLive/_unflattenDrillLiveTeam más
+  // arriba para el porqué de ir y volver de la forma plana de Firestore a
+  // la forma anidada {drillId:[sesión,...]} que usa el resto de la app.
+  _teamUnsubs.push(teamRef.collection("drillLive").onSnapshot(snap=>{
+    const freshFlat=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=_unflattenDrillLiveTeam(freshFlat);
+    if(JSON.stringify(fresh)===JSON.stringify(S.drillLive[tid]||{}))return;
+    _applyingRemote=true;if(!S.drillLive)S.drillLive={};S.drillLive[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
   // v3 · B-SYNCATT1: "sessions" (asistencia) y "trainingNotes" ya NO se
   // escuchan aquí -- se escuchan para TODOS los equipos a la vez desde
   // _attachSessionListeners/_syncSessionListeners (ver más arriba), no solo
@@ -2606,7 +2657,12 @@ function toggleTeamsReorder(){
   render();
 }
 function load(){
-  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};S.trainingNotes=lsGet("cbj:tn")||{};
+  // v3.0.0-dev.69 · B-DLS4: S.drillLive (historial de estadísticas en vivo
+  // de ejercicios, B-DLS1/2/3) se quedaba SIN LEER aquí -- se inicializaba
+  // siempre a {} al arrancar la app, así que cualquier ejercicio ya
+  // terminado desaparecía en cuanto se cerraba/recargaba la app. Ver save()
+  // más abajo para la otra mitad del bug (tampoco se escribía).
+  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};S.trainingNotes=lsGet("cbj:tn")||{};S.drillLive=lsGet("cbj:dl")||{};
   _sortTeams();
   S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
   const sc=lsGet("cbj:cfg");
@@ -2638,6 +2694,13 @@ function save(){
   if(!lsSet("cbj:m",S.matches))ok=false;
   if(!lsSet("cbj:ev",S.events))ok=false;
   if(!lsSet("cbj:drills",S.drills))ok=false;
+  // v3.0.0-dev.69 · B-DLS4: fix del bug real reportado por Mario ("se pierde
+  // al cerrar la aplicación") -- S.drillLive nunca se escribía aquí, así que
+  // aunque _dlsLog()/startDls()/etc. sí llamaban a save() en cada acción
+  // (los datos SÍ estaban actualizados en memoria), nada de eso llegaba
+  // nunca a localStorage ni a Firestore (ver _snapshotState/_runCloudSync
+  // más abajo) -- se perdía sin más al cerrar pestaña/app.
+  if(!lsSet("cbj:dl",S.drillLive))ok=false;
   if(!lsSet("cbj:tn",S.trainingNotes))ok=false;
   if(!lsSet("cbj:logo",S.clubLogo))ok=false;
   if(!lsSet("cbj:name",S.clubName))ok=false;
@@ -6254,15 +6317,29 @@ function _dlsOpenPicker(cfg){
   const b=_dls();if(!b)return;
   document.getElementById("m-dls-picker")?.remove();
   window._dlsPending=cfg;
-  const players=b.players.filter(p=>p.id!==cfg.excludeId);
-  // v3.0.0-dev.66 · B-DLS2: dorsal discreto (texto pequeño bajo el nombre)
-  // en vez del badge grande de siempre -- en entrenamientos no suele
-  // llevarse puesto, así que el protagonista pasa a ser el nombre/apodo
-  // (_dlsPlayerLabel, según Ajustes → 🏀 Ejercicios en vivo).
-  const cards=players.map(p=>`<button onclick="_dlsPickerConfirm('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 6px;border-radius:12px;border:2px solid ${cfg.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">
-    <div style="font-weight:800;font-size:13px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
-    ${p.number!=null?`<div style="font-size:10px;color:var(--tm)">#${p.number}</div>`:""}
-  </button>`).join("");
+  // v3.0.0-dev.69 · B-DLS5: pedido explícito de Mario tras usar Contraataque
+  // de 11 en un entreno de verdad -- "el juego va muy rápido... tienes que
+  // encontrar o acordarte de tres nombres en 2 segundos". Causa real: antes
+  // se EXCLUÍA (cfg.excludeId) al jugador que no podía elegirse en ese paso
+  // -- p.ej. el propio anotador en "¿quién dio la asistencia?" -- así que
+  // esa tarjeta desaparecía de la rejilla y TODAS las demás se recolocaban,
+  // rompiendo la memoria espacial de "Ana siempre está arriba a la
+  // izquierda" entre una pregunta encadenada y la siguiente (3 preguntas
+  // seguidas, cada una con la rejilla reordenada). Ahora se muestra SIEMPRE
+  // la plantilla completa de la sesión (b.players, que no cambia de orden
+  // en toda la sesión) -- el excluido se ve atenuado en su sitio de
+  // siempre, sin poder tocarse, en vez de desaparecer y desplazar al resto.
+  // De paso, tarjetas más grandes (más padding, texto más grande) para
+  // poder leer el nombre de un vistazo bajo presión.
+  const players=b.players;
+  const cards=players.map(p=>{
+    const excluded=p.id===cfg.excludeId;
+    const inner=`<div style="font-weight:800;font-size:14px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
+    ${p.number!=null?`<div style="font-size:10.5px;color:var(--tm)">#${p.number}</div>`:""}`;
+    return excluded
+      ?`<div data-pid="${p.id}" data-excluded="1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:16px 6px;border-radius:12px;border:2px solid var(--border);background:rgba(0,0,0,.15);opacity:.35;font-family:inherit;width:100%;color:var(--tx)">${inner}</div>`
+      :`<button data-pid="${p.id}" onclick="_dlsPickerConfirm('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:16px 6px;border-radius:12px;border:2px solid ${cfg.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">${inner}</button>`;
+  }).join("");
   const el=document.createElement("div");
   el.id="m-dls-picker";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.96);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;";
