@@ -3,7 +3,24 @@ const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 
-const INDEX_HTML_PATH = path.join(__dirname, "..", "index.html");
+// v3.0.0-dev.63 · B-CI1: qué index.html se testea es configurable porque
+// "raíz" y "test/" significan cosas distintas según quién corra esto.
+// - En mi copia local de trabajo, la raíz es SIEMPRE la versión más
+//   reciente (edito ahí, pruebo, y solo de vez en cuando regenero test/ con
+//   build-test-deploy.sh) -- por eso el default sigue siendo la raíz, para
+//   no tener que regenerar test/ en cada ciclo de editar-probar.
+// - En GitHub Actions (CI), la raíz del repo es la versión YA PROMOCIONADA
+//   a producción -- deliberadamente se queda "atrás" mientras una función
+//   nueva está en pruebas en /test/ (política: nunca tocar producción sin
+//   que Mario la apruebe primero en el móvil). Si CI testeara la raíz,
+//   cualquier test añadido para una función todavía sin promocionar
+//   fallaría con una excepción (funciones/constantes que solo existen en
+//   test/index.html) aunque el código esté perfectamente bien -- eso es
+//   justo lo que pasó con dev.60-63 (dls/guest_picker/injury*/birthday_*).
+//   Por eso tests.yml exporta KORTLINE_TEST_INDEX=test/index.html: así CI
+//   valida lo mismo que de verdad está desplegado y accesible para probar,
+//   en vez de comparar contra una raíz que aún no ha llegado ahí a propósito.
+const INDEX_HTML_PATH = path.join(__dirname, "..", process.env.KORTLINE_TEST_INDEX || "index.html");
 
 // Nota: _tlPaused NO esta en esta lista a proposito -- en index.html solo
 // existe como window._tlPaused (el propio codigo lo escribe ahi
@@ -11,7 +28,11 @@ const INDEX_HTML_PATH = path.join(__dirname, "..", "index.html");
 // intentar leerlo como identificador suelto lanzaria ReferenceError.
 const EXPOSED_GLOBALS = [
   "S",
-  "_TL_PAUSABLE"
+  "_TL_PAUSABLE",
+  // v3.0.0-dev.63 · B-CI1: expuesto para que un test pueda construir rutas
+  // de Firestore ("clubs/"+CLUB_ID+"/...") sin hardcodear "cbjaca" -- eso
+  // rompía en cuanto se testeaba test/index.html, que usa "cbjaca-test".
+  "CLUB_ID"
 ];
 
 // Variables `let` de scope global que algun test necesita poder LEER Y

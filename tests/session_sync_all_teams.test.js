@@ -71,9 +71,16 @@ async function run() {
   const report = newReporter("session_sync_all_teams");
   const mock = makeFirebaseMock();
   const win = await loadApp({ firebase: mock.firebase });
+  // v3.0.0-dev.63 · B-CI1: rutas construidas con el CLUB_ID real del
+  // index.html cargado ("cbjaca" en producción/raíz, "cbjaca-test" en
+  // test/index.html) en vez de la cadena "cbjaca" a fuego -- así este test
+  // vale igual se cargue el index.html que se cargue.
+  const P = p => `clubs/${win.CLUB_ID}/${p}`;
 
   // Simula que Firebase Auth ya resuelve la sesión de la cuenta compartida
-  // del club (equivalente a haber entrado con el código correcto).
+  // del club (equivalente a haber entrado con el código correcto). El email
+  // de auth SÍ es el mismo en todos los entornos (cuenta compartida real),
+  // a diferencia del CLUB_ID -- por eso este no se toca.
   mock.triggerLogin({ email: "club-cbjaca@kortline.app" });
 
   report.assert(win._cloudEnabled === true, "con el mock de firebase inyectado, _cloudEnabled queda a true (antes false en el resto de la suite)");
@@ -83,7 +90,7 @@ async function run() {
 
   // ...pero el club tiene dos equipos. El listener de la lista de equipos
   // entrega ambos (como haría Firestore al conectar).
-  mock.fire("clubs/cbjaca/teams", docsSnap([
+  mock.fire(P("teams"), docsSnap([
     { id: "t1", name: "Equipo Uno", order: 0 },
     { id: "t2", name: "Equipo Dos", order: 1 }
   ]));
@@ -93,22 +100,22 @@ async function run() {
     "S.teams recoge los dos equipos del club tras el snapshot de \"teams\""
   );
   report.assert(
-    mock.listenerCount("clubs/cbjaca/teams/t1/sessions") === 1,
+    mock.listenerCount(P("teams/t1/sessions")) === 1,
     "hay un listener de asistencia conectado para t1 (el equipo que se está viendo)"
   );
   report.assert(
-    mock.listenerCount("clubs/cbjaca/teams/t2/sessions") === 1,
+    mock.listenerCount(P("teams/t2/sessions")) === 1,
     "también hay un listener de asistencia conectado para t2, AUNQUE no sea el equipo que se está viendo -- el bug reportado"
   );
   report.assert(
-    mock.listenerCount("clubs/cbjaca/teams/t2/players") === 0,
+    mock.listenerCount(P("teams/t2/players")) === 0,
     "el resto de colecciones de t2 (jugadoras, partidos...) NO se escuchan hasta entrar en ese equipo -- eso no cambia con este fix"
   );
 
   // Un entrenador en OTRO dispositivo pasa asistencia de "t2" (el equipo
   // que ESTE dispositivo no tiene abierto), de un día que no es hoy.
   const otroDia = "2026-01-15";
-  mock.fire("clubs/cbjaca/teams/t2/sessions", changesSnap([
+  mock.fire(P("teams/t2/sessions"), changesSnap([
     { type: "added", id: otroDia, data: { p1: "present", p2: "absent" } }
   ]));
 
@@ -118,7 +125,7 @@ async function run() {
   report.assert(win.S.teamId === "t1", "S.teamId (el equipo que se está viendo) no cambia solo por recibir datos de otro equipo");
 
   // El mismo mecanismo cubre las notas de entrenamiento (misma clave, misma colección hermana).
-  mock.fire("clubs/cbjaca/teams/t2/trainingNotes", changesSnap([
+  mock.fire(P("teams/t2/trainingNotes"), changesSnap([
     { type: "added", id: otroDia, data: { text: "Buen ritmo hoy" } }
   ]));
   report.assert(!!(win.S.trainingNotes && win.S.trainingNotes[key]), "las notas de entrenamiento de un equipo no visible también llegan en tiempo real");
@@ -132,7 +139,7 @@ async function run() {
   const hoyFecha = win.td();
   // t2 entrena hoy a las 18:00 -- y "Equipo Uno" (t1, el que SÍ estoy
   // viendo) también, para que quede claro que no estoy tocando ese equipo.
-  mock.fire("clubs/cbjaca/teams", docsSnap([
+  mock.fire(P("teams"), docsSnap([
     { id: "t1", name: "Equipo Uno", order: 0, schedule: { [hoyIdx]: "17:00" } },
     { id: "t2", name: "Equipo Dos", order: 1, schedule: { [hoyIdx]: "18:00" } }
   ]));
@@ -147,7 +154,7 @@ async function run() {
   // Ahora "otro entrenador" pasa la lista de t2 HOY (no de este dispositivo:
   // llega solo por el listener, sin que este dispositivo llame a save() ni
   // navegue a ningún sitio).
-  mock.fire("clubs/cbjaca/teams/t2/sessions", changesSnap([
+  mock.fire(P("teams/t2/sessions"), changesSnap([
     { type: "added", id: hoyFecha, data: { px: "present" } }
   ]));
 
@@ -158,17 +165,17 @@ async function run() {
 
   // Si t2 se da de baja del club, su listener de asistencia se debe cortar
   // (no debe quedar escuchando para siempre a un equipo borrado).
-  mock.fire("clubs/cbjaca/teams", docsSnap([
+  mock.fire(P("teams"), docsSnap([
     { id: "t1", name: "Equipo Uno", order: 0 }
   ]));
-  report.assert(mock.listenerCount("clubs/cbjaca/teams/t2/sessions") === 0, "al borrarse t2 del club, se desconecta su listener de asistencia");
-  report.assert(mock.listenerCount("clubs/cbjaca/teams/t1/sessions") === 1, "el listener de t1 sigue activo sin duplicarse");
+  report.assert(mock.listenerCount(P("teams/t2/sessions")) === 0, "al borrarse t2 del club, se desconecta su listener de asistencia");
+  report.assert(mock.listenerCount(P("teams/t1/sessions")) === 1, "el listener de t1 sigue activo sin duplicarse");
 
   // Entrar en t2 (aunque ya no exista, por si el flujo de navegación se
   // dispara) no debe volver a crear un segundo listener de asistencia para
   // t1 -- el que ya había seguía siendo válido.
   win.render();
-  report.assert(mock.listenerCount("clubs/cbjaca/teams/t1/sessions") === 1, "navegar/renderizar no duplica el listener de asistencia de un equipo que ya lo tenía");
+  report.assert(mock.listenerCount(P("teams/t1/sessions")) === 1, "navegar/renderizar no duplica el listener de asistencia de un equipo que ya lo tenía");
 
   return report.summary();
 }
