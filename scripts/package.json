@@ -1,0 +1,9 @@
+{
+  "name": "kortline-v3-scripts",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Utilidades puntuales de mantenimiento (no forman parte de la app ni se despliegan). Requieren 'npm install' en esta carpeta antes de usarse.",
+  "dependencies": {
+    "firebase": "10.14.1"
+  }
+}
