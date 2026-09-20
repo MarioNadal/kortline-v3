@@ -2031,6 +2031,40 @@ function _resumeFromTm(){
 }
 const DAYSF=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const CATEGORIES=["Escuela","Benjamín","Alevín","Infantil","Cadete","Junior","Senior","3x3","Otro"];
+// v3.0.0-dev.59 · B-GUEST5: género real del equipo (antes solo iba suelto en
+// el nombre, ej. "Infantil Masculino A"). Se usa para filtrar la categoría
+// inferior del picker de puntuales -- un equipo femenino solo debe poder
+// traer jugadoras de equipos femeninos, nunca de un masculino y viceversa.
+// Los equipos creados ANTES de este cambio no tienen género hasta que se
+// edite el equipo y se elija uno -- no adivinamos nada del nombre porque
+// podríamos equivocarnos.
+const GENDERS=["Masculino","Femenino","Mixto"];
+// v3.0.0-dev.58 · B-GUEST4: equipo(s) de la categoría de edad inmediatamente
+// inferior a la de `teamId`, para el picker de jugadores puntuales ("sube de
+// categoría inferior"). "3x3"/"Otro" no tienen orden de edad -- no ofrecen
+// categoría inferior. Si el club no tiene ningún equipo en la categoría
+// justo debajo (p.ej. tiene Cadete y Alevín pero no Infantil), se sigue
+// bajando hasta encontrar la categoría más cercana que sí exista, para no
+// dejar sin candidatos a un club con categorías intermedias vacías.
+// v3.0.0-dev.59 · B-GUEST5: además, si el equipo actual tiene género
+// asignado, solo se ofrecen equipos del MISMO género (un equipo sin género
+// asignado todavía queda excluido en ese caso, para no mezclar por error).
+// Si el equipo actual no tiene género asignado, no filtramos por género
+// (comportamiento de antes) para no hacer desaparecer la función a quien
+// todavía no lo haya configurado.
+function _lowerCategoryTeams(teamId){
+  const t=S.teams.find(x=>x.id===teamId);
+  if(!t)return [];
+  const idx=CATEGORIES.indexOf(t.category);
+  const seniorIdx=CATEGORIES.indexOf("Senior");
+  if(idx<=0||idx>seniorIdx)return [];
+  for(let i=idx-1;i>=0;i--){
+    let teams=S.teams.filter(x=>x.id!==teamId&&x.category===CATEGORIES[i]);
+    if(t.gender)teams=teams.filter(x=>x.gender===t.gender);
+    if(teams.length)return teams;
+  }
+  return [];
+}
 // Default quarters, minutes y stopOnFoul (B-53) por categoría.
 // stopOnFoul aplica en categorías que siguen FIBA estricto. En 3x3 el reloj
 // va aparte (cronómetro de posesión). En "Otro" lo dejamos OFF y el usuario
@@ -2049,7 +2083,7 @@ const JUST_REASONS=[{id:"sick",label:"Enfermo/a",icon:"🤒"},{id:"injury",label
 // pretemporada) a propósito -- es una decisión que tiene que tomar el
 // entrenador desde Ajustes -> Estadísticas cada temporada, no un valor que
 // aparezca solo. null/vacío = comportamiento de siempre (nada excluido).
-const DEFAULT_CFG={riskThreshold:75,seasonStart:null,features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
+const DEFAULT_CFG={riskThreshold:75,seasonStart:null,dlsNameMode:"nombre",features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
 // v3.0.0-dev.34 · B-DRILL1: catalogo de ejercicios reutilizables por equipo
 // (planificacion de entrenamientos, v1 acotada). No sustituye al campo libre
 // "Ejercicios del entrenamiento" (f.exercises) -- es un catalogo aparte,
@@ -2127,14 +2161,14 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "1073570899301",
   appId: "1:1073570899301:web:b1af40b12563bce9016d8c"
 };
-const CLUB_ID = "cbjaca";
+const CLUB_ID = "cbjaca-test";
 const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // v1.8.35 · B-VER1: version visible en Ajustes > Acerca de. Se mantenia
 // clavada en "1.0.0" desde el esqueleto inicial y nunca se habia tocado a
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.55";
+const APP_VERSION = "3.0.0-dev.73";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2290,10 +2324,45 @@ function _scheduleCloudSync(){
     _runCloudSync();
   }, wait);
 }
+// v3.0.0-dev.69 · B-DLS4: S.drillLive vive como {teamId:{drillId:[sesión,...]}}
+// (cómodo para leerlo desde las pantallas de un ejercicio concreto), pero
+// Firestore/el resto del sync trabaja por colección "plana" de documentos
+// con id único por equipo (como ya hace "drills"). Cada sesión ya tiene su
+// propio id único (dls_.../dlm_...) y guarda su propio drillId, así que se
+// puede aplanar/reconstruir sin perder nada.
+function _flattenDrillLive(dlByTid){
+  const out={};
+  for(const tid in (dlByTid||{})){
+    out[tid]=[];
+    const byDrill=dlByTid[tid]||{};
+    for(const did in byDrill){ (byDrill[did]||[]).forEach(s=>out[tid].push(s)); }
+  }
+  return out;
+}
+function _unflattenDrillLiveTeam(flatArr){
+  const out={};
+  (flatArr||[]).forEach(s=>{
+    if(!s||!s.drillId)return;
+    if(!out[s.drillId])out[s.drillId]=[];
+    out[s.drillId].push(s);
+  });
+  return out;
+}
+// Igual que _matchCmpView pero para sesiones de ejercicio en vivo: mientras
+// el cronómetro corre, startDlsTimer() llama a save() una vez por segundo
+// (para refrescar remainingSec en pantalla) -- sin excluirlo de la
+// comparación, eso dispararía una sincronización a Firestore cada segundo
+// de CUALQUIER ejercicio o mini-partido en marcha, con el mismo "parón"
+// que ya se arregló para el reloj de partidos en vivo (B-live-sync).
+function _dlsCmpView(s){
+  if(!s)return s;
+  const {remainingSec, ...rest}=s;
+  return rest;
+}
 function _snapshotState(){
   return JSON.parse(JSON.stringify({
     club:{clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg},
-    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills, trainingNotes:S.trainingNotes
+    teams:S.teams, players:S.players, matches:S.matches, events:S.events, sessions:S.sessions, drills:S.drills, drillLive:_flattenDrillLive(S.drillLive), trainingNotes:S.trainingNotes
   }));
 }
 // v3 · B-live-clock: el reloj del partido cambia m.live.clockSec una vez
@@ -2366,6 +2435,11 @@ async function _runCloudSync(){
     for(const tid of teamIds3) n+=_diffArrayById(batch, _teamDocRef(tid).collection("events"), cur.events[tid]||[], prev?.events?.[tid]);
     const teamIds4=new Set([...Object.keys(cur.drills||{}), ...Object.keys(prev?.drills||{})]);
     for(const tid of teamIds4) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drills"), cur.drills[tid]||[], prev?.drills?.[tid]);
+    // v3.0.0-dev.69 · B-DLS4: ver _flattenDrillLive -- cada sesión de
+    // ejercicio en vivo (b11/endgame) se sincroniza como documento propio,
+    // igual que ya se hace con "drills"/"matches"/"events".
+    const teamIds6=new Set([...Object.keys(cur.drillLive||{}), ...Object.keys(prev?.drillLive||{})]);
+    for(const tid of teamIds6) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drillLive"), cur.drillLive[tid]||[], prev?.drillLive?.[tid], _dlsCmpView);
     n+=_diffSessions(batch, cur.sessions, prev?.sessions);
     n+=_diffSessions(batch, cur.trainingNotes, prev?.trainingNotes, "trainingNotes");
     if(n>0) await batch.commit();
@@ -2383,7 +2457,7 @@ let _sessionUnsubsByTid={};
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
-  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:tn",S.trainingNotes);lsSet("cbj:logo",S.clubLogo);
+  lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:dl",S.drillLive);lsSet("cbj:tn",S.trainingNotes);lsSet("cbj:logo",S.clubLogo);
   lsSet("cbj:name",S.clubName);lsSet("cbj:cabrev",S.clubAbrev);lsSet("cbj:clema",S.clubLema);lsSet("cbj:cfg",S.cfg);
   // Referencia al día para que el próximo sync saliente no reenvíe lo que
   // acabamos de recibir de otro entrenador.
@@ -2531,6 +2605,17 @@ function _attachTeamListeners(tid){
     _applyingRemote=true;if(!S.drills)S.drills={};S.drills[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
+  // v3.0.0-dev.69 · B-DLS4: historial de estadísticas en vivo de ejercicios
+  // (b11/endgame) -- ver _flattenDrillLive/_unflattenDrillLiveTeam más
+  // arriba para el porqué de ir y volver de la forma plana de Firestore a
+  // la forma anidada {drillId:[sesión,...]} que usa el resto de la app.
+  _teamUnsubs.push(teamRef.collection("drillLive").onSnapshot(snap=>{
+    const freshFlat=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=_unflattenDrillLiveTeam(freshFlat);
+    if(JSON.stringify(fresh)===JSON.stringify(S.drillLive[tid]||{}))return;
+    _applyingRemote=true;if(!S.drillLive)S.drillLive={};S.drillLive[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
   // v3 · B-SYNCATT1: "sessions" (asistencia) y "trainingNotes" ya NO se
   // escuchan aquí -- se escuchan para TODOS los equipos a la vez desde
   // _attachSessionListeners/_syncSessionListeners (ver más arriba), no solo
@@ -2572,7 +2657,12 @@ function toggleTeamsReorder(){
   render();
 }
 function load(){
-  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};S.trainingNotes=lsGet("cbj:tn")||{};
+  // v3.0.0-dev.69 · B-DLS4: S.drillLive (historial de estadísticas en vivo
+  // de ejercicios, B-DLS1/2/3) se quedaba SIN LEER aquí -- se inicializaba
+  // siempre a {} al arrancar la app, así que cualquier ejercicio ya
+  // terminado desaparecía en cuanto se cerraba/recargaba la app. Ver save()
+  // más abajo para la otra mitad del bug (tampoco se escribía).
+  S.teams=lsGet("cbj:t")||[];S.players=lsGet("cbj:p")||{};S.sessions=lsGet("cbj:s")||{};S.matches=lsGet("cbj:m")||{};S.events=lsGet("cbj:ev")||{};S.drills=lsGet("cbj:drills")||{};S.trainingNotes=lsGet("cbj:tn")||{};S.drillLive=lsGet("cbj:dl")||{};
   _sortTeams();
   S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
   const sc=lsGet("cbj:cfg");
@@ -2604,6 +2694,13 @@ function save(){
   if(!lsSet("cbj:m",S.matches))ok=false;
   if(!lsSet("cbj:ev",S.events))ok=false;
   if(!lsSet("cbj:drills",S.drills))ok=false;
+  // v3.0.0-dev.69 · B-DLS4: fix del bug real reportado por Mario ("se pierde
+  // al cerrar la aplicación") -- S.drillLive nunca se escribía aquí, así que
+  // aunque _dlsLog()/startDls()/etc. sí llamaban a save() en cada acción
+  // (los datos SÍ estaban actualizados en memoria), nada de eso llegaba
+  // nunca a localStorage ni a Firestore (ver _snapshotState/_runCloudSync
+  // más abajo) -- se perdía sin más al cerrar pestaña/app.
+  if(!lsSet("cbj:dl",S.drillLive))ok=false;
   if(!lsSet("cbj:tn",S.trainingNotes))ok=false;
   if(!lsSet("cbj:logo",S.clubLogo))ok=false;
   if(!lsSet("cbj:name",S.clubName))ok=false;
@@ -2830,7 +2927,13 @@ function _playerStartDate(p,sessList){
 function _isPlayerActiveOn(p,date,sessList){
   if(!p)return false;
   if(p.matchOnly)return false; // puntual de partido: nunca entrena
-  if(p.attOnly)return p.addedAt===date; // puntual de entreno: solo ese día
+  // v3.0.0-dev.58 · B-GUEST4: un puntual de entreno puede reutilizarse en
+  // varios días distintos (picker "Ya han estado" / "Categoría inferior"),
+  // así que ya no basta con un único addedAt -- p.attDates guarda TODOS los
+  // días para los que ha contado. Retrocompatible: si un puntual antiguo no
+  // tiene attDates (datos de antes de este cambio), seguimos comparando
+  // contra su addedAt de siempre.
+  if(p.attOnly)return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
   const start=_playerStartDate(p,sessList);
   return !start||date>=start;
 }
@@ -2849,8 +2952,13 @@ function _countAtt(p,sessList){
   const rel=_sessForPlayer(p,sessList);
   let pr=0,ab=0,la=0,ex=0;
   rel.forEach(s=>{
-    const v=s.data?s.data[p.id]:undefined;
-    if(v==="present"||v===undefined)pr++;
+    // v3.0.0-dev.60 · B-INJ2: pasa por _effAttState() -- si la sesión no
+    // tiene marca explícita para el jugador y ya estaba lesionado ese día,
+    // cuenta como justificado en vez de presente (ver el comentario de
+    // _effAttState). Antes de esto un jugador de baja podía salir con 100%
+    // de asistencia en Historial/Stats/PDF.
+    const v=_effAttState(p,s.date,s.data?s.data[p.id]:undefined);
+    if(v==="present")pr++;
     else if(v==="absent")ab++;
     else if(v==="late")la++;
     else if(v==="excused")ex++;
@@ -2861,6 +2969,116 @@ function _countAtt(p,sessList){
 /* ═══════════════════════════════════════
    INJURY HELPERS
 ═══════════════════════════════════════ */
+// v3.0.0-dev.60 · B-INJ1: tipos de lesión con una duración TÍPICA orientativa
+// (en días) para sugerir sola una "vuelta prevista" al elegir el tipo -- el
+// entrenador siempre puede ajustar la fecha a mano después. "other" no tiene
+// duración típica (0 = no autorrellena nada) porque no tiene sentido
+// inventar un número para un caso sin clasificar. Son estimaciones generales,
+// no un diagnóstico -- el criterio médico real manda siempre.
+const INJURY_TYPES=[
+  ["ankle_mild","🦶 Esguince de tobillo (leve)",10],
+  ["ankle_severe","🦶 Esguince de tobillo (grave)",30],
+  ["muscle_strain","💪 Rotura fibrilar / fibra muscular",21],
+  ["tendinitis","🦵 Tendinitis",14],
+  ["contracture","🦵 Contractura muscular",7],
+  ["knee","🦵 Rodilla (menisco/ligamentos)",60],
+  ["fracture","🦴 Fractura ósea",45],
+  ["bruise","🤕 Golpe / contusión",5],
+  ["other","❔ Otra / sin estimar",0]
+];
+function injuryTypeLabel(id){const f=INJURY_TYPES.find(x=>x[0]===id);return f?f[1]:"";}
+function injuryTypicalDays(id){const f=INJURY_TYPES.find(x=>x[0]===id);return f?f[2]:0;}
+// Suma/resta días a una fecha ISO YYYY-MM-DD sin arrastrar problemas de huso
+// horario (mediodía fijo, igual que el resto de helpers de fecha de la app).
+function _addDaysISO(dateStr,days){
+  const d=new Date((dateStr||td())+"T12:00:00");
+  d.setDate(d.getDate()+days);
+  return d.toISOString().split("T")[0];
+}
+// Diferencia con signo en días entre dos fechas ISO (b-a). Positivo = b es
+// posterior a a. A diferencia de injuryDays() (siempre ≥0, pensado para
+// "cuántos días lleva"), aquí necesitamos el signo para saber si la vuelta
+// prevista ya quedó atrás o todavía queda por llegar.
+function _daysBetweenISO(a,b){
+  const da=new Date(a+"T12:00:00"),db=new Date(b+"T12:00:00");
+  return Math.round((db-da)/(1000*60*60*24));
+}
+// Info de la vuelta prevista de un jugador lesionado, o null si no tiene
+// fecha estimada guardada (lesiones antiguas, o tipo "other" sin ajustar).
+function injuryEstimatedReturnInfo(p){
+  if(!p||!isInjured(p))return null;
+  const est=p.injury&&p.injury.estimatedReturn;
+  if(!est)return null;
+  const diff=_daysBetweenISO(td(),est);
+  return{date:est,diff,overdue:diff<0};
+}
+// Etiqueta corta para badges/filas ("vuelta ~15/10 (5d)" / "⚠️ vuelta prevista hace 3d").
+function injuryEstimatedReturnShort(p){
+  const info=injuryEstimatedReturnInfo(p);
+  if(!info)return"";
+  if(info.overdue)return`⚠️ vuelta prevista hace ${Math.abs(info.diff)}d`;
+  if(info.diff===0)return"🔔 vuelta prevista hoy";
+  return`vuelta ~${fdCompact(info.date)} (${info.diff}d)`;
+}
+// v3.0.0-dev.61 · B-INJ3: aviso en el pase de lista cuando se cumple/pasa la
+// vuelta estimada de un jugador. Guardado en localStorage (no en Firestore):
+// es un recordatorio de UI puramente local a este dispositivo/entrenador, no
+// un dato del club que deba sincronizarse. "Omitir" solo lo oculta HOY -- al
+// cambiar el día real vuelve a salir (a petición explícita de Mario, para que
+// no se olvide aunque no actúe el primer día).
+function _injReminderDismissedToday(pid){
+  const m=lsGet("cbj:injReminderDismiss")||{};
+  return m[pid]===td();
+}
+function _dismissInjReminder(pid){
+  const m=lsGet("cbj:injReminderDismiss")||{};
+  m[pid]=td();
+  lsSet("cbj:injReminderDismiss",m,true);
+  render();
+}
+// Jugadores de un equipo cuya vuelta estimada ya se ha cumplido o pasado
+// (diff<=0) y que no se han omitido hoy. Se usa en att() para el aviso.
+function _injReminderDue(teamId){
+  return pl(teamId).filter(p=>{
+    if(!isInjured(p))return false;
+    const info=injuryEstimatedReturnInfo(p);
+    return info&&info.diff<=0&&!_injReminderDismissedToday(p.id);
+  });
+}
+/* ═══════════════════════════════════════
+   CUMPLEAÑOS (v3.0.0-dev.62 · B-BDAY1)
+   Campo opcional p.birthDate ("YYYY-MM-DD") puesto a mano en el alta/edición
+   del jugador. Solo se usa para avisar del cumpleaños -- no afecta a nada
+   más (asistencia, riesgo FEB, etc.). Pedido explícito de Mario, visible
+   tanto en el pase de lista del equipo como en la pantalla "Hoy" (para que
+   no se pierda un cumpleaños en un día en que ese equipo no entrena).
+═══════════════════════════════════════ */
+// ¿Es hoy el cumpleaños del jugador? Compara solo día y mes (el año se usa
+// aparte para saber qué edad cumple, ver playerBirthdayAge) -- así funciona
+// igual todos los años sin tener que tocar nada.
+function isBirthdayToday(p){
+  if(!p||!p.birthDate||p.birthDate.length<10)return false;
+  return p.birthDate.slice(5)===td().slice(5);
+}
+// Edad que cumple HOY (asume que isBirthdayToday(p) ya es true). null si por
+// lo que sea no hay año válido registrado.
+function playerBirthdayAge(p){
+  if(!p||!p.birthDate)return null;
+  const y=parseInt(p.birthDate.slice(0,4),10);
+  if(!y)return null;
+  return parseInt(td().slice(0,4),10)-y;
+}
+// Todos los cumpleaños de HOY en todo el club (todos los equipos), para la
+// pantalla "Hoy". Cada entrada lleva el equipo para poder etiquetarla.
+function _todaysBirthdays(){
+  const out=[];
+  (S.teams||[]).forEach(t=>{
+    (S.players[t.id]||[]).forEach(p=>{
+      if(isBirthdayToday(p))out.push({player:p,team:t});
+    });
+  });
+  return out;
+}
 // Determina si un jugador está actualmente lesionado. Orden de prioridad:
 // 1) p.injury.active (modelo nuevo v1.6.3) · 2) p.injured booleano legacy ·
 // 3) patrón "lesion" en notas (retrocompat con datos muy antiguos).
@@ -2889,8 +3107,11 @@ function computeInjurySnapshot(p,startDate,sessList){
   if(!rel.length)return{pct:100,tot:0};
   let pr=0;
   rel.forEach(s=>{
-    const v=s.data?s.data[p.id]:undefined;
-    if(v==="present"||v==="late"||v===undefined)pr++;
+    // v3.0.0-dev.60 · B-INJ2: _effAttState() -- si el jugador ya venía de una
+    // lesión ANTERIOR (ya dada de alta) sin marca explícita ese día, no debe
+    // contar como presente en el snapshot previo a la lesión nueva.
+    const v=_effAttState(p,s.date,s.data?s.data[p.id]:undefined);
+    if(v==="present"||v==="late")pr++;
   });
   return{pct:pc(pr,rel.length),tot:rel.length};
 }
@@ -2914,11 +3135,43 @@ function injuryDays(startDate,endDate){
 // ¿Estaba lesionado el jugador en la fecha indicada? Clave para pase de lista de
 // días anteriores: aunque hoy esté lesionado, en sesiones previas a startDate
 // NO debe marcarse como lesionado (ni badge visual ni auto-justificación).
+// v3.0.0-dev.60 · B-INJ2: también mira el HISTORIAL de lesiones ya dadas de
+// alta, no solo la activa -- así una sesión que se confirma más tarde (o el
+// cómputo de asistencia en Historial/Stats, ver _countAtt) sigue sabiendo que
+// ese día en concreto el jugador estaba de baja, aunque ya se haya recuperado.
 function isInjuredOn(p,date){
-  if(!p||!isInjured(p))return false;
-  const st=injuryStart(p);
-  if(!st)return true; // legacy sin startDate → comportamiento antiguo
-  return date>=st;
+  if(!p)return false;
+  if(isInjured(p)){
+    const st=injuryStart(p);
+    return !st||date>=st; // legacy sin startDate → comportamiento antiguo
+  }
+  // v3.0.0-dev.63 · B-INJ4: endDate es EXCLUSIVO a propósito (date<h.endDate,
+  // no <=). confirmInjuryRecovery() siempre pone endDate=hoy en el momento
+  // exacto de dar el alta médica -- si fuera inclusivo, ese MISMO día se
+  // seguiría considerando "lesionado" (ambulancia/badge en el pase de lista,
+  // y _effAttState() lo seguiría auto-justificando) hasta medianoche, aunque
+  // el entrenador acabase de decir explícitamente que ya está recuperado/a.
+  // Con endDate exclusivo, el día del alta pasa a comportarse como un día
+  // normal en cuanto se da de alta (sin ambulancia, presente por defecto),
+  // que es lo que se espera al pulsar el botón. Los días ANTERIORES al alta
+  // (startDate <= date < endDate) siguen contando como lesión igual que antes.
+  if(Array.isArray(p.injuryHistory)){
+    return p.injuryHistory.some(h=>h&&h.startDate&&date>=h.startDate&&(!h.endDate||date<h.endDate));
+  }
+  return false;
+}
+// v3.0.0-dev.60 · B-INJ2: estado efectivo de asistencia PARA CONTAR (distinto
+// del effectiveState() de att(), que es solo para pintar el pase de lista del
+// día actual). Cuando una sesión no tiene marca explícita para el jugador, el
+// valor por defecto históricamente era "present" -- correcto la inmensa
+// mayoría de las veces (el entrenador solo marca excepciones), pero
+// incorrecto para un jugador que ya estaba lesionado ese día y a quien nadie
+// llegó a tocarle el estado en esa sesión concreta: contaba como presente en
+// Historial/Stats/PDF aunque el pase de lista lo mostrara ya lesionado. Usado
+// por _countAtt() y por Historial para que ambos den siempre el mismo número.
+function _effAttState(p,date,v){
+  if(v!==undefined)return v;
+  return isInjuredOn(p,date)?"excused":"present";
 }
 // Fecha compacta DD/MM (sin año ni día de la semana) para filas estrechas.
 function fdCompact(d){
@@ -3056,7 +3309,7 @@ function _buildStatsCharts(){
     const data=recent.map(s=>{
       const act=activeIn(s);
       if(!act.length)return 0;
-      const pr=act.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
+      const pr=act.filter(p=>{const v=_effAttState(p,s.date,s.data[p.id]);return v==="present"||v==="late";}).length;
       return pc(pr,act.length);
     });
     _charts.trend=new Chart(trendEl,{
@@ -3084,7 +3337,7 @@ function _buildStatsCharts(){
     let tot={present:0,absent:0,late:0,excused:0};
     allSess.forEach(s=>{
       activeIn(s).forEach(p=>{
-        const v=s.data[p.id]||"present";
+        const v=_effAttState(p,s.date,s.data[p.id]);
         if(tot[v]!==undefined)tot[v]++;
       });
     });
@@ -3104,7 +3357,7 @@ function _buildStatsCharts(){
       const act=activeIn(s);
       if(!act.length)return;
       byM[m].n++;
-      const pr=act.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
+      const pr=act.filter(p=>{const v=_effAttState(p,s.date,s.data[p.id]);return v==="present"||v==="late";}).length;
       byM[m].sum+=pc(pr,act.length);
     });
     const mks=Object.keys(byM).filter(k=>byM[k].n>0).sort();
@@ -3317,11 +3570,11 @@ function exportExcel(){
     const dayName=d.toLocaleDateString("es-ES",{weekday:"long"});
     const cells=sortedP.map(p=>{
       if(!_isPlayerActiveOn(p,s.date,allSess))return "N/A";
-      const v=s.data[p.id]||"present";
+      const v=_effAttState(p,s.date,s.data[p.id]);
       return{present:"P",absent:"A",late:"T",excused:"J"}[v]||"P";
     });
     const activeP=sortedP.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
-    const pr=activeP.filter(p=>{const v=s.data[p.id]||"present";return v==="present"||v==="late";}).length;
+    const pr=activeP.filter(p=>{const v=_effAttState(p,s.date,s.data[p.id]);return v==="present"||v==="late";}).length;
     const pct=activeP.length?pc(pr,activeP.length)/100:0;
     sRows.push([s.date,dayName,...cells,pct,s.data._notes||"",s.data._exercises||""]);
   });
@@ -3342,7 +3595,7 @@ function exportExcel(){
     sortedP.forEach(p=>{
       if(!_isPlayerActiveOn(p,s.date,seasonSess))return;
       byM[m].sumPs++;
-      const v=s.data[p.id]||"present";
+      const v=_effAttState(p,s.date,s.data[p.id]);
       if(v==="present"||v==="late")byM[m].sumPr++;
     });
   });
@@ -3611,6 +3864,7 @@ function render(){
   else if(S.screen==="matchSummary")r.innerHTML=matchSummaryScreen();
   else if(S.screen==="trainingNote")r.innerHTML=trainingNoteScreen();
   else if(S.screen==="trainingNotesWeek")r.innerHTML=trainingNotesWeekScreen();
+  else if(S.screen==="dlsLive")r.innerHTML=screenDlsLive();
   // v1.8.24: marcamos el body con la clase 'in-live' solo cuando estamos en
   // el live game. Lo usan las media queries landscape para aplicar el layout
   // full-width sólo a esa pantalla, manteniendo el resto a 430px centrado.
@@ -3646,7 +3900,7 @@ function navBack(){
       // Fallback sensato según pantalla actual
       const fallbacks={att:'team',stats:'team',hist:'team',share:'att',
         matchList:'team',matchDetail:'matchList',liveGame:'matchDetail',
-        matchSummary:'hoy',eventos:'team'};
+        matchSummary:'hoy',eventos:'team',dlsLive:'team'};
       S.screen=fallbacks[S.screen]||'hoy';
       render();return;
     }
@@ -3792,15 +4046,25 @@ function navBar(){
 ═══════════════════════════════════════ */
 function hoy(){
   const ti=todayIdx();
-  const todayTeams=S.teams.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
+  const today=td();
+  const scheduledToday=S.teams.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
+  // v3.0.0-dev.73 · B-HOY2: un "Entrenamiento sorpresa" (openHoyAddSheet,
+  // fuera del horario semanal fijo) guarda su asistencia exactamente igual
+  // que cualquier otro entreno (S.sessions[sk(teamId,date)], vía cycleAtt/
+  // confirmSession) -- pero el equipo nunca aparecía en "Hoy" porque este
+  // filtro solo miraba el horario semanal fijo, nunca si ya se había pasado
+  // lista hoy. Pedido explícito de Mario: si se guarda la asistencia de un
+  // entrenamiento sorpresa, debe verse en "Hoy" igual que uno programado.
+  const surpriseToday=S.teams.filter(t=>!(t.schedule&&t.schedule.hasOwnProperty(ti))&&!!S.sessions[sk(t.id,today)]);
+  const todayTeams=[...scheduledToday,...surpriseToday];
   // v1.8.31 · B-HOY1: la pantalla Hoy iba en el orden de la pantalla Equipos
   // (S.teams / _sortTeams()), que no tiene por que coincidir con la hora de
   // cada entreno. Aqui interesa el orden cronologico: primero el entreno mas
   // proximo (al que antes hay que pasar lista). Los que no tienen hora puesta
-  // van al final.
-  const todayTeams_sorted=[...todayTeams].sort((a,b)=>(a.schedule[ti]||"99:99").localeCompare(b.schedule[ti]||"99:99"));
+  // van al final -- un entrenamiento sorpresa nunca tiene hora fija, así que
+  // siempre cae al final del todo, junto a los programados sin hora puesta.
+  const todayTeams_sorted=[...todayTeams].sort((a,b)=>((a.schedule&&a.schedule[ti])||"99:99").localeCompare((b.schedule&&b.schedule[ti])||"99:99"));
   const dateStr=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
-  const today=td();
   // ── Today's matches ──
   // Deduplicate matches by id (in case same match indexed under multiple keys)
   const _allMatchMap={};
@@ -3865,7 +4129,7 @@ function hoy(){
   }).join("");
 // ── Training cards ──
   const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
-    const time=t.schedule[ti];
+    const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija
     const sess=so(t.id,today);
     const _hasTN=!!tn(t.id,today); // v3 · B-TNOTES1: ¿ya hay notas de entrenamiento para hoy?
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
@@ -3874,10 +4138,11 @@ function hoy(){
     const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===today));
     const marked=players.filter(p=>sess[p.id]).length;
     const done=players.length>0&&marked>0;
-    const pr=players.filter(p=>(sess[p.id]||"present")==="present").length;
-    const ab=players.filter(p=>sess[p.id]==="absent").length;
-    const la=players.filter(p=>sess[p.id]==="late").length;
-    const ex=players.filter(p=>sess[p.id]==="excused").length;
+    const effSt=players.map(p=>_effAttState(p,today,sess[p.id]));
+    const pr=effSt.filter(v=>v==="present").length;
+    const ab=effSt.filter(v=>v==="absent").length;
+    const la=effSt.filter(v=>v==="late").length;
+    const ex=effSt.filter(v=>v==="excused").length;
     const pct=pc(pr+la,players.length);
     const coaches=(t.coaches||[]).filter(Boolean);
     return`<div style="background:var(--s);border:1px solid ${done?"rgba(34,197,94,.3)":"rgba(249,115,22,.3)"};border-radius:14px;margin-bottom:12px;overflow:hidden">
@@ -3914,7 +4179,7 @@ function hoy(){
   // ahora"); si aun no ha llegado, como aviso normal.
   const _nowHM=new Date().toTimeString().slice(0,5);
   const _nextTrainingPending=todayTeams_sorted.find(t=>{
-    const time=t.schedule[ti];
+    const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija, nunca cuenta como "pendiente por hora"
     if(!time)return false;
     const sess=so(t.id,today);
     return pl(t.id).filter(p=>sess[p.id]).length===0;
@@ -3934,10 +4199,25 @@ function hoy(){
   const emptyState=totalToday===0
     ?`<div class="empty"><div style="font-size:56px;margin-bottom:16px">😴</div><div style="font-family:var(--font-d);font-weight:900;font-size:20px;margin-bottom:8px">Sin actividad hoy</div><div style="font-size:14px;color:var(--tm);line-height:1.6">No hay entrenamientos ni partidos<br/>programados para hoy.</div></div>`
     :"";
-  const content=emptyState
+  // v3.0.0-dev.62 · B-BDAY1: cumpleaños de HOY de cualquier equipo del club.
+  // Va FUERA del if/else de emptyState a propósito: si el cumpleaños cae en
+  // un día sin entreno ni partido, es precisamente cuando más falta hace que
+  // salga aquí (en el pase de lista de ese equipo nunca se vería ese día).
+  const bdayToday=_todaysBirthdays();
+  const bdayBannerHoy=bdayToday.length?`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px">
+    ${bdayToday.map(({player,team})=>{
+      const age=playerBirthdayAge(player);
+      const label=age?`🎉 ¡Hoy cumple ${age} años!`:"🎉 ¡Hoy es su cumpleaños!";
+      return`<div style="display:flex;align-items:center;gap:10px${bdayToday.length>1?";margin-bottom:8px":""}">
+        <span style="font-size:22px">🎂</span>
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(player.name)} <span style="font-weight:500;color:var(--td);font-size:12px">· ${esc(team.name)}</span></div><div style="font-size:12px;color:#ec4899;font-weight:700">${label}</div></div>
+      </div>`;
+    }).join("")}
+  </div>`:"";
+  const content=bdayBannerHoy+(emptyState
     ||nextTrainingBar
     +(todayMatches.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin-bottom:10px">🏀 PARTIDOS</div>${matchCards}`:"")
-    +(todayTeams.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin:${todayMatches.length>0?"14px 0":"0 0"} 10px">🏋️ ENTRENAMIENTOS</div>${trainingCards}`:"");
+    +(todayTeams.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin:${todayMatches.length>0?"14px 0":"0 0"} 10px">🏋️ ENTRENAMIENTOS</div>${trainingCards}`:""));
   // v1.6.12: el título del header usa el nombre del club si está configurado
   const _hasClub=S.clubName&&S.clubName.trim()&&S.clubName!=="Kortline";
   const _title=_hasClub?esc(S.clubName):"Hoy";
@@ -3968,6 +4248,43 @@ function att(){
   const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===S.date));
   const sess=so(S.teamId,S.date);
   const f=S.cfg.features;
+  // v3.0.0-dev.61 · B-INJ3: aviso de "vuelta estimada cumplida" para jugadores
+  // lesionados de este equipo -- pedido explícito de Mario, para no tener que
+  // acordarse él solo de revisar cada lesión. Ver _injReminderDue().
+  const injReminderHtml=(()=>{
+    const due=_injReminderDue(S.teamId);
+    if(!due.length)return"";
+    return due.map(p=>{
+      const info=injuryEstimatedReturnInfo(p);
+      const label=info.diff===0?"🔔 Vuelta prevista para hoy":`⚠️ Vuelta prevista superada (hace ${Math.abs(info.diff)} día${Math.abs(info.diff)===1?"":"s"})`;
+      return`<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="font-size:18px">🚑</span>
+          <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(p.name)}</div><div style="font-size:12px;color:#ef4444;font-weight:700">${label}</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+          <button onclick="confirmInjuryRecovery('${p.id}')" style="padding:8px 4px;border-radius:8px;border:1px solid rgba(34,197,94,.35);background:rgba(34,197,94,.12);color:#22c55e;font-size:11px;font-weight:700;cursor:pointer">✅ Dar de alta</button>
+          <button onclick="openInjuryEditModal('${p.id}')" style="padding:8px 4px;border-radius:8px;border:1px solid var(--border);background:var(--s3);color:var(--tx);font-size:11px;font-weight:700;cursor:pointer">🔄 Nueva fecha</button>
+          <button onclick="_dismissInjReminder('${p.id}')" style="padding:8px 4px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--tm);font-size:11px;font-weight:700;cursor:pointer">✕ Omitir</button>
+        </div>
+      </div>`;
+    }).join("");
+  })();
+  // v3.0.0-dev.62 · B-BDAY1: aviso de cumpleaños de HOY para jugadores de
+  // este equipo (solo decorativo, sin botones -- no hay ninguna acción que
+  // tomar, a diferencia del aviso de lesión de arriba).
+  const bdayReminderHtml=(()=>{
+    const todays=players.filter(isBirthdayToday);
+    if(!todays.length)return"";
+    return todays.map(p=>{
+      const age=playerBirthdayAge(p);
+      const label=age?`🎉 ¡Hoy cumple ${age} años!`:"🎉 ¡Hoy es su cumpleaños!";
+      return`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">🎂</span>
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(p.name)}</div><div style="font-size:12px;color:#ec4899;font-weight:700">${label}</div></div>
+      </div>`;
+    }).join("");
+  })();
   // Auto-justifica lesionados en la fecha en curso: si no hay estado explícito
   // para el jugador y la lesión ya estaba activa ese día, lo tratamos como
   // justificado con motivo "Lesionado/a". El entrenador puede seguir cycleando.
@@ -4063,12 +4380,23 @@ function att(){
   // f.exercises), como una forma más rápida de registrar ejercicios
   // repetidos sin escribirlos a mano cada vez.
   const sessDrills=f.exercises?_sessionDrills():[];
+  // v3.0.0-dev.72 · B-DLS8: los ejercicios con estadísticas en vivo
+  // (Contraataque de 11 / Final de partido) adjuntados a ESTE día muestran
+  // aquí mismo sus controles (Iniciar/Continuar/Ver resultado de hoy) --
+  // pedido explícito de Mario tras probar B-DLS7: el Catálogo de ejercicios
+  // pasa a ser solo referencia (qué ejercicios existen), y arrancar/ver
+  // resultados de un ejercicio en vivo vive SIEMPRE en el día concreto en
+  // que se hace, no en una vista agregada por ejercicio del catálogo (que
+  // además no tendría sentido si hay varios ejercicios con el mismo nombre
+  // en el catálogo -- ver _dlsDayCardHtml).
+  const dlsDayCardsHtml=f.exercises?sessDrills.filter(d=>_dlsType(d)).map(d=>_dlsDayCardHtml(d)).join(""):"";
   const drillsChipsHtml=f.exercises?`<div class="fg">
     <label class="fl">🗂️ Del catálogo <span style="color:var(--tm)">(opcional)</span></label>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
       ${sessDrills.map(d=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(240,99,24,.12);color:var(--orange);border:1px solid rgba(240,99,24,.3)">${_drillCat(d.category).icon} ${esc(d.name)}<button onclick="toggleSessionDrill('${d.id}')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;line-height:1">✕</button></span>`).join("")}
       <button onclick="openDrillPickerModal()" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;background:var(--s2);color:var(--td);border:1px dashed var(--border);cursor:pointer">+ Añadir</button>
     </div>
+    ${dlsDayCardsHtml}
   </div>`:"";
   const isAutoMode=f.playerScore&&!sess._teamScoreManual;
   const hasIndivScores=f.playerScore&&players.some(p=>sess[p.id+"_score"]>0);
@@ -4128,6 +4456,8 @@ function att(){
       <button onclick="chgDate(1)" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:22px;padding:0 6px">›</button>
       <button onclick="_guardedExit(()=>{_attFlushDraft();S.date=td();S._attDraft=null;S._attNoCaptureOnRender=true;render();})" style="background:rgba(240,99,24,.15);color:var(--orange);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:700">HOY</button>
     </div>
+    ${bdayReminderHtml}
+    ${injReminderHtml}
     <div class="agrid">${agrid}</div>
     ${filterBanner}
     ${bulkRow}
@@ -4244,10 +4574,14 @@ function stats(){
     const injNotes=p.isInj&&p.injury?p.injury.notes:"";
     const injDys=p.isInj&&p.injStart?injuryDays(p.injStart):0;
     const injInfoLine=[p.injStart?"desde "+fdCompact(p.injStart):"",origLbl].filter(Boolean).join(" · ");
+    // v3.0.0-dev.60 · B-INJ1: vuelta estimada (si se puso al marcar la lesión),
+    // visible también en Riesgo FEB tal y como pidió Mario.
+    const injEstShort=p.isInj?injuryEstimatedReturnShort(p):"";
     const injBox=p.isInj
       ?`<div style="font-size:12px;background:rgba(122,156,200,.1);border:1px solid rgba(122,156,200,.25);border-radius:6px;padding:6px 8px;color:#7a9cc8;margin-bottom:6px">
           <div><span style="font-weight:700">🚑 Lesionado · ${injDys} día${injDys===1?"":"s"}</span>${p.wasAtRisk?` <span style="color:#ef4444;font-weight:700">· ⚠️ ya en riesgo al lesionarse (${p.injury?.snapshotPct??"—"}%)</span>`:""}</div>
           ${injInfoLine?`<div style="font-size:11px;color:var(--tm);margin-top:2px">${esc(injInfoLine)}</div>`:""}
+          ${injEstShort?`<div style="font-size:11px;font-weight:700;color:${injEstShort.startsWith("⚠️")?"#ef4444":"#7a9cc8"};margin-top:2px">${esc(injEstShort)}</div>`:""}
           ${injNotes?`<div style="font-size:11px;color:var(--tm);margin-top:2px;font-style:italic">"${esc(injNotes)}"</div>`:""}
           <div style="font-size:10px;color:var(--td);margin-top:2px">${p.wasAtRisk?"Sigue contando en Riesgo FEB con el % congelado.":"Excluido del riesgo FEB mientras dure la lesión."}</div>
         </div>`
@@ -4432,7 +4766,10 @@ function hist(){
       players.forEach(p=>{
         if(!_isDateInSeason(e.date)||!_isPlayerActiveOn(p,e.date,allEntries))return;
         sumPs++;
-        const v=e.data[p.id]||"present";
+        // v3.0.0-dev.60 · B-INJ2: _effAttState() en vez de "||\"present\"" --
+        // si no hay marca explícita y el jugador ya estaba lesionado ese día,
+        // cuenta como justificado, no como presente (mismo fix que _countAtt).
+        const v=_effAttState(p,e.date,e.data[p.id]);
         if(v==="present"||v==="late")sumPr++;
       });
     });
@@ -4449,10 +4786,12 @@ function hist(){
     `<div class="card">${entries.map((e,i)=>{
       // Solo cuenta jugadores de alta en la fecha de la sesión
       const activeP=players.filter(p=>_isPlayerActiveOn(p,e.date,allEntries));
-      const pr=activeP.filter(p=>(e.data[p.id]||"present")==="present").length;
-      const ab=activeP.filter(p=>e.data[p.id]==="absent").length;
-      const la=activeP.filter(p=>e.data[p.id]==="late").length;
-      const ex=activeP.filter(p=>e.data[p.id]==="excused").length;
+      // v3.0.0-dev.60 · B-INJ2: _effAttState() por jugador -- ver _countAtt.
+      const activeSt=activeP.map(p=>_effAttState(p,e.date,e.data[p.id]));
+      const pr=activeSt.filter(v=>v==="present").length;
+      const ab=activeSt.filter(v=>v==="absent").length;
+      const la=activeSt.filter(v=>v==="late").length;
+      const ex=activeSt.filter(v=>v==="excused").length;
       const p2=activeP.length?pc(pr+la,activeP.length):0;const c=p2>=90?"#22c55e":p2>=thr?"#f59e0b":"#ef4444";
       const ts=e.data._teamScore;
       return`<div class="he" style="${i===entries.length-1?"border-bottom:none":""}">
@@ -4609,7 +4948,10 @@ function team(){
       const pnum=`<div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}99)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>`;
       const avatar=p.photo?`<img class="pavatar" src="${p.photo}" alt=""/>`:"";
       // Formato compacto para no cortar en filas estrechas: "🚑 10/04 (6d)"
-      const injLine=isInj?`🚑 ${iStart?fdCompact(iStart):""}${iDays?` (${iDays}d)`:""}`:"";
+      // v3.0.0-dev.60 · B-INJ1: + vuelta estimada, si se puso, tal y como pidió
+      // Mario ("también en la plantilla y en Riesgo FEB").
+      const injEst=isInj?injuryEstimatedReturnShort(p):"";
+      const injLine=isInj?`🚑 ${iStart?fdCompact(iStart):""}${iDays?` (${iDays}d)`:""}${injEst?` · ${injEst}`:""}`:"";
       const subLine=[p.position||"—",injLine,p.notes].filter(Boolean).join(" · ");
       // Botón dedicado de lesión entre ✏️ y 🗑. Rojo si activa (abre alta rápida),
       // gris si no (abre modal para marcar).
@@ -4680,6 +5022,7 @@ function team(){
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="S.tnWeekStart=null;navTo('trainingNotesWeek')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📝</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">NOTAS DE ENTRENAMIENTO</div><div style="font-size:11px;color:var(--tm);margin-top:1px">Planificación semanal · objetivo, hábitos y contenido</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
+    ${_findDuplicateGuestGroups(S.teamId).length?`<button class="qb" onclick="openGuestDuplicatesModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35)"><div style="font-size:20px">🔍</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#f59e0b">PUNTUALES DUPLICADOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${_findDuplicateGuestGroups(S.teamId).length} grupo${_findDuplicateGuestGroups(S.teamId).length!==1?"s":""} para fusionar</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>`:""}
     ${mvpCard(t)}
     ${attBar}
     <div class="card" style="margin-bottom:14px"><div style="padding:4px 14px 8px"><div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);padding-top:10px;margin-bottom:4px">📅 Horario</div>${schedRows}</div></div>
@@ -4707,10 +5050,10 @@ function buildDailyText(tid,date,showMotivo,opts){
   if(showMotivo&&sess._teamScore&&S.cfg.features.teamScore)lines.push(`⭐ Valoración equipo: ${sess._teamScore}/10 (${_scoreLabel(sess._teamScore)})`);
   lines.push("");
   const sorted=[...players].sort((a,b)=>(a.number||99)-(b.number||99));
-  const pr=sorted.filter(p=>(sess[p.id]||"present")==="present");
+  const pr=sorted.filter(p=>_effAttState(p,date,sess[p.id])==="present");
   const la=sorted.filter(p=>sess[p.id]==="late");
   const ab=sorted.filter(p=>sess[p.id]==="absent");
-  const ex=sorted.filter(p=>sess[p.id]==="excused");
+  const ex=sorted.filter(p=>_effAttState(p,date,sess[p.id])==="excused");
   lines.push(`✅ *Presentes (${pr.length}):*`);pr.forEach(p=>{const ps=getPS(sess,p.id);lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}${showMotivo&&S.cfg.features.playerScore&&ps?" ("+ps+"/10 ★)":""}`);}); 
   if(la.length){lines.push(`\n⏱ *Tarde (${la.length}):*`);la.forEach(p=>lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}`));}
   if(ab.length){lines.push(`\n❌ *Ausentes (${ab.length}):*`);ab.forEach(p=>lines.push(`  ${p.number?"#"+p.number+" ":""}${p.name}`));}
@@ -4743,7 +5086,7 @@ function buildWeeklyText(tid,showMotivo,opts){
   // añadido aparecía "presente" en entrenamientos previos a que existiera.
   allSess.forEach(s=>{
     const activeP=players.filter(p=>_isPlayerActiveOn(p,s.date,allSess));
-    const pr2=activeP.filter(p=>(s.data[p.id]||"present")==="present").length;
+    const pr2=activeP.filter(p=>_effAttState(p,s.date,s.data[p.id])==="present").length;
     const la2=activeP.filter(p=>s.data[p.id]==="late").length;
     const pv=activeP.length?pc(pr2+la2,activeP.length):0;const ts2=s.data._teamScore;
     lines.push(`${pv>=90?"🟢":pv>=75?"🟡":"🔴"} *${cap(fd(s.date,true))}* — ${pv}%${showMotivo&&ts2&&S.cfg.features.teamScore?" · "+ts2+"★":""}`);
@@ -5228,6 +5571,15 @@ function openClubSettings(){
       ${toggleHtml("playerScore","👤 Valoración individual","Puntúa a cada jugador presente con 1-10 ★. Requiere más tiempo por sesión")}
     </div>
     <div class="stg-sec">
+      <div class="stg-sec-title">🏀 Ejercicios en vivo</div>
+      <div class="fg"><label class="fl">Cómo mostrar a los jugadores</label>
+        <select class="fi" id="cfg-dls-name-mode">
+          ${[["nombre","Nombre"],["apodo","Apodo"],["apellido","Apellido"]].map(([v,l])=>`<option value="${v}" ${(S.cfg.dlsNameMode||"nombre")===v?"selected":""}>${l}</option>`).join("")}
+        </select>
+        <div style="font-size:12px;color:var(--tm);margin-top:5px">Se usa en el selector de jugador y en el resumen de los ejercicios con estadísticas en vivo (catálogo de ejercicios). Si eliges "Apodo" y un jugador no tiene ninguno puesto (se añade en su ficha), se usa su nombre.</div>
+      </div>
+    </div>
+    <div class="stg-sec">
       <div class="stg-sec-title">🚀 Modo rápido (live game)</div>
       <div style="font-size:12px;color:var(--tm);margin:-4px 0 12px;line-height:1.5">Pensado para anotadores que quieren mantener el ritmo del partido sin distraerse con preguntas extra.</div>
       ${toggleHtml("chainPrompt","🔗 Preguntar asistencia y rebote","Tras anotar canasta pregunta quién dio la asistencia; tras un fallo, quién cogió el rebote. Actívalo para estadísticas más completas.")}
@@ -5317,13 +5669,123 @@ function toggleSessionDrill(drillId){
     // Se guarda una copia (nombre/categoria/minutos) en vez de solo el id:
     // si el ejercicio se edita o se borra del catalogo mas adelante, el
     // historial de esa sesion sigue mostrando lo que de verdad se hizo ese dia.
-    cur.push({id:lib.id,name:lib.name,category:lib.category,minutes:lib.minutes||null});
+    // v3.0.0-dev.72 · B-DLS8: se copia también dlsType -- el día necesita
+    // saber si este ejercicio tiene estadísticas en vivo (para ofrecer sus
+    // controles directamente en el propio día) aunque el ejercicio se borre
+    // o cambie de tipo en el catálogo más adelante.
+    cur.push({id:lib.id,name:lib.name,category:lib.category,minutes:lib.minutes||null,dlsType:_dlsType(lib)});
   }
   sess.drills=cur;
   S.sessions[k]=sess;
   save();
   render();
   _refreshDrillPickerList();_refreshDrillLibraryList();
+}
+// v3.0.0-dev.67 · B-DLS3: "Contraataque de 11" pasa de ser un checkbox
+// genérico (drill.liveStats, cualquier ejercicio podía activarlo) a un
+// campo "Tipo de ejercicio" con opciones fijas -- pedido explícito de
+// Mario para que las estadísticas de tiro en vivo (b11) y el nuevo
+// mini-partido de "Final de partido" (endgame) sean dos modos concretos a
+// elegir, no un flag suelto. _dlsType() sigue reconociendo los ejercicios
+// ya existentes creados con el checkbox viejo (liveStats:true) como "b11"
+// -- nada de lo que ya funcionaba deja de funcionar.
+function _dlsType(d){
+  if(!d)return"";
+  if(d.dlsType)return d.dlsType;
+  return d.liveStats?"b11":"";
+}
+// v3.0.0-dev.70 · B-DLS6: al elegir un tipo de ejercicio con estadísticas en
+// vivo, se rellenan solos el nombre y la categoría "de libro" de ese tipo
+// (el usuario puede cambiar el nombre después si quiere uno distinto) --
+// pedido explícito de Mario para no tener que escribir "Contraataque de 11"
+// a mano cada vez. "Normal" no tiene valores por defecto: no se toca nada.
+const DLS_TYPE_DEFAULTS={
+  b11:{name:"Contraataque de 11",category:"offense"},
+  endgame:{name:"Final de partido",category:"scrimmage"}
+};
+function _dlsTypeAutofill(modalId){
+  const def=DLS_TYPE_DEFAULTS[document.getElementById(modalId+"-dlstype")?.value];
+  if(!def)return;
+  const nameEl=document.getElementById(modalId+"-name");
+  const catEl=document.getElementById(modalId+"-cat");
+  if(nameEl)nameEl.value=def.name;
+  if(catEl)catEl.value=def.category;
+}
+function _dlsBadgeHtml(d){
+  const type=_dlsType(d);
+  if(type==="b11")return ' <span style="font-size:9.5px;font-weight:800;color:var(--orange);background:rgba(240,99,24,.12);border-radius:6px;padding:2px 6px;margin-left:2px;white-space:nowrap">🎯 EN VIVO</span>';
+  if(type==="endgame")return ' <span style="font-size:9.5px;font-weight:800;color:#3b82f6;background:rgba(59,130,246,.12);border-radius:6px;padding:2px 6px;margin-left:2px;white-space:nowrap">⏱️ FINAL PARTIDO</span>';
+  return "";
+}
+// v3.0.0-dev.72 · B-DLS8: Mario probó B-DLS7 (historial agregado por
+// ejercicio del catálogo) y pidió cambiar el planteamiento por completo --
+// el Catálogo de ejercicios pasa a ser solo referencia (qué ejercicios
+// existen), sin ningún control de "en vivo". Arrancar, continuar y ver el
+// resultado de un ejercicio con estadísticas vive SIEMPRE en el DÍA
+// concreto del entrenamiento (el propio pase de lista de esa fecha, sección
+// "🗂️ Del catálogo" de att()) -- así, si el catálogo tiene varios ejercicios
+// llamados igual ("Contraataque de 11" x100), cada uno guarda sus
+// estadísticas por SESIÓN/DÍA, sin necesidad de un agregado por ejercicio
+// del catálogo que Mario no quiere. _dlsDayInfo() filtra las sesiones de un
+// ejercicio a las de una fecha concreta; _dlsDayCardHtml() es la tarjeta que
+// se pinta en att() para cada ejercicio en vivo adjuntado a ese día.
+function _dlsDayInfo(teamId,drillId,date){
+  const sessions=_dlsList(teamId,drillId).filter(s=>(s.date||td())===date);
+  return {
+    sessions,
+    active:sessions.find(s=>s.status!=="finished")||null,
+    finished:sessions.filter(s=>s.status==="finished")
+  };
+}
+function _dlsDayCardHtml(d){
+  const type=_dlsType(d);
+  if(!type)return "";
+  const info=_dlsDayInfo(S.teamId,d.id,S.date);
+  const setupFn=type==="endgame"?"openDlsMatchSetupModal":"openDlsSetupModal";
+  const startLabel=type==="endgame"?"⏱️ Configurar mini-partido":"🏀 Iniciar en vivo";
+  const actionHtml=info.active
+    ?`<button class="btn-p" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="openDlsResumeOrLive('${d.id}')">▶ Continuar (${_fmtClock(info.active.remainingSec)})</button>`
+    :`<button class="btn-s" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="${setupFn}('${d.id}')">${startLabel}</button>`;
+  const resultBtn=info.finished.length
+    ?`<button class="btn-s" style="padding:9px 12px;font-size:12.5px;margin:0" onclick="_dlsOpenDaySummary('${d.id}','${S.date}')" title="Ver resultado de hoy">📊</button>`
+    :"";
+  return `<div data-dls-day-card="${d.id}" style="padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:18px">${_drillCat(d.category).icon}</span>
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}${_dlsBadgeHtml(d)}</div></div>
+    </div>
+    <div style="display:flex;gap:6px">${actionHtml}${resultBtn}</div>
+  </div>`;
+}
+// Abre el resultado de HOY de este ejercicio -- si se ha repetido varias
+// veces el mismo día (poco habitual, pero posible), deja elegir cuál ver en
+// vez de asumir que quieres siempre la última.
+function _dlsOpenDaySummary(drillId,date){
+  const info=_dlsDayInfo(S.teamId,drillId,date);
+  if(!info.finished.length){toast("Todavía no hay ningún resultado de este ejercicio hoy");return;}
+  if(info.finished.length===1)return _dlsRenderSessionSummary(info.finished[0],drillId);
+  _dlsOpenDaySessionsList(drillId,info.finished);
+}
+function _dlsOpenDaySessionsList(drillId,sessions){
+  document.getElementById("m-dls-day-sessions")?.remove();
+  const rows=sessions.map((s,i)=>{
+    const type=_dlsSessType(s);
+    const recap=type==="endgame"?`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`:`${(s.players||[]).length} jugadores`;
+    return `<button data-dls-day-session="${s.id}" onclick="_dlsOpenHistorySession('${drillId}','${s.id}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;margin-bottom:6px;font-family:inherit">
+      <span style="font-size:12.5px">Sesión ${i+1}</span><span style="font-size:12px;color:var(--tm)">${recap}</span>
+    </button>`;
+  }).join("");
+  const el=document.createElement("div");el.id="m-dls-day-sessions";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">📊 Resultados de hoy</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">Este ejercicio se ha hecho ${sessions.length} veces hoy -- elige cuál quieres ver</div>
+    ${rows}
+    <button class="btn-s" onclick="document.getElementById('m-dls-day-sessions').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
 }
 function _drillPickerListHtml(){
   const lib=_teamDrills(S.teamId);
@@ -5334,15 +5796,23 @@ function _drillPickerListHtml(){
   return lib.map(d=>{
     const cat=_drillCat(d.category);
     const on=chosen.has(d.id);
-    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.1)":"var(--s2)"};border-radius:10px;margin-bottom:8px">
-      <button onclick="toggleSessionDrill('${d.id}')" style="flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;cursor:pointer;padding:0">
-        <span style="font-size:18px">${on?"✅":cat.icon}</span>
-        <span style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}</div>
-          <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}</div>
-        </span>
-      </button>
-      <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
+    // v3.0.0-dev.72 · B-DLS8: ya no se ofrecen aquí los controles de "en
+    // vivo" (arrancar/continuar/ver resultado) -- este picker es solo para
+    // adjuntar/quitar ejercicios del día. Una vez adjuntado, sus controles
+    // en vivo aparecen en el propio día (att(), sección "🗂️ Del catálogo"),
+    // ver _dlsDayCardHtml(). El badge (🎯/⏱️) se mantiene, solo como
+    // referencia de qué ejercicios tienen estadísticas en vivo disponibles.
+    return `<div style="padding:10px;border:1px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.1)":"var(--s2)"};border-radius:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="toggleSessionDrill('${d.id}')" style="flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;cursor:pointer;padding:0">
+          <span style="font-size:18px">${on?"✅":cat.icon}</span>
+          <span style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}${_dlsBadgeHtml(d)}</div>
+            <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}</div>
+          </span>
+        </button>
+        <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
+      </div>
     </div>`;
   }).join("");
 }
@@ -5378,13 +5848,22 @@ function _drillLibraryRowsHtml(){
   return lib.map(d=>{
     const cat=_drillCat(d.category);
     const notesPreview=d.notes?` · ${esc(d.notes.slice(0,40))}${d.notes.length>40?"…":""}`:"";
-    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
-      <span style="font-size:18px">${cat.icon}</span>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}</div>
-        <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}${notesPreview}</div>
+    // v3.0.0-dev.72 · B-DLS8: el Catálogo de ejercicios pasa a ser solo
+    // referencia (qué ejercicios existen y cómo son) -- pedido explícito de
+    // Mario, para poder tener "Contraataque de 11" repetido tantas veces
+    // como quiera sin que eso implique nada sobre estadísticas. Ya no ofrece
+    // arrancar/continuar/ver resultado en vivo (eso vive en el día concreto
+    // del entrenamiento, ver _dlsDayCardHtml en att()). El badge (🎯/⏱️) se
+    // mantiene, solo como referencia de qué tipo de ejercicio es.
+    return `<div style="padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px">${cat.icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}${_dlsBadgeHtml(d)}</div>
+          <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}${notesPreview}</div>
+        </div>
+        <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
       </div>
-      <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
     </div>`;
   }).join("");
 }
@@ -5400,7 +5879,7 @@ function openDrillLibraryModal(){
   el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
     <div class="mhandle"></div>
     <div class="mtitle">🗂️ Catálogo de ejercicios</div>
-    <div style="font-size:12px;color:var(--tm);margin:-8px 0 12px">Ejercicios reutilizables de este equipo. Para usarlos en un entrenamiento concreto, adjúntalos desde el pase de lista (📋 Ejercicios de la sesión).</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 12px">Ejercicios reutilizables de este equipo. Para usarlos en un entrenamiento concreto, adjúntalos desde el pase de lista (📋 Ejercicios de la sesión). Los marcados 🎯 o ⏱️ tienen estadísticas o un mini-partido en vivo -- una vez adjuntados a un día, sus controles y resultados aparecen ahí mismo, en el pase de lista de ese día.</div>
     <div id="drill-library-list">${_drillLibraryRowsHtml()}</div>
     <button class="btn-p" onclick="openDrillModal()" style="margin-top:4px">+ Nuevo ejercicio</button>
     <button class="btn-s" onclick="document.getElementById('m-drill-library').remove()">Cerrar</button>
@@ -5417,6 +5896,14 @@ function openDrillModal(init){
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">${init?"Editar ejercicio":"Nuevo ejercicio"}</div>
+    <div class="fg"><label class="fl">Tipo de ejercicio</label>
+      <select class="fi" id="${id}-dlstype" onchange="_dlsTypeAutofill('${id}')">
+        <option value="" ${_dlsType(init)===""?"selected":""}>Normal (sin estadísticas en vivo)</option>
+        <option value="b11" ${_dlsType(init)==="b11"?"selected":""}>🎯 Contraataque de 11 (estadísticas de tiro)</option>
+        <option value="endgame" ${_dlsType(init)==="endgame"?"selected":""}>⏱️ Final de partido (mini-partido con marcador)</option>
+      </select>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Elegir un tipo activa sus propias estadísticas/marcador en vivo al lanzar el ejercicio, y rellena el nombre y la categoría de abajo (puedes cambiarlos después).</div>
+    </div>
     <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-name" value="${esc(init?.name||"")}" placeholder="ej. Rueda de tiro exterior" maxlength="60"/></div>
     <div class="fg"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
     <div class="fg"><label class="fl">Duración (min) <span style="color:var(--tm)">(opcional)</span></label><input class="fi" id="${id}-min" type="number" min="1" max="120" value="${init?.minutes||""}" placeholder="ej. 10"/></div>
@@ -5435,14 +5922,19 @@ function saveDrill(modalId,drillId){
   const minRaw=document.getElementById(modalId+"-min")?.value;
   const minutes=minRaw?Math.max(1,Math.min(120,parseInt(minRaw)||0)):null;
   const notes=(document.getElementById(modalId+"-notes")?.value||"").trim();
+  // v3.0.0-dev.67 · B-DLS3: sustituye al viejo checkbox "liveStats" -- el
+  // campo ya no se vuelve a escribir en drills nuevos/editados (queda leído
+  // solo como fallback por _dlsType() para ejercicios antiguos que ya lo
+  // tenían, como "Contraataque de 11").
+  const dlsType=document.getElementById(modalId+"-dlstype")?.value||"";
   if(!S.drills)S.drills={};
   if(!S.drills[S.teamId])S.drills[S.teamId]=[];
   const list=S.drills[S.teamId];
   if(drillId){
     const idx=list.findIndex(d=>d.id===drillId);
-    if(idx>=0)list[idx]={...list[idx],name,category,minutes,notes};
+    if(idx>=0)list[idx]={...list[idx],name,category,minutes,notes,dlsType};
   }else{
-    list.push({id:"dr_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),name,category,minutes,notes});
+    list.push({id:"dr_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),name,category,minutes,notes,dlsType});
   }
   save();
   clearDirty();
@@ -5461,6 +5953,889 @@ function deleteDrill(drillId){
     _refreshDrillPickerList();_refreshDrillLibraryList();
   });
 }
+/* ═══════════════════════════════════════
+   ESTADÍSTICAS EN VIVO DE EJERCICIO · "dls" (v3.0.0-dev.57 · B-DLS1)
+   Reemplaza al B-B11-1 (que era fijo, solo "Contraataque de 11" y solo
+   accesible desde el pase de lista). Ahora es un FLAG reutilizable
+   (drill.liveStats) de cualquier ejercicio del catálogo del equipo: desde
+   "Equipo → Catálogo de ejercicios" se puede marcar cualquier ejercicio
+   como "con estadísticas en vivo" y lanzarlo desde ahí. NO es un partido --
+   sin marcador ni equipos fijos, solo captura rápida de estadísticas
+   individuales durante el ejercicio (tiros 2/3 anotados/fallados, rebote
+   tras cada tiro, pérdida+robo encadenados u omitidos, asistencia/tapón
+   opcionales via checklist), con cronómetro pausable.
+
+   Almacenamiento: S.drillLive[teamId][drillId] = [sesión, sesión, ...]
+   (histórico completo, nunca se borra nada). Cada sesión guarda su propia
+   fecha (la del día en que se lanzó) y una copia del nombre del ejercicio,
+   para poder construir más adelante una pantalla de estadísticas agregadas
+   entre varios días sin perder nada de lo capturado ahora. Como mucho una
+   sesión por drillId está "activa" (running/paused) a la vez; el puntero
+   S._dlsDrillId indica cuál se está viendo en la pantalla en vivo.
+═══════════════════════════════════════ */
+function _dlsList(teamId,drillId){ return (S.drillLive&&S.drillLive[teamId]&&S.drillLive[teamId][drillId])||[]; }
+function _dlsActive(teamId,drillId){ return _dlsList(teamId,drillId).find(s=>s.status!=="finished")||null; }
+function _dlsLastFinished(teamId,drillId){ const l=_dlsList(teamId,drillId).filter(s=>s.status==="finished"); return l.length?l[l.length-1]:null; }
+function _dls(){ return S._dlsDrillId?_dlsActive(S.teamId,S._dlsDrillId):null; }
+function _dlsEmptyStats(){return {p2m:0,p2a:0,p3m:0,p3a:0,reb:0,to:0,stl:0,ast:0,blk:0};}
+// v3.0.0-dev.67 · B-DLS3: sesiones de antes de "Final de partido" no tienen
+// b.type -- siempre eran de tiro (b11). _dlsSessType() da el tipo real de
+// una sesión concreta ya guardada (no confundir con _dlsType(drill), que
+// es el tipo configurado en el CATÁLOGO -- una sesión ya arrancada conserva
+// su propio tipo aunque el ejercicio se reconfigure después en el catálogo).
+function _dlsSessType(b){ return (b&&b.type)||"b11"; }
+const _DLS_ACT_LABELS={p2m:"+2 anotado",p3m:"+3 anotado",p2a:"Fallo de 2",p3a:"Fallo de 3",reb:"Rebote",to:"Pérdida",stl:"Robo",ast:"Asistencia",blk:"Tapón"};
+// v3.0.0-dev.66 · B-DLS2: cómo se identifica a un jugador en las pantallas
+// de Ejercicios -- ajuste FIJO de club (Ajustes → 🏀 Ejercicios en vivo),
+// no algo que se elija cada vez. "Apodo" cae a nombre si el jugador no
+// tiene uno puesto; "Apellido" coge todo lo que va después de la primera
+// palabra del nombre (mismo criterio de "primera palabra = nombre" que ya
+// usa _shortNameBase en el resto de la app), y si no hay más que una
+// palabra, también cae al nombre completo. Los jugadores temporales
+// (S._dlsSetup.temps, solo existen dentro de un ejercicio) no tienen
+// apodo/apellido reales -- siempre se muestran tal cual se escribieron.
+function _dlsPlayerLabel(p){
+  if(!p)return"?";
+  if(p.temp)return p.name||"?";
+  const mode=S.cfg?.dlsNameMode||"nombre";
+  if(mode==="apodo"){
+    if(p.nickname&&p.nickname.trim())return p.nickname.trim();
+    return _shortName(p.name||"");
+  }
+  if(mode==="apellido"){
+    const parts=(p.name||"").trim().split(/\s+/).filter(Boolean);
+    if(parts.length>1)return parts.slice(1).join(" ");
+    return p.name||"?";
+  }
+  return _shortName(p.name||"");
+}
+// Valoración propia de Ejercicios (v3.0.0-dev.66 · B-DLS2) -- DISTINTA de
+// _calcEFF (partidos): un 2 anotado vale 1 y un 3 anotado vale 2 (si no,
+// en un ejercicio de tiro repetitivo los puntos se disparan y la
+// valoración deja de servir para comparar). El resto (rebote, asistencia,
+// robo, tapón, pérdida) vale igual que en _calcEFF. Los tiros fallados
+// solo restan si el propio ejercicio lo tiene activado (missPenalty) --
+// por defecto NO restan (se registran solo para llevar la cuenta de
+// volumen de tiro, a petición explícita de Mario).
+function _dlsValoracion(st,missPenalty){
+  if(!st)return 0;
+  const pts=(st.p2m||0)*1+(st.p3m||0)*2;
+  const base=pts+(st.reb||0)+(st.ast||0)+(st.stl||0)+(st.blk||0)-(st.to||0);
+  const fallados=missPenalty?((st.p2a||0)+(st.p3a||0)):0;
+  return base-fallados;
+}
+function _dlsActiveRoster(){
+  const tid=S.teamId;
+  const prefix=tid+"_";
+  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>({date:k.slice(prefix.length),data:v}));
+  return pl(tid).filter(p=>_isPlayerActiveOn(p,td(),allSess)).sort((a,b)=>(a.number??999)-(b.number??999));
+}
+/* ── Configuración inicial ── */
+function openDlsSetupModal(drillId){
+  const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
+  if(!drill)return;
+  const existing=_dlsActive(S.teamId,drillId);
+  if(existing){openDlsResumeOrLive(drillId);return;}
+  document.getElementById("m-dls-setup")?.remove();
+  const roster=_dlsActiveRoster();
+  window._dlsSetup={drillId,selected:new Set(roster.map(p=>p.id)),temps:[]};
+  const el=document.createElement("div");el.id="m-dls-setup";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🏀 ${esc(drill.name)}</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 14px">Configura quién participa y qué se registra antes de arrancar el cronómetro.</div>
+    <label class="fl">Jugadores</label>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="flex:1;padding:8px" onclick="_dlsToggleAll(true)">Todos</button>
+      <button class="btn-s" style="flex:1;padding:8px" onclick="_dlsToggleAll(false)">Ninguno</button>
+    </div>
+    <div class="card" id="dls-roster-list" style="margin-bottom:10px;max-height:38vh;overflow-y:auto">${_dlsRosterListHtml(roster)}</div>
+    <div id="dls-temps-list">${_dlsTempsListHtml()}</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input class="fi" id="dls-temp-name" placeholder="+ jugador nuevo (no cuenta en stats de temporada)" style="flex:1"/>
+      <button class="btn-s" onclick="_dlsAddTemp()" style="width:auto;flex-shrink:0;margin-top:0;padding:0 16px">Añadir</button>
+    </div>
+    <label class="fl">¿Qué registramos?</label>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="dls-chk-ast" checked/> Preguntar asistencia automáticamente tras cada canasta</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx)"><input type="checkbox" id="dls-chk-misstrack" checked onchange="document.getElementById('dls-misspenalty-wrap').style.display=this.checked?'flex':'none'"/> Registrar los tiros fallados</label>
+      <label id="dls-misspenalty-wrap" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx);padding-left:24px"><input type="checkbox" id="dls-chk-misspenalty"/> Restar -1 a la valoración por cada fallo</label>
+    </div>
+    <div style="font-size:11px;color:var(--tm);margin:0 0 14px">👆 Da igual lo que marques aquí — los botones de rebote, robo, asistencia y tapón están siempre disponibles durante el ejercicio, por si hace falta apuntar algo que no viste venir.</div>
+    <div class="fg"><label class="fl">Minutos</label><input class="fi" type="number" id="dls-minutes" min="1" max="90" value="12"/></div>
+    <button class="btn-p" onclick="startDls()">▶ Empezar</button>
+    <button class="btn-s" onclick="document.getElementById('m-dls-setup').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _dlsRosterListHtml(roster){
+  if(!roster.length)return `<div style="font-size:12px;color:var(--tm);padding:8px 0">Sin jugadores en la plantilla.</div>`;
+  return roster.map(p=>{
+    const on=window._dlsSetup.selected.has(p.id);
+    const guestBadge=p.guest?' <span style="color:#8b5cf6;font-size:10px;font-weight:800">🔄</span>':"";
+    // v3.0.0-dev.66 · B-DLS2: mismo componente visual que la convocatoria
+    // de partido (.conv-row/.conv-cb) en vez de un <label>+checkbox suelto
+    // -- más grande, más fácil de tocar y coherente con el resto de la app.
+    // El dorsal se muestra pequeño y en segundo plano (en entrenamientos no
+    // suele llevarse puesto): el protagonista es el nombre/apodo.
+    return `<div class="conv-row" onclick="_dlsTogglePlayer('${p.id}');this.querySelector('.conv-cb').classList.toggle('on')">
+      <div class="conv-cb ${on?"on":""}">${on?"✓":""}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:15px;color:var(--tx)">${esc(_dlsPlayerLabel(p))}${guestBadge}</div>
+        ${p.number!=null?`<div style="font-size:11px;color:var(--tm)">#${p.number}</div>`:""}
+      </div>
+    </div>`;
+  }).join("");
+}
+function _dlsTogglePlayer(pid){
+  const s=window._dlsSetup.selected;
+  if(s.has(pid))s.delete(pid);else s.add(pid);
+}
+function _dlsToggleAll(all){
+  const roster=_dlsActiveRoster();
+  window._dlsSetup.selected=new Set(all?roster.map(p=>p.id):[]);
+  const list=document.getElementById("dls-roster-list");
+  if(list)list.innerHTML=_dlsRosterListHtml(roster);
+}
+function _dlsTempsListHtml(){
+  const temps=window._dlsSetup?.temps||[];
+  if(!temps.length)return "";
+  return `<div style="margin-bottom:8px">${temps.map(t=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(139,92,246,.12);color:#8b5cf6;border:1px solid rgba(139,92,246,.3);margin:0 6px 6px 0">${esc(t.name)}<button onclick="_dlsRemoveTemp('${t.id}')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;line-height:1">✕</button></span>`).join("")}</div>`;
+}
+function _dlsAddTemp(){
+  const inp=document.getElementById("dls-temp-name");
+  const name=(inp?.value||"").trim();
+  if(!name){toast("⚠️ Ponle un nombre");return;}
+  window._dlsSetup.temps.push({id:"tmp_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name});
+  inp.value="";
+  const list=document.getElementById("dls-temps-list");
+  if(list)list.innerHTML=_dlsTempsListHtml();
+}
+function _dlsRemoveTemp(tid){
+  window._dlsSetup.temps=window._dlsSetup.temps.filter(t=>t.id!==tid);
+  const list=document.getElementById("dls-temps-list");
+  if(list)list.innerHTML=_dlsTempsListHtml();
+}
+function startDls(){
+  const setup=window._dlsSetup;
+  if(!setup)return;
+  const {drillId}=setup;
+  const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
+  if(!drill){toast("⚠️ Ejercicio no encontrado en el catálogo");return;}
+  const roster=pl(S.teamId);
+  // v3.0.0-dev.66 · B-DLS2: se guarda también el apodo -- la sesión guarda
+  // una COPIA de los jugadores (no una referencia viva a S.players), así
+  // que si no se copia aquí, _dlsPlayerLabel nunca podría mostrar el apodo
+  // en modo "Apodo" para sesiones ya empezadas.
+  const chosen=roster.filter(p=>setup.selected.has(p.id)).sort((a,b)=>(a.number??999)-(b.number??999)).map(p=>({id:p.id,name:p.name,nickname:p.nickname||"",number:p.number??null,guest:!!p.guest}));
+  const temps=setup.temps.map(t=>({id:t.id,name:t.name,number:null,temp:true}));
+  const players=[...chosen,...temps];
+  if(!players.length){toast("⚠️ Elige al menos un jugador");return;}
+  const minutes=Math.max(1,Math.min(90,parseInt(document.getElementById("dls-minutes")?.value)||12));
+  const ast=!!document.getElementById("dls-chk-ast")?.checked;
+  // v3.0.0-dev.66 · B-DLS2: sustituye al viejo checkbox "Tapones" (ya no
+  // hacía nada -- el botón de tapón está siempre disponible, ver
+  // screenDlsLive) por las dos opciones nuevas de tiros fallados que pidió
+  // Mario: si se registran o no, y si penalizan la valoración o no.
+  const missTrack=!!document.getElementById("dls-chk-misstrack")?.checked;
+  const missPenalty=missTrack&&!!document.getElementById("dls-chk-misspenalty")?.checked;
+  const stats={};
+  players.forEach(p=>{stats[p.id]=_dlsEmptyStats();});
+  if(!S.drillLive)S.drillLive={};
+  if(!S.drillLive[S.teamId])S.drillLive[S.teamId]={};
+  if(!S.drillLive[S.teamId][drillId])S.drillLive[S.teamId][drillId]=[];
+  const sess={id:"dls_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),drillId,drillName:drill.name,date:td(),type:"b11",status:"running",startedAt:Date.now(),checklist:{ast,missTrack,missPenalty},durationSec:minutes*60,remainingSec:minutes*60,players,stats,log:[]};
+  S.drillLive[S.teamId][drillId].push(sess);
+  save();
+  document.getElementById("m-dls-setup")?.remove();
+  window._dlsSetup=null;
+  S._dlsDrillId=drillId;
+  // v3.0.0-dev.66 · B-DLS2: se puede arrancar tanto desde el catálogo
+  // (m-drill-library) como desde "Ejercicios de la sesión" al planificar el
+  // entrenamiento del día (m-drill-picker) -- hay que cerrar el que esté
+  // abierto en cada caso, si no se queda flotando detrás del ejercicio.
+  document.getElementById("m-drill-library")?.remove();
+  document.getElementById("m-drill-picker")?.remove();
+  navTo("dlsLive");
+  startDlsTimer();
+}
+/* ── Cronómetro (cuenta atrás, pausable) ── */
+let _dlsTimer=null;
+function startDlsTimer(){
+  if(_dlsTimer)return;
+  _dlsTimer=setInterval(()=>{
+    const b=_dls();
+    if(!b||S.screen!=="dlsLive"||b.status!=="running"){clearInterval(_dlsTimer);_dlsTimer=null;return;}
+    if(b.remainingSec>0){
+      b.remainingSec--;
+      const el=document.getElementById("dls-clock");
+      if(el){el.textContent=_fmtClock(b.remainingSec);el.style.color=b.remainingSec===0?"#ef4444":b.remainingSec<60?"#f59e0b":"var(--tx)";}
+      save();
+    }else{
+      b.status="paused";
+      clearInterval(_dlsTimer);_dlsTimer=null;
+      save();render();
+      toast("⏱ ¡Tiempo! Termina el ejercicio o añade más minutos.");
+    }
+  },1000);
+}
+function toggleDlsClock(){
+  const b=_dls();if(!b||b.status==="finished")return;
+  b.status=b.status==="running"?"paused":"running";
+  if(b.status==="running")startDlsTimer();else{clearInterval(_dlsTimer);_dlsTimer=null;}
+  save();render();
+}
+function addDlsMinutes(mins){
+  const b=_dls();if(!b)return;
+  b.remainingSec=Math.max(0,(b.remainingSec||0)+mins*60);
+  save();render();
+}
+function openDlsResumeOrLive(drillId){
+  const b=_dlsActive(S.teamId,drillId);if(!b)return;
+  S._dlsDrillId=drillId;
+  document.getElementById("m-drill-library")?.remove();
+  document.getElementById("m-drill-picker")?.remove();
+  navTo("dlsLive");
+  if(b.status==="running")startDlsTimer();
+}
+/* ═══════════════════════════════════════
+   "FINAL DE PARTIDO" (v3.0.0-dev.67 · B-DLS3)
+   Segundo tipo de ejercicio en vivo, junto a "Contraataque de 11" (b11).
+   Pedido explícito de Mario: un mini-partido rápido con cuenta atrás
+   (mm:ss, no solo minutos enteros -- para poder fijar p.ej. 2:36) donde uno
+   de los dos equipos puede empezar con ventaja real (marcador inicial
+   exacto de cada equipo, no solo "quién va ganando"). Los jugadores
+   seleccionados se reparten a MANO entre Equipo A / Equipo B (a petición
+   de Mario, nada de reparto automático).
+
+   Con estadísticas individuales DESACTIVADO (por defecto): el marcador de
+   cada equipo se toca a mano con botones +1/+2/+3 (b.manualScore).
+   Con estadísticas individuales ACTIVADO: se reutiliza TAL CUAL el mismo
+   motor de captura de "Contraataque de 11" (dlsShot/dlsRebound/dlsTurnover/
+   dlsBlock/dlsAssist/dlsSteal, _dlsOpenPicker, cadena cancelable...) -- no
+   hace falta duplicar nada de eso, porque ya trabaja de forma genérica
+   sobre b.players/b.stats/b.log. El marcador de cada equipo en ese caso se
+   CALCULA solo (_dlsMatchTeamScore) sumando los puntos reales (2/3, no la
+   valoración reducida de b11) de los jugadores de ese equipo -- así un tiro
+   anotado apunta a la vez la estadística del jugador Y el marcador real del
+   equipo, sin tener que tocar dos sitios.
+
+   Misma sesión, mismo almacenamiento de siempre (S.drillLive), etiquetada
+   con type:"endgame" para que screenDlsLive()/openDlsSummaryModal() sepan
+   qué pantalla mostrar -- ver _dlsSessType().
+═══════════════════════════════════════ */
+function openDlsMatchSetupModal(drillId){
+  const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
+  if(!drill)return;
+  const existing=_dlsActive(S.teamId,drillId);
+  if(existing){openDlsResumeOrLive(drillId);return;}
+  document.getElementById("m-dls-match-setup")?.remove();
+  window._dlsMatchSetup={drillId,teamOf:{},temps:[]};
+  const el=document.createElement("div");el.id="m-dls-match-setup";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:90vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">⏱️ ${esc(drill.name)}</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 14px">Reparte a los jugadores en dos equipos y fija el marcador de salida antes de arrancar el crono.</div>
+    <label class="fl">Jugadores y equipos</label>
+    <div class="card" id="dls-match-roster-list" style="margin-bottom:10px;max-height:34vh;overflow-y:auto">${_dlsMatchRosterListHtml()}</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input class="fi" id="dls-match-temp-name" placeholder="+ jugador nuevo (no cuenta en stats de temporada)" style="flex:1"/>
+      <button class="btn-s" onclick="_dlsMatchAddTemp()" style="width:auto;flex-shrink:0;margin-top:0;padding:0 16px">Añadir</button>
+    </div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Marcador inicial Equipo A</label><input class="fi" type="number" id="dls-match-scoreA" min="0" max="300" value="0"/></div>
+      <div class="fg"><label class="fl">Marcador inicial Equipo B</label><input class="fi" type="number" id="dls-match-scoreB" min="0" max="300" value="0"/></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Minutos</label><input class="fi" type="number" id="dls-match-minutes" min="0" max="59" value="2"/></div>
+      <div class="fg"><label class="fl">Segundos</label><input class="fi" type="number" id="dls-match-seconds" min="0" max="59" value="0"/></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx);cursor:pointer;margin-bottom:14px"><input type="checkbox" id="dls-match-individual"/> Registrar también estadísticas individuales (tiros, rebotes, pérdidas...) además del marcador</label>
+    <button class="btn-p" onclick="startDlsMatch()">▶ Empezar</button>
+    <button class="btn-s" onclick="document.getElementById('m-dls-match-setup').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _dlsMatchRosterListHtml(){
+  const s=window._dlsMatchSetup;if(!s)return"";
+  const all=[..._dlsActiveRoster(),...s.temps];
+  if(!all.length)return `<div style="font-size:12px;color:var(--tm);padding:8px 0">Sin jugadores en la plantilla.</div>`;
+  return all.map(p=>{
+    const t=s.teamOf[p.id]||null;
+    const guestBadge=p.guest?' <span style="color:#8b5cf6;font-size:10px;font-weight:800">🔄</span>':"";
+    return `<div class="conv-row" style="cursor:default">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:15px;color:var(--tx)">${esc(_dlsPlayerLabel(p))}${guestBadge}</div>
+        ${p.number!=null?`<div style="font-size:11px;color:var(--tm)">#${p.number}</div>`:p.temp?`<div style="font-size:11px;color:#8b5cf6">nuevo</div>`:""}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+        <button onclick="_dlsMatchAssign('${p.id}','A')" class="loc-btn ${t==='A'?"on":""}" style="flex:none;width:38px;padding:8px 0">A</button>
+        <button onclick="_dlsMatchAssign('${p.id}','B')" class="loc-btn ${t==='B'?"on":""}" style="flex:none;width:38px;padding:8px 0">B</button>
+        ${p.temp?`<button onclick="_dlsMatchRemoveTemp('${p.id}')" style="background:none;border:none;color:var(--tm);cursor:pointer;font-size:15px;padding:0 4px">✕</button>`:""}
+      </div>
+    </div>`;
+  }).join("");
+}
+function _dlsMatchAssign(pid,team){
+  const s=window._dlsMatchSetup;if(!s)return;
+  if(s.teamOf[pid]===team)delete s.teamOf[pid];else s.teamOf[pid]=team;
+  const list=document.getElementById("dls-match-roster-list");
+  if(list)list.innerHTML=_dlsMatchRosterListHtml();
+}
+function _dlsMatchAddTemp(){
+  const inp=document.getElementById("dls-match-temp-name");
+  const name=(inp?.value||"").trim();
+  if(!name){toast("⚠️ Escribe un nombre");return;}
+  const s=window._dlsMatchSetup;if(!s)return;
+  s.temps.push({id:"tmp_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name,number:null,temp:true});
+  inp.value="";
+  const list=document.getElementById("dls-match-roster-list");
+  if(list)list.innerHTML=_dlsMatchRosterListHtml();
+}
+function _dlsMatchRemoveTemp(id){
+  const s=window._dlsMatchSetup;if(!s)return;
+  s.temps=s.temps.filter(t=>t.id!==id);
+  delete s.teamOf[id];
+  const list=document.getElementById("dls-match-roster-list");
+  if(list)list.innerHTML=_dlsMatchRosterListHtml();
+}
+function startDlsMatch(){
+  const setup=window._dlsMatchSetup;
+  if(!setup)return;
+  const {drillId}=setup;
+  const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
+  if(!drill){toast("⚠️ Ejercicio no encontrado en el catálogo");return;}
+  const roster=_dlsActiveRoster();
+  const chosen=roster.filter(p=>setup.teamOf[p.id]).map(p=>({id:p.id,name:p.name,nickname:p.nickname||"",number:p.number??null,guest:!!p.guest,team:setup.teamOf[p.id]}));
+  const temps=setup.temps.filter(t=>setup.teamOf[t.id]).map(t=>({id:t.id,name:t.name,number:null,temp:true,team:setup.teamOf[t.id]}));
+  const players=[...chosen,...temps];
+  const countA=players.filter(p=>p.team==="A").length;
+  const countB=players.filter(p=>p.team==="B").length;
+  if(countA<1||countB<1){toast("⚠️ Asigna al menos un jugador a cada equipo");return;}
+  const minutes=Math.max(0,Math.min(59,parseInt(document.getElementById("dls-match-minutes")?.value)||0));
+  const seconds=Math.max(0,Math.min(59,parseInt(document.getElementById("dls-match-seconds")?.value)||0));
+  const durationSec=minutes*60+seconds;
+  if(durationSec<=0){toast("⚠️ Pon un tiempo mayor que 0");return;}
+  const startScoreA=Math.max(0,parseInt(document.getElementById("dls-match-scoreA")?.value)||0);
+  const startScoreB=Math.max(0,parseInt(document.getElementById("dls-match-scoreB")?.value)||0);
+  const trackIndividual=!!document.getElementById("dls-match-individual")?.checked;
+  const stats={};
+  players.forEach(p=>{stats[p.id]=_dlsEmptyStats();});
+  if(!S.drillLive)S.drillLive={};
+  if(!S.drillLive[S.teamId])S.drillLive[S.teamId]={};
+  if(!S.drillLive[S.teamId][drillId])S.drillLive[S.teamId][drillId]=[];
+  const sess={id:"dlm_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),drillId,drillName:drill.name,date:td(),type:"endgame",status:"running",startedAt:Date.now(),
+    checklist:{ast:true,missTrack:true,missPenalty:false},
+    trackIndividual,startScore:{A:startScoreA,B:startScoreB},manualScore:{A:0,B:0},
+    durationSec,remainingSec:durationSec,players,stats,log:[]};
+  S.drillLive[S.teamId][drillId].push(sess);
+  save();
+  document.getElementById("m-dls-match-setup")?.remove();
+  window._dlsMatchSetup=null;
+  S._dlsDrillId=drillId;
+  document.getElementById("m-drill-library")?.remove();
+  document.getElementById("m-drill-picker")?.remove();
+  navTo("dlsLive");
+  startDlsTimer();
+}
+// Puntos REALES (no la valoración reducida de b11: aquí es un partido de
+// verdad, así que un 2 vale 2 y un 3 vale 2) de un equipo -- suma el
+// marcador inicial más, según el modo, los puntos anotados por sus
+// jugadores (estadísticas individuales) o el marcador tocado a mano.
+function _dlsMatchTeamScore(b,team){
+  const start=(b.startScore&&b.startScore[team])||0;
+  if(!b.trackIndividual)return start+((b.manualScore&&b.manualScore[team])||0);
+  return start+b.players.filter(p=>p.team===team).reduce((s,p)=>{
+    const st=b.stats[p.id]||_dlsEmptyStats();
+    return s+(st.p2m||0)*2+(st.p3m||0)*3;
+  },0);
+}
+function dlsMatchScore(team,pts){
+  const b=_dls();if(!b||b.trackIndividual)return;
+  if(!b.manualScore)b.manualScore={A:0,B:0};
+  b.manualScore[team]=(b.manualScore[team]||0)+pts;
+  b.log=[...(b.log||[]),{type:"manualScore",team,pts,ts:Date.now()}];
+  save();render();
+}
+/* ── Captura de estadísticas ── */
+function _dlsLog(pid,action){
+  const b=_dls();if(!b)return;
+  if(!b.stats[pid])b.stats[pid]=_dlsEmptyStats();
+  b.stats[pid][action]=(b.stats[pid][action]||0)+1;
+  b.log=[...(b.log||[]),{pid,action,ts:Date.now()}];
+  // v3.0.0-dev.66 · B-DLS2: si hay una "cadena" cancelable en curso (ver
+  // _dlsChainStart/_dlsCancelChain), cada acción registrada mientras dura
+  // se apunta también aquí para poder deshacerla entera de un tirón.
+  if(window._dlsChain)window._dlsChain.push({pid,action});
+  save();render();
+}
+window._dlsPending=null;
+window._dlsChain=null;
+// v3.0.0-dev.66 · B-DLS2: botón "Cancelar" pedido por Mario -- antes, si
+// pulsabas "+2" por error, la única salida era completar todo el flujo
+// (elegir anotador, asistencia, rebote...) y luego usar "Deshacer última
+// acción" para cada paso ya registrado. Ahora cada acción que abre uno o
+// varios pickers encadenados arranca una "cadena" cancelable: mientras esté
+// abierta, cualquier estadística que se registre queda apuntada en
+// window._dlsChain, y el botón Cancelar (presente en TODOS los pickers de
+// esta acción) deshace de golpe todo lo registrado en ella y cierra sin
+// dejar rastro -- exactamente como si nunca se hubiera tocado el botón.
+function _dlsChainStart(){window._dlsChain=[];}
+function _dlsChainEnd(){window._dlsChain=null;}
+function _dlsCancelChain(){
+  const chain=window._dlsChain||[];
+  const b=_dls();
+  if(b&&chain.length){
+    [...chain].reverse().forEach(({pid,action})=>{
+      if(b.stats[pid]&&b.stats[pid][action]>0)b.stats[pid][action]--;
+      for(let i=(b.log||[]).length-1;i>=0;i--){
+        if(b.log[i].pid===pid&&b.log[i].action===action){b.log.splice(i,1);break;}
+      }
+    });
+    save();
+  }
+  window._dlsChain=null;
+  document.getElementById("m-dls-picker")?.remove();
+  window._dlsPending=null;
+  render();
+  toast("✕ Acción cancelada");
+}
+function _dlsOpenPicker(cfg){
+  const b=_dls();if(!b)return;
+  document.getElementById("m-dls-picker")?.remove();
+  window._dlsPending=cfg;
+  // v3.0.0-dev.69 · B-DLS5: pedido explícito de Mario tras usar Contraataque
+  // de 11 en un entreno de verdad -- "el juego va muy rápido... tienes que
+  // encontrar o acordarte de tres nombres en 2 segundos". Causa real: antes
+  // se EXCLUÍA (cfg.excludeId) al jugador que no podía elegirse en ese paso
+  // -- p.ej. el propio anotador en "¿quién dio la asistencia?" -- así que
+  // esa tarjeta desaparecía de la rejilla y TODAS las demás se recolocaban,
+  // rompiendo la memoria espacial de "Ana siempre está arriba a la
+  // izquierda" entre una pregunta encadenada y la siguiente (3 preguntas
+  // seguidas, cada una con la rejilla reordenada). Ahora se muestra SIEMPRE
+  // la plantilla completa de la sesión (b.players, que no cambia de orden
+  // en toda la sesión) -- el excluido se ve atenuado en su sitio de
+  // siempre, sin poder tocarse, en vez de desaparecer y desplazar al resto.
+  // De paso, tarjetas más grandes (más padding, texto más grande) para
+  // poder leer el nombre de un vistazo bajo presión.
+  const players=b.players;
+  const cards=players.map(p=>{
+    const excluded=p.id===cfg.excludeId;
+    const inner=`<div style="font-weight:800;font-size:14px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
+    ${p.number!=null?`<div style="font-size:10.5px;color:var(--tm)">#${p.number}</div>`:""}`;
+    return excluded
+      ?`<div data-pid="${p.id}" data-excluded="1" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:16px 6px;border-radius:12px;border:2px solid var(--border);background:rgba(0,0,0,.15);opacity:.35;font-family:inherit;width:100%;color:var(--tx)">${inner}</div>`
+      :`<button data-pid="${p.id}" onclick="_dlsPickerConfirm('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:16px 6px;border-radius:12px;border:2px solid ${cfg.color}55;background:rgba(0,0,0,.25);color:var(--tx);cursor:pointer;font-family:inherit;width:100%">${inner}</button>`;
+  }).join("");
+  const el=document.createElement("div");
+  el.id="m-dls-picker";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.96);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;";
+  el.innerHTML=`<div style="width:100%;max-width:380px">
+    <div style="text-align:center;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:${cfg.color};margin-bottom:4px">${cfg.emoji} ${esc(cfg.label||"")}</div>
+      <div style="font-family:var(--font-d);font-weight:900;font-size:17px;color:var(--tx)">${esc(cfg.title)}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(${Math.min(players.length||1,4)},1fr);gap:7px;margin-bottom:12px">${cards||'<div style="grid-column:1/-1;color:var(--tm);text-align:center;padding:14px">Nadie disponible</div>'}</div>
+    ${cfg.skipLabel?`<button onclick="_dlsPickerSkip()" style="width:100%;padding:12px;border-radius:9px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-weight:700;margin-bottom:8px">${esc(cfg.skipLabel)}</button>`:""}
+    <button onclick="_dlsCancelChain()" style="width:100%;padding:10px;border-radius:9px;border:none;background:none;color:var(--tm);cursor:pointer;font-weight:700;font-size:13px">✕ Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _dlsPickerConfirm(pid){
+  document.getElementById("m-dls-picker")?.remove();
+  const cfg=window._dlsPending;window._dlsPending=null;
+  if(cfg&&cfg.onPick)cfg.onPick(pid);
+}
+function _dlsPickerSkip(){
+  document.getElementById("m-dls-picker")?.remove();
+  const cfg=window._dlsPending;window._dlsPending=null;
+  if(cfg&&cfg.onSkip)cfg.onSkip();
+}
+function dlsShot(value,made){
+  const b=_dls();if(!b)return;
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:made?("¿Quién anotó de "+value+"?"):("¿Quién falló de "+value+"?"),
+    label:_DLS_ACT_LABELS[(value===3?"p3":"p2")+(made?"m":"a")],
+    emoji:made?"✅":"❌",color:made?"#22c55e":"#ef4444",
+    onPick:(pid)=>{
+      _dlsLog(pid,(value===3?"p3":"p2")+(made?"m":"a"));
+      const bb=_dls();
+      if(made&&bb&&bb.checklist.ast){
+        _dlsOpenPicker({
+          title:"¿Quién dio la asistencia?",label:"Asistencia",emoji:"🎁",color:"#06b6d4",
+          excludeId:pid,skipLabel:"Sin asistencia · Saltar",
+          onPick:(aid)=>{_dlsLog(aid,"ast");_dlsAskReboundStep();},
+          onSkip:()=>_dlsAskReboundStep()
+        });
+      }else{
+        _dlsAskReboundStep();
+      }
+    }
+  });
+}
+// Paso final (no cancelable de por sí, pero SÍ forma parte de la cadena
+// abierta por dlsShot -- cancelar aquí deshace también el tiro/asistencia
+// ya registrados en esta misma cadena) del flujo encadenado tras un tiro.
+function _dlsAskReboundStep(){
+  _dlsOpenPicker({
+    title:"¿Quién cogió el rebote?",label:"Rebote",emoji:"📦",color:"#a855f7",
+    skipLabel:"Sin rebote · Saltar",
+    onPick:(pid)=>{_dlsLog(pid,"reb");_dlsChainEnd();},
+    onSkip:()=>_dlsChainEnd()
+  });
+}
+function dlsTurnover(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha perdido el balón?",label:"Pérdida",emoji:"🔀",color:"#ef4444",
+    onPick:(pid)=>{
+      _dlsLog(pid,"to");
+      _dlsOpenPicker({
+        title:"¿Alguien ha robado el balón?",label:"Robo",emoji:"✋",color:"#3b82f6",
+        excludeId:pid,skipLabel:"Nadie ha robado · Omitir",
+        onPick:(sid)=>{_dlsLog(sid,"stl");_dlsChainEnd();},
+        onSkip:()=>_dlsChainEnd()
+      });
+    }
+  });
+}
+function dlsBlock(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha tapado el tiro?",label:"Tapón",emoji:"🚫",color:"#8b5cf6",
+    onPick:(pid)=>{_dlsLog(pid,"blk");_dlsChainEnd();}
+  });
+}
+// v3.0.0-dev.66 · B-DLS2: accesos SUELTOS a rebote/robo/asistencia, además
+// de los ya existentes encadenados tras un tiro fallado o una pérdida --
+// pedido explícito de Mario ("por si acaso no has visto un tiro fallado
+// pero apuntas quién ha cogido el rebote"). Siempre visibles en la pantalla
+// en vivo, sin depender de ninguna casilla marcada en la configuración.
+function dlsRebound(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha cogido el rebote?",label:"Rebote",emoji:"📦",color:"#a855f7",
+    onPick:(pid)=>{_dlsLog(pid,"reb");_dlsChainEnd();}
+  });
+}
+function dlsAssist(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha dado la asistencia?",label:"Asistencia",emoji:"🎁",color:"#06b6d4",
+    onPick:(pid)=>{_dlsLog(pid,"ast");_dlsChainEnd();}
+  });
+}
+function dlsSteal(){
+  _dlsChainStart();
+  _dlsOpenPicker({
+    title:"¿Quién ha robado el balón?",label:"Robo",emoji:"✋",color:"#3b82f6",
+    onPick:(pid)=>{_dlsLog(pid,"stl");_dlsChainEnd();}
+  });
+}
+function undoDlsLast(){
+  const b=_dls();if(!b||!b.log||!b.log.length){toast("Nada que deshacer");return;}
+  const last=b.log[b.log.length-1];
+  b.log=b.log.slice(0,-1);
+  // v3.0.0-dev.67 · B-DLS3: "Final de partido" sin estadísticas individuales
+  // registra puntos de equipo sueltos (dlsMatchScore), forma distinta de
+  // log a la de siempre (pid/action) -- se deshacen aparte.
+  if(last.type==="manualScore"){
+    if(b.manualScore)b.manualScore[last.team]=(b.manualScore[last.team]||0)-last.pts;
+    save();render();
+    toast("↩️ Deshecho: +"+last.pts+" del Equipo "+last.team);
+    return;
+  }
+  if(b.stats[last.pid]&&b.stats[last.pid][last.action]>0)b.stats[last.pid][last.action]--;
+  save();render();
+  const pname=(b.players.find(p=>p.id===last.pid)||{});
+  toast("↩️ Deshecho: "+(_DLS_ACT_LABELS[last.action]||last.action)+" de "+_dlsPlayerLabel(pname));
+}
+function confirmEndDls(){
+  const b=_dls();if(!b)return;
+  _confirm("¿Terminar el ejercicio? Los datos quedan guardados igualmente — puedes volver a abrirlo luego para ver el resultado.","⏹ Terminar",()=>{
+    const bb=_dls();if(!bb)return;
+    bb.status="finished";
+    bb.finishedAt=Date.now();
+    clearInterval(_dlsTimer);_dlsTimer=null;
+    save();
+    const finishedDrillId=bb.drillId;
+    navBack();
+    openDlsSummaryModal(finishedDrillId);
+  });
+}
+/* ── Pantalla en vivo ── */
+function screenDlsLive(){
+  const b=_dls();
+  if(!b){S.screen="team";return team();}
+  // v3.0.0-dev.67 · B-DLS3: "Final de partido" es un tipo de sesión
+  // distinto -- marcador de dos equipos en vez de valoración individual --
+  // así que tiene su propia pantalla (_screenDlsMatchLive), pero comparte
+  // esta misma función/ruta de navegación ("dlsLive") con "Contraataque de
+  // 11" para no duplicar el cronómetro ni la navegación de vuelta.
+  if(_dlsSessType(b)==="endgame")return _screenDlsMatchLive(b);
+  const t=S.teams.find(x=>x.id===S.teamId);
+  const players=b.players;
+  // v3.0.0-dev.66 · B-DLS2: sesiones de antes de este cambio no tienen
+  // missTrack/missPenalty en su checklist (solo tenían ast/blk) -- se
+  // asume missTrack=true (los fallos SIEMPRE se registraban antes de esta
+  // opción) y missPenalty=false (no existía ninguna valoración todavía, así
+  // que no hay ningún comportamiento previo que romper).
+  const missTrack=b.checklist.missTrack!==undefined?!!b.checklist.missTrack:true;
+  const missPenalty=!!b.checklist.missPenalty;
+  const totalMade=Object.values(b.stats).reduce((s,x)=>s+x.p2m+x.p3m,0);
+  const totalMissed=Object.values(b.stats).reduce((s,x)=>s+x.p2a+x.p3a,0);
+  const cards=players.map(p=>{
+    const st=b.stats[p.id]||_dlsEmptyStats();
+    const val=_dlsValoracion(st,missPenalty);
+    // v3.0.0-dev.66 · B-DLS2: dorsal pequeño y en segundo plano bajo el
+    // nombre/apodo (_dlsPlayerLabel) -- ya no lleva el mismo peso visual
+    // que el nombre, coherente con que en los entrenamientos no suele
+    // llevarse puesto.
+    return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
+      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
+      ${p.number!=null?`<div style="font-size:9px;color:var(--tm)">#${p.number}</div>`:""}
+      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb · <span style="color:var(--orange);font-weight:700">${val} val</span></div>
+    </div>`;
+  }).join("");
+  // v3.0.0-dev.66 · B-DLS2: panel COMPLETO -- todos los tipos de
+  // estadística tienen su propio botón siempre visible (rebote, robo y
+  // asistencia sueltos, además de los ya encadenados tras un tiro fallado o
+  // una pérdida), independientemente de lo marcado en la configuración
+  // inicial del ejercicio. "¿Qué registramos?" solo decide si se pregunta
+  // la asistencia AUTOMÁTICAMENTE tras una canasta y si se registran/restan
+  // los tiros fallados -- nunca oculta ningún botón.
+  const shotsRow2=missTrack
+    ?`<button class="btn-p" style="background:#22c55e" onclick="dlsShot(2,true)">✅ +2</button><button class="btn-s" onclick="dlsShot(2,false)">❌ Fallo 2</button>`
+    :`<button class="btn-p" style="background:#22c55e;grid-column:1/-1" onclick="dlsShot(2,true)">✅ +2</button>`;
+  const shotsRow3=missTrack
+    ?`<button class="btn-p" style="background:#22c55e" onclick="dlsShot(3,true)">✅ +3</button><button class="btn-s" onclick="dlsShot(3,false)">❌ Fallo 3</button>`
+    :`<button class="btn-p" style="background:#22c55e;grid-column:1/-1" onclick="dlsShot(3,true)">✅ +3</button>`;
+  return `<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1;min-width:0"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">🏀 ${esc(b.drillName||"")}</div><div style="font-size:11px;color:var(--orange);font-weight:700">${esc(t?.name||"")} · ${cap(fd(b.date||td(),true))}</div></div>
+  </div></header>
+  <div class="content">
+    <div style="display:flex;align-items:center;gap:10px;background:var(--s2);border-radius:12px;padding:12px;margin-bottom:14px">
+      <div id="dls-clock" style="font-family:var(--font-d);font-weight:900;font-size:32px;flex:1;color:${b.remainingSec===0?"#ef4444":b.remainingSec<60?"#f59e0b":"var(--tx)"}">${_fmtClock(b.remainingSec)}</div>
+      <button onclick="toggleDlsClock()" style="width:46px;height:46px;border-radius:10px;border:none;background:var(--orange);color:#fff;font-size:18px;cursor:pointer">${b.status==="running"?"⏸":"▶"}</button>
+      <button onclick="addDlsMinutes(2)" title="+2 min" style="width:40px;height:46px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:800">+2'</button>
+    </div>
+    <div style="font-size:12px;color:var(--tm);text-align:center;margin-bottom:10px">✅ ${totalMade} anotadas${missTrack?` · ❌ ${totalMissed} falladas`:""}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px">${cards}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow2}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow3}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#a855f7" onclick="dlsRebound()">📦 Rebote</button>
+      <button class="btn-s" style="color:#ef4444" onclick="dlsTurnover()">🔀 Pérdida</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#3b82f6" onclick="dlsSteal()">✋ Robo</button>
+      <button class="btn-s" style="color:#06b6d4" onclick="dlsAssist()">🎁 Asistencia</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#8b5cf6" onclick="dlsBlock()">🚫 Tapón</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn-s" style="flex:1" onclick="undoDlsLast()">↩️ Deshacer última</button>
+      <button class="btn-s" style="flex:1;color:#ef4444" onclick="confirmEndDls()">⏹ Terminar</button>
+    </div>
+  </div>`;
+}
+// v3.0.0-dev.67 · B-DLS3: pantalla en vivo de "Final de partido" -- mismo
+// cronómetro/navegación que screenDlsLive (reutiliza toggleDlsClock,
+// addDlsMinutes, confirmEndDls tal cual), pero con marcador de dos equipos
+// en vez de tarjetas de valoración individual. Si trackIndividual está
+// activado, reutiliza TAMBIÉN el mismo panel de botones que "Contraataque
+// de 11" (dlsShot/dlsRebound/...) -- el marcador se calcula solo a partir
+// de esas estadísticas (_dlsMatchTeamScore), no hace falta tocar nada aquí.
+function _screenDlsMatchLive(b){
+  const t=S.teams.find(x=>x.id===S.teamId);
+  const scoreA=_dlsMatchTeamScore(b,"A");
+  const scoreB=_dlsMatchTeamScore(b,"B");
+  const leading=scoreA===scoreB?null:(scoreA>scoreB?"A":"B");
+  const missTrack=b.checklist&&b.checklist.missTrack!==undefined?!!b.checklist.missTrack:true;
+  const teamRowsHtml=(team)=>b.players.filter(p=>p.team===team).map(p=>{
+    const st=b.stats[p.id]||_dlsEmptyStats();
+    const pts=(st.p2m||0)*2+(st.p3m||0)*3;
+    return `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tm);padding:2px 0"><span>${esc(_dlsPlayerLabel(p))}</span><span style="color:var(--tx);font-weight:700">${pts}</span></div>`;
+  }).join("")||`<div style="font-size:11px;color:var(--tm)">Sin jugadores</div>`;
+  const rosterPanels=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+    <div style="background:var(--s2);border-radius:10px;padding:8px">${teamRowsHtml("A")}</div>
+    <div style="background:var(--s2);border-radius:10px;padding:8px">${teamRowsHtml("B")}</div>
+  </div>`;
+  const shotsRow2=missTrack
+    ?`<button class="btn-p" style="background:#22c55e" onclick="dlsShot(2,true)">✅ +2</button><button class="btn-s" onclick="dlsShot(2,false)">❌ Fallo 2</button>`
+    :`<button class="btn-p" style="background:#22c55e;grid-column:1/-1" onclick="dlsShot(2,true)">✅ +2</button>`;
+  const shotsRow3=missTrack
+    ?`<button class="btn-p" style="background:#22c55e" onclick="dlsShot(3,true)">✅ +3</button><button class="btn-s" onclick="dlsShot(3,false)">❌ Fallo 3</button>`
+    :`<button class="btn-p" style="background:#22c55e;grid-column:1/-1" onclick="dlsShot(3,true)">✅ +3</button>`;
+  const individualButtons=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow2}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow3}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#a855f7" onclick="dlsRebound()">📦 Rebote</button>
+      <button class="btn-s" style="color:#ef4444" onclick="dlsTurnover()">🔀 Pérdida</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#3b82f6" onclick="dlsSteal()">✋ Robo</button>
+      <button class="btn-s" style="color:#06b6d4" onclick="dlsAssist()">🎁 Asistencia</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">
+      <button class="btn-s" style="color:#8b5cf6" onclick="dlsBlock()">🚫 Tapón</button>
+    </div>`;
+  const manualButtons=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="btn-s" onclick="dlsMatchScore('A',1)">Equipo A +1</button>
+      <button class="btn-s" onclick="dlsMatchScore('A',2)">Equipo A +2</button>
+      <button class="btn-s" onclick="dlsMatchScore('A',3)">Equipo A +3</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button class="btn-s" onclick="dlsMatchScore('B',1)">Equipo B +1</button>
+      <button class="btn-s" onclick="dlsMatchScore('B',2)">Equipo B +2</button>
+      <button class="btn-s" onclick="dlsMatchScore('B',3)">Equipo B +3</button>
+    </div>
+  </div>`;
+  return `<header class="header"><div class="hrow">
+    <button class="bbtn" onclick="navBack()">←</button>
+    <div style="flex:1;min-width:0"><div style="font-family:var(--font-d);font-weight:900;font-size:17px">⏱️ ${esc(b.drillName||"")}</div><div style="font-size:11px;color:var(--orange);font-weight:700">${esc(t?.name||"")} · ${cap(fd(b.date||td(),true))}</div></div>
+  </div></header>
+  <div class="content">
+    <div style="display:flex;align-items:center;gap:10px;background:var(--s2);border-radius:12px;padding:12px;margin-bottom:14px">
+      <div id="dls-clock" style="font-family:var(--font-d);font-weight:900;font-size:32px;flex:1;color:${b.remainingSec===0?"#ef4444":b.remainingSec<60?"#f59e0b":"var(--tx)"}">${_fmtClock(b.remainingSec)}</div>
+      <button onclick="toggleDlsClock()" style="width:46px;height:46px;border-radius:10px;border:none;background:var(--orange);color:#fff;font-size:18px;cursor:pointer">${b.status==="running"?"⏸":"▶"}</button>
+      <button onclick="addDlsMinutes(1)" title="+1 min" style="width:40px;height:46px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:800">+1'</button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;background:var(--s2);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="text-align:center;flex:1"><div style="font-size:12px;font-weight:800;color:${leading==="A"?"var(--orange)":"var(--tm)"}">EQUIPO A</div><div style="font-family:var(--font-d);font-weight:900;font-size:36px;color:var(--tx)">${scoreA}</div></div>
+      <div style="font-size:18px;color:var(--tm);font-weight:800">–</div>
+      <div style="text-align:center;flex:1"><div style="font-size:12px;font-weight:800;color:${leading==="B"?"var(--orange)":"var(--tm)"}">EQUIPO B</div><div style="font-family:var(--font-d);font-weight:900;font-size:36px;color:var(--tx)">${scoreB}</div></div>
+    </div>
+    ${b.trackIndividual?rosterPanels:""}
+    ${b.trackIndividual?individualButtons:manualButtons}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn-s" style="flex:1" onclick="undoDlsLast()">↩️ Deshacer última</button>
+      <button class="btn-s" style="flex:1;color:#ef4444" onclick="confirmEndDls()">⏹ Terminar</button>
+    </div>
+  </div>`;
+}
+/* ── Resumen (v1: por jugador, esta sesión — la pantalla agregada entre
+   varios días queda para una fase posterior) ── */
+function openDlsSummaryModal(drillId){
+  const targetId=drillId||S._dlsDrillId;
+  if(!targetId)return;
+  const b=_dlsActive(S.teamId,targetId)||_dlsLastFinished(S.teamId,targetId);
+  if(!b)return;
+  _dlsRenderSessionSummary(b,targetId);
+}
+// v3.0.0-dev.71 · B-DLS7: separado de openDlsSummaryModal (que solo sabía
+// mostrar la sesión ACTIVA o la ÚLTIMA terminada) para poder reutilizarlo
+// también desde el resultado de un día concreto (ver B-DLS8 más abajo,
+// _dlsOpenDaySummary/_dlsOpenHistorySession) y abrir el resumen de
+// CUALQUIER sesión pasada, no solo la más reciente.
+function _dlsRenderSessionSummary(b,targetId){
+  if(_dlsSessType(b)==="endgame")return _openDlsMatchSummaryModal(b,targetId);
+  document.getElementById("m-dls-summary")?.remove();
+  // v3.0.0-dev.66 · B-DLS2: (1) valoración propia de Ejercicios (_dlsValoracion
+  // -- 2 anotado=1, 3 anotado=2, resto igual que en partidos), (2) la tabla
+  // se ordena por valoración de mayor a menor tal y como pidió Mario, y (3)
+  // se muestran SIEMPRE todas las columnas -- antes "Ast"/"Tap" solo salían
+  // si se habían marcado en la configuración inicial, pero como ahora esos
+  // botones están siempre disponibles ("por si acaso"), ocultar la columna
+  // escondería estadísticas que sí se llegaron a registrar.
+  const missPenalty=!!b.checklist.missPenalty;
+  const rows=[...b.players].map(p=>({p,st:b.stats[p.id]||_dlsEmptyStats()}))
+    .map(x=>({...x,val:_dlsValoracion(x.st,missPenalty)}))
+    .sort((a,b2)=>b2.val-a.val)
+    .map(({p,st,val})=>{
+      return `<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(p))}${p.number!=null?` <span style="color:var(--tm);font-size:10px">#${p.number}</span>`:""}</td>
+      <td style="text-align:center;font-size:12px">${st.p2m}/${st.p2m+st.p2a}</td>
+      <td style="text-align:center;font-size:12px">${st.p3m}/${st.p3m+st.p3a}</td>
+      <td style="text-align:center;font-size:12px">${st.reb}</td>
+      <td style="text-align:center;font-size:12px">${st.to}</td>
+      <td style="text-align:center;font-size:12px">${st.stl}</td>
+      <td style="text-align:center;font-size:12px">${st.ast}</td>
+      <td style="text-align:center;font-size:12px">${st.blk}</td>
+      <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${val}</td>
+    </tr>`;
+  }).join("");
+  const playedMin=Math.round((b.durationSec-b.remainingSec)/60);
+  const totalMin=Math.round(b.durationSec/60);
+  const el=document.createElement("div");el.id="m-dls-summary";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🏀 ${esc(b.drillName||"")} · Resultado</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${cap(fd(b.date||td(),true))} · ${b.status==="finished"?"✅ Ejercicio terminado":"⏳ En curso"} · ${playedMin} min de ${totalMin} · ordenado por valoración</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+      <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
+      <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Pérd</th><th style="font-size:10px;color:var(--tm)">Rob</th>
+      <th style="font-size:10px;color:var(--tm)">Ast</th><th style="font-size:10px;color:var(--tm)">Tap</th>
+      <th style="font-size:10px;color:var(--orange)">Val</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-dls-summary').remove();S._dlsDrillId='${targetId}';navTo('dlsLive');startDlsTimer();" style="margin-top:12px">▶ Volver al ejercicio</button>`:""}
+    <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+// v3.0.0-dev.67 · B-DLS3: resumen de "Final de partido" -- marcador final +
+// quién ganó, y si se registraron estadísticas individuales, tabla de
+// puntos REALES por jugador (no la valoración reducida de b11, aquí importa
+// quién anotó de verdad) ordenada de mayor a menor.
+function _openDlsMatchSummaryModal(b,targetId){
+  document.getElementById("m-dls-summary")?.remove();
+  const scoreA=_dlsMatchTeamScore(b,"A");
+  const scoreB=_dlsMatchTeamScore(b,"B");
+  const winnerLabel=scoreA===scoreB?"Empate":(scoreA>scoreB?"Gana Equipo A":"Gana Equipo B");
+  let rowsHtml="";
+  if(b.trackIndividual){
+    const rows=[...b.players].map(p=>({p,st:b.stats[p.id]||_dlsEmptyStats()}))
+      .map(x=>({...x,pts:(x.st.p2m||0)*2+(x.st.p3m||0)*3}))
+      .sort((a,c)=>c.pts-a.pts)
+      .map(({p,st,pts})=>`<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(p))} <span style="color:${p.team==="A"?"#3b82f6":"#f59e0b"};font-size:10px;font-weight:800">${p.team}</span></td>
+        <td style="text-align:center;font-size:12px">${st.p2m}/${st.p2m+st.p2a}</td>
+        <td style="text-align:center;font-size:12px">${st.p3m}/${st.p3m+st.p3a}</td>
+        <td style="text-align:center;font-size:12px">${st.reb}</td>
+        <td style="text-align:center;font-size:12px">${st.ast}</td>
+        <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${pts}</td>
+      </tr>`).join("");
+    rowsHtml=`<div style="overflow-x:auto;margin-top:12px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+      <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
+      <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Ast</th>
+      <th style="font-size:10px;color:var(--orange)">Pts</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  const el=document.createElement("div");el.id="m-dls-summary";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">⏱️ ${esc(b.drillName||"")} · Resultado</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${cap(fd(b.date||td(),true))} · ${b.status==="finished"?"✅ Terminado":"⏳ En curso"}</div>
+    <div style="text-align:center;font-family:var(--font-d);font-weight:900;font-size:30px;color:var(--tx);margin-bottom:4px">${scoreA} – ${scoreB}</div>
+    <div style="text-align:center;font-size:13px;font-weight:800;color:var(--orange);margin-bottom:10px">${winnerLabel}</div>
+    ${rowsHtml}
+    ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-dls-summary').remove();S._dlsDrillId='${targetId}';navTo('dlsLive');startDlsTimer();" style="margin-top:12px">▶ Volver al mini-partido</button>`:""}
+    <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+// v3.0.0-dev.72 · B-DLS8: reutilizado por el resultado de un día concreto
+// (_dlsOpenDaySummary/_dlsOpenDaySessionsList, ver arriba, junto a
+// _dlsDayCardHtml) -- abre el resumen exacto de UNA sesión guardada por su
+// propio id, sin depender de si es la última o no.
+function _dlsOpenHistorySession(drillId,sessionId){
+  const s=_dlsList(S.teamId,drillId).find(x=>x.id===sessionId);
+  if(!s)return;
+  document.getElementById("m-dls-day-sessions")?.remove();
+  _dlsRenderSessionSummary(s,drillId);
+}
 function dayScheduleRows(mid,initSched){
   const sc=initSched||{};
   return DAYSF.map((dn,i)=>{const chk=sc.hasOwnProperty(i),tv=sc[i]||"";
@@ -5472,13 +6847,21 @@ function openTeamModal(init){
   document.getElementById(id)?.remove();
   const sc=init?.color||COLORS[0];const coaches=init?.coaches||["",""];
   const catsHtml=CATEGORIES.map(c=>`<option value="${c}" ${(init?.category||"")==c?"selected":""}>${c}</option>`).join("");
+  // v3.0.0-dev.59 · B-GUEST5: género real del equipo (antes solo iba suelto
+  // en el nombre) -- se usa para que el picker de jugadores puntuales solo
+  // ofrezca la categoría inferior del mismo género. Opción en blanco para no
+  // forzar a elegir uno en equipos ya existentes que no lo tenían.
+  const gendersHtml=`<option value="">Sin especificar</option>`+GENDERS.map(g=>`<option value="${g}" ${(init?.gender||"")===g?"selected":""}>${g}</option>`).join("");
   const el=document.createElement("div");el.id=id;el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)_closeModal(id);};
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div><div class="mtitle">${init?"Editar Equipo":"Nuevo Equipo"}</div>
     <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-n" value="${esc(init?.name||"")}" placeholder="ej. Infantil Masculino A"/></div>
-    <div class="fg"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
-    <div style="font-size:11px;color:var(--td);margin:-8px 0 12px">💡 Incluye género en el nombre si hay varios equipos de la misma categoría.</div>
+    <div class="frow">
+      <div class="fg" style="flex:1"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
+      <div class="fg" style="flex:1"><label class="fl">Género</label><select class="fi" id="${id}-gender">${gendersHtml}</select></div>
+    </div>
+    <div style="font-size:11px;color:var(--td);margin:-8px 0 12px">💡 El género se usa para que "categoría inferior" (al añadir un jugador puntual) solo ofrezca equipos del mismo género.</div>
     <div class="fg"><label class="fl">👟 Entrenador/a principal</label><input class="fi" id="${id}-coach0" value="${esc(coaches[0]||"")}" placeholder="Nombre del entrenador"/></div>
     <div class="fg" id="${id}-asst-wrap"><label class="fl">👟 Entrenadores ayudantes</label><div id="${id}-asst-list">${coaches.slice(1).map((c,i)=>`<div class="asst-row"><input class="fi asst-inp" id="${id+'-asst-'+i}" value="${esc(c)}" placeholder="Nombre ayudante" style="flex:1;margin-bottom:0"/><button type="button" class="asst-rm" onclick="this.closest('.asst-row').remove()">✕</button></div>`).join("")||`<div class="asst-row"><input class="fi asst-inp" id="${id}-asst-0" placeholder="Nombre ayudante" style="flex:1;margin-bottom:0"/><button type="button" class="asst-rm" onclick="this.closest('.asst-row').remove()">✕</button></div>`}</div><button type="button" class="btn-asst-add" onclick="addAsstRow('${id}')">+ Añadir ayudante</button></div>
     <div class="fg"><label class="fl">📅 Días y horarios</label><div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:4px 12px;">${dayScheduleRows(id,init?.schedule)}</div></div>
@@ -5515,6 +6898,9 @@ function openPlayerModal(init){
       <input type="file" id="${id}-photo" accept="image/*" style="display:none" onchange="handlePlayerPhoto(this,'${id}')"/>
     </div>
     <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-n" value="${esc(init?.name||"")}" placeholder="Nombre Apellido"/></div>
+    <div class="fg"><label class="fl">Apodo <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label><input class="fi" id="${id}-nick" value="${esc(init?.nickname||"")}" placeholder="Cómo le llamáis en el equipo"/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">v3.0.0-dev.66 · B-DLS2: se usa en Ejercicios si el modo de nombre está puesto en "Apodo" (ver Ajustes del club)</div>
+    </div>
     <div class="fg"><label class="fl">Dorsal ${init?"":`<span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· sugerido #${sugg}</span>`}</label>
       <div class="dorsal-wrap">
         <button type="button" class="dorsal-btn" onclick="adjDorsal('${id}-d',-1)">−</button>
@@ -5526,6 +6912,9 @@ function openPlayerModal(init){
       </div>
     </div>
     <div class="fg"><label class="fl">Posición</label><select class="fi" id="${id}-p">${["", ...POSITIONS].map(p=>`<option value="${p}" ${(init?.position||"")==p?"selected":""}>${p||"Sin especificar"}</option>`).join("")}</select></div>
+    <div class="fg"><label class="fl">Fecha de nacimiento <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label><input class="fi" type="date" id="${id}-bd" value="${esc(init?.birthDate||"")}"/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Si la pones, avisamos el día de su cumpleaños en el pase de lista y en Hoy</div>
+    </div>
     <div class="fg"><label class="fl">Notas</label><input class="fi" id="${id}-o" value="${esc(init?.notes||"")}" placeholder="Capitán, rol, rotación..."/></div>
     <button class="btn-p" onclick="savePlayer('${id}','${init?.id||""}')">${init?"Guardar":"Añadir"}</button>
     <button class="btn-s" onclick="_closeModal('${id}')">Cancelar</button>
@@ -5769,9 +7158,10 @@ function openInjuryModal(pid){
   if(isInjured(p)){openInjuryRecoveryModal(pid);return;}
   openInjuryNewModal(pid);
 }
-// Modal de NUEVA lesión: startDate, origen y explicación. Sin estimación de tiempo
-// (las lesiones pueden durar desde horas hasta meses, no tiene sentido un único campo
-// de semanas). Si se necesita la estimación puede incluirse en la explicación.
+// Modal de NUEVA lesión: startDate, origen, TIPO de lesión (con vuelta
+// estimada sugerida automáticamente según el tipo -- v3.0.0-dev.60 · B-INJ1)
+// y explicación libre. La vuelta estimada es orientativa y siempre editable
+// a mano; el tipo "Otra/sin estimar" no sugiere ninguna fecha.
 function openInjuryNewModal(pid){
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return;
   const id="m-inj-"+pid;
@@ -5781,6 +7171,7 @@ function openInjuryNewModal(pid){
   el.onclick=e=>{if(e.target===el)_closeModal(id);};
   const injDate=td();
   const injOrigin="unknown";
+  const injType="other";
   const lastInjury=(Array.isArray(p.injuryHistory)&&p.injuryHistory.length)?p.injuryHistory[p.injuryHistory.length-1]:null;
   const ORIGINS=[["training","🏀 Entreno"],["match","🏆 Partido"],["out","🌐 Fuera"],["unknown","❔ Desconocido"]];
   el.innerHTML=`<div class="modal">
@@ -5789,12 +7180,18 @@ function openInjuryNewModal(pid){
     <div class="msub">👤 ${esc(p.name)}${p.number!=null?` · #${p.number}`:""}</div>
     ${lastInjury?`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--td)">📋 Última lesión: ${fdCompact(lastInjury.startDate||"")} → ${fdCompact(lastInjury.endDate||"")} (${lastInjury.days||0} d)</div>`:""}
     <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--td);line-height:1.5">Auto-justifica el pase de lista desde la fecha de inicio y congela su % FEB.</div>
-    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" value="${esc(injDate)}"/></div>
+    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" oninput="_recalcInjEstimate('${id}')" value="${esc(injDate)}"/></div>
     <div class="fg"><label class="fl">Origen</label>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px" id="${id}-origins">${ORIGINS.map(([k,lb])=>`<button type="button" class="inj-origin${injOrigin===k?" sel":""}" data-k="${k}" onclick="setInjOrigin('${id}','${k}')" style="padding:10px 8px;border-radius:8px;border:1px solid ${injOrigin===k?"#ef4444":"var(--border)"};background:${injOrigin===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injOrigin===k?"#ef4444":"var(--tx)"};font-size:12px;font-weight:700;cursor:pointer">${lb}</button>`).join("")}</div>
       <select class="fi" id="${id}-src" style="display:none"></select>
     </div>
-    <div class="fg"><label class="fl">Explicación (opcional)</label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Esguince, tendinitis, zona afectada, estimación..."></textarea>
+    <div class="fg"><label class="fl">Tipo de lesión</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px" id="${id}-types">${INJURY_TYPES.map(([k,lb])=>`<button type="button" class="inj-type${injType===k?" sel":""}" data-k="${k}" onclick="setInjType('${id}','${k}')" style="padding:9px 8px;border-radius:8px;border:1px solid ${injType===k?"#ef4444":"var(--border)"};background:${injType===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injType===k?"#ef4444":"var(--tx)"};font-size:11px;font-weight:700;cursor:pointer;text-align:left">${lb}</button>`).join("")}</div>
+    </div>
+    <div class="fg"><label class="fl">Vuelta estimada (orientativa)</label><input class="fi" type="date" id="${id}-est" value=""/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Se sugiere sola según el tipo de lesión -- ajústala si el caso concreto lo pide. No sustituye el criterio médico.</div>
+    </div>
+    <div class="fg"><label class="fl">Explicación (opcional)</label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Esguince, tendinitis, zona afectada..."></textarea>
       <div style="font-size:11px;color:var(--tm);margin-top:4px">Se usará como motivo en las justificaciones diarias durante la baja</div>
     </div>
     <button class="btn-p" onclick="saveInjury('${id}','${pid}')">🚑 Guardar lesión</button>
@@ -5816,6 +7213,8 @@ function openInjuryRecoveryModal(pid){
   el.onclick=e=>{if(e.target===el)el.remove();};
   const days=inj.startDate?injuryDays(inj.startDate):0;
   const origLbl=injuryOriginLabel(p);
+  const typeLbl=inj.type?injuryTypeLabel(inj.type):"";
+  const estInfo=injuryEstimatedReturnInfo(p);
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">🚑 Lesión activa</div>
@@ -5824,6 +7223,8 @@ function openInjuryRecoveryModal(pid){
       <div style="font-weight:700;font-size:14px;color:#ef4444;margin-bottom:6px">Lleva ${days} día${days===1?"":"s"} lesionado</div>
       ${inj.startDate?`<div style="font-size:12px;color:var(--td)">Desde: ${fd(inj.startDate,false)}</div>`:""}
       ${origLbl?`<div style="font-size:12px;color:var(--td);margin-top:2px">Origen: ${esc(origLbl)}</div>`:""}
+      ${typeLbl?`<div style="font-size:12px;color:var(--td);margin-top:2px">Tipo: ${esc(typeLbl)}</div>`:""}
+      ${estInfo?`<div style="font-size:12px;margin-top:2px;font-weight:700;color:${estInfo.overdue?"#ef4444":"var(--td)"}">${estInfo.overdue?`⚠️ Vuelta prevista superada (${fd(estInfo.date,false)}, hace ${Math.abs(estInfo.diff)} día${Math.abs(estInfo.diff)===1?"":"s"})`:`📅 Vuelta prevista: ${fd(estInfo.date,false)} (en ${estInfo.diff} día${estInfo.diff===1?"":"s"})`}</div>`:""}
       ${inj.notes?`<div style="font-size:12px;color:var(--tm);margin-top:4px;font-style:italic">"${esc(inj.notes)}"</div>`:""}
     </div>
     <button class="btn-p" style="background:linear-gradient(135deg,#22c55e,#16a34a)" onclick="confirmInjuryRecovery('${pid}')">✅ Dar de alta médica</button>
@@ -5844,7 +7245,7 @@ function confirmInjuryRecovery(pid){
   const tid=S.teamId;
   applyInjuryToSessions(tid,pid,startDate,endDate,prev.notes||"");
   const hist=Array.isArray(p.injuryHistory)?p.injuryHistory.slice():[];
-  hist.push({startDate,endDate,days,origin:prev.origin||"unknown",originId:prev.originId||"",originLabel:prev.originLabel||"",notes:prev.notes||"",snapshotPct:prev.snapshotPct,snapshotWasAtRisk:!!prev.snapshotWasAtRisk});
+  hist.push({startDate,endDate,days,origin:prev.origin||"unknown",originId:prev.originId||"",originLabel:prev.originLabel||"",type:prev.type||"other",typeLabel:prev.typeLabel||"",estimatedReturn:prev.estimatedReturn||"",notes:prev.notes||"",snapshotPct:prev.snapshotPct,snapshotWasAtRisk:!!prev.snapshotWasAtRisk});
   S.players[S.teamId]=pl(S.teamId).map(x=>x.id===pid?{...x,injured:false,injury:null,injuryHistory:hist}:x);
   document.getElementById("m-inj-"+pid)?.remove();
   save();render();
@@ -5863,16 +7264,24 @@ function openInjuryEditModal(pid){
   const injDate=inj.startDate||td();
   const injOrigin=inj.origin||"unknown";
   const injOriginId=inj.originId||"";
+  const injType=inj.type||"other";
+  const injEst=inj.estimatedReturn||"";
   const injNotes=inj.notes||"";
   const ORIGINS=[["training","🏀 Entreno"],["match","🏆 Partido"],["out","🌐 Fuera"],["unknown","❔ Desconocido"]];
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">✏️ Editar lesión</div>
     <div class="msub">👤 ${esc(p.name)}${p.number!=null?` · #${p.number}`:""}</div>
-    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" value="${esc(injDate)}"/></div>
+    <div class="fg"><label class="fl">Fecha de lesión</label><input class="fi" type="date" id="${id}-date" oninput="_recalcInjEstimate('${id}')" value="${esc(injDate)}"/></div>
     <div class="fg"><label class="fl">Origen</label>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px" id="${id}-origins">${ORIGINS.map(([k,lb])=>`<button type="button" class="inj-origin${injOrigin===k?" sel":""}" data-k="${k}" onclick="setInjOrigin('${id}','${k}')" style="padding:10px 8px;border-radius:8px;border:1px solid ${injOrigin===k?"#ef4444":"var(--border)"};background:${injOrigin===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injOrigin===k?"#ef4444":"var(--tx)"};font-size:12px;font-weight:700;cursor:pointer">${lb}</button>`).join("")}</div>
       <select class="fi" id="${id}-src" style="display:${injOrigin==="training"||injOrigin==="match"?"block":"none"}">${buildInjSourceOptions(injOrigin,injOriginId)}</select>
+    </div>
+    <div class="fg"><label class="fl">Tipo de lesión</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px" id="${id}-types">${INJURY_TYPES.map(([k,lb])=>`<button type="button" class="inj-type${injType===k?" sel":""}" data-k="${k}" onclick="setInjType('${id}','${k}')" style="padding:9px 8px;border-radius:8px;border:1px solid ${injType===k?"#ef4444":"var(--border)"};background:${injType===k?"rgba(239,68,68,.12)":"var(--s3)"};color:${injType===k?"#ef4444":"var(--tx)"};font-size:11px;font-weight:700;cursor:pointer;text-align:left">${lb}</button>`).join("")}</div>
+    </div>
+    <div class="fg"><label class="fl">Vuelta estimada (orientativa)</label><input class="fi" type="date" id="${id}-est" value="${esc(injEst)}"/>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Se sugiere sola según el tipo de lesión -- ajústala si el caso concreto lo pide. No sustituye el criterio médico.</div>
     </div>
     <div class="fg"><label class="fl">Explicación (opcional)</label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Esguince, tendinitis, zona afectada...">${esc(injNotes)}</textarea>
       <div style="font-size:11px;color:var(--tm);margin-top:4px">Se usará como motivo en las justificaciones diarias durante la baja</div>
@@ -5909,6 +7318,44 @@ function setInjOrigin(mid,k){
     }
   }
 }
+// v3.0.0-dev.60 · B-INJ1: cambia el TIPO de lesión seleccionado (visual, igual
+// que setInjOrigin) y además sugiere sola la fecha de "vuelta estimada" según
+// la duración típica de ese tipo (ver INJURY_TYPES) sumada a la fecha de
+// inicio ya puesta en el formulario. "other" no tiene duración típica → no
+// autorrellena nada, el entrenador la deja en blanco o la pone a mano.
+// Siempre se puede ajustar el campo de fecha a mano después: esto es solo
+// un punto de partida orientativo, no un valor bloqueado.
+function setInjType(mid,k){
+  const wrap=document.getElementById(mid+"-types");if(!wrap)return;
+  wrap.querySelectorAll(".inj-type").forEach(btn=>{
+    const on=btn.dataset.k===k;
+    btn.classList.toggle("sel",on);
+    btn.style.border="1px solid "+(on?"#ef4444":"var(--border)");
+    btn.style.background=on?"rgba(239,68,68,.12)":"var(--s3)";
+    btn.style.color=on?"#ef4444":"var(--tx)";
+  });
+  const days=injuryTypicalDays(k);
+  const estEl=document.getElementById(mid+"-est");
+  if(estEl&&days>0){
+    const dateEl=document.getElementById(mid+"-date");
+    estEl.value=_addDaysISO(dateEl?.value||td(),days);
+  }
+}
+// v3.0.0-dev.60 · B-INJ1: si el entrenador cambia la fecha de INICIO después
+// de haber elegido ya un tipo con duración típica, recalcula la vuelta
+// estimada para que siga siendo coherente (p.ej. mueve la fecha de lesión 3
+// días hacia atrás → la vuelta prevista también se adelanta 3 días). Si no
+// hay tipo seleccionado (o es "other"), no toca el campo -- puede que el
+// entrenador ya lo haya editado a mano y no queremos pisarlo sin motivo.
+function _recalcInjEstimate(mid){
+  const selBtn=document.querySelector(`#${mid}-types .inj-type.sel`);
+  if(!selBtn)return;
+  const days=injuryTypicalDays(selBtn.dataset.k);
+  if(!days)return;
+  const estEl=document.getElementById(mid+"-est");
+  const dateEl=document.getElementById(mid+"-date");
+  if(estEl&&dateEl)estEl.value=_addDaysISO(dateEl.value||td(),days);
+}
 // Persiste la lesión activa (nueva o editada). El alta se gestiona por separado
 // en confirmInjuryRecovery. Siempre crea/mantiene p.injury.active=true y
 // backfillea las sesiones desde startDate hasta hoy como excused+injury para
@@ -5923,7 +7370,13 @@ function saveInjury(mid,pid){
   const srcEl=document.getElementById(mid+"-src");
   const originId=(origin==="training"||origin==="match")&&srcEl?srcEl.value||"":"";
   const originLabel=srcEl&&srcEl.selectedOptions&&srcEl.selectedOptions[0]&&srcEl.value?srcEl.selectedOptions[0].textContent:"";
-  const injNotesVal=document.getElementById(mid+"-notes")?.value.trim()||"";applyInjuryToSessions(tid,pid,startDate,null,injNotesVal);
+  const injNotesVal=document.getElementById(mid+"-notes")?.value.trim()||"";
+  // v3.0.0-dev.60 · B-INJ1: tipo de lesión (lista predefinida, botón .sel) +
+  // vuelta estimada (fecha sugerida sola o ajustada a mano por el entrenador).
+  const typeBtn=document.querySelector(`#${mid}-types .inj-type.sel`);
+  const type=typeBtn?.dataset.k||"other";
+  const typeLabel=injuryTypeLabel(type);
+  const estimatedReturn=document.getElementById(mid+"-est")?.value||"";
   // Preserva el snapshot si la fecha no cambia; recalcula si es nueva lesión o cambió la fecha.
   let snapshotPct,snapshotWasAtRisk;
   if(prev&&prev.active&&prev.startDate===startDate&&typeof prev.snapshotPct==="number"){
@@ -5936,7 +7389,7 @@ function saveInjury(mid,pid){
     const thr=S.cfg.riskThreshold||75;
     snapshotWasAtRisk=snap.tot>0&&snap.pct<thr;
   }
-  const injuryObj={active:true,startDate,origin,originId,originLabel,notes:injNotesVal,snapshotPct,snapshotWasAtRisk};
+  const injuryObj={active:true,startDate,origin,originId,originLabel,type,typeLabel,estimatedReturn,notes:injNotesVal,snapshotPct,snapshotWasAtRisk};
   // Backfill: todas las sesiones entre startDate y hoy → excused + motivo lesión.
   // También limpia marcas _jr='injury' que queden fuera del nuevo rango (p.ej. si
   // el entrenador mueve la fecha hacia adelante).
@@ -6119,7 +7572,7 @@ function deleteIncident(pid,incId){
 function openDeleteConfirm(teamId,date){
   document.getElementById("m-del")?.remove();
   const players=pl(teamId);const sess=so(teamId,date);
-  const pr=players.filter(p=>(sess[p.id]||"present")==="present").length;
+  const pr=players.filter(p=>_effAttState(p,date,sess[p.id])==="present").length;
   const p2=pc(pr,players.length);
   const el=document.createElement("div");el.id="m-del";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
@@ -6188,20 +7641,25 @@ function saveClubSettings(){
   // -- volver al comportamiento de siempre), así que no se usa "if(valor)".
   const seasonStartEl=document.getElementById("cfg-season-start");
   if(seasonStartEl)S.cfg.seasonStart=seasonStartEl.value||null;
+  // v3.0.0-dev.66 · B-DLS2: cómo se identifica a cada jugador en los
+  // ejercicios con estadísticas en vivo (apodo/nombre/apellido).
+  const dlsNameModeEl=document.getElementById("cfg-dls-name-mode");
+  if(dlsNameModeEl)S.cfg.dlsNameMode=dlsNameModeEl.value;
   save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
 function saveTeam(mid,eid){
   // Normalización v1.6.9: los nombres de equipo se guardan siempre en MAYÚSCULAS
   // para coherencia con cómo se muestran en la UI y con la confirmación tipografiada de borrado.
   const name=document.getElementById(mid+"-n").value.trim().toUpperCase();if(!name)return false;
   const cat=document.getElementById(mid+"-cat").value;
+  const gender=document.getElementById(mid+"-gender")?.value||"";
   const c0=document.getElementById(mid+"-coach0")?.value.trim()||"";
   const asstList=document.getElementById(mid+"-asst-list");
   const assistants=asstList?[...asstList.querySelectorAll(".asst-inp")].map(x=>x.value.trim()).filter(Boolean):[];
   const coaches=[c0,...assistants].filter(Boolean);
   const schedule={};for(let i=0;i<7;i++){const cb=document.getElementById(mid+"-day-"+i),ti=document.getElementById(mid+"-time-"+i);if(cb?.checked||ti?.value)schedule[i]=ti?ti.value:"";}
   const colorEl=document.querySelector("#"+mid+"-cols .cdot.s");const color=colorEl?(colorEl.dataset.col||colorEl.style.background):COLORS[0];
-  if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,schedule,color,coaches}:t);toast("✅ Actualizado");}
-  else{S.teams.push({id:uid(),name,category:cat,schedule,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
+  if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,gender,schedule,color,coaches}:t);toast("✅ Actualizado");}
+  else{S.teams.push({id:uid(),name,category:cat,gender,schedule,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
   clearDirty();
   document.getElementById(mid)?.remove();save();render();
   return true;
@@ -6221,9 +7679,17 @@ function savePlayer(mid,eid){
   let notes=document.getElementById(mid+"-o").value.trim();
   const img=document.getElementById(mid+"-photo-img");
   const photo=(img&&img.src&&img.style.display!=="none"&&img.src.startsWith("data:"))?img.src:"";
+  // v3.0.0-dev.62 · B-BDAY1: fecha de nacimiento opcional -- solo para poder
+  // avisar del cumpleaños (ver isBirthdayToday/playerTurningAge), no se usa
+  // para nada más de momento.
+  const birthDate=document.getElementById(mid+"-bd")?.value||"";
+  // v3.0.0-dev.66 · B-DLS2: apodo opcional -- solo se usa para decidir cómo
+  // se muestra al jugador en Ejercicios (ver _dlsPlayerLabel/dlsNameMode),
+  // no afecta a ninguna otra pantalla.
+  const nickname=document.getElementById(mid+"-nick")?.value.trim()||"";
   // Limpia rastros legacy de "Lesionado" en notas. La lesión se gestiona con el botón 🚑.
   notes=notes.replace(/\b[lL]esionad[oa]\b[\s·,:;-]*/,"").replace(/^[\s·,:;-]+|[\s·,:;-]+$/g,"").trim();
-  const patch={name,number:numV!==""?numV:null,position:pos,notes,photo};
+  const patch={name,nickname,number:numV!==""?numV:null,position:pos,notes,photo,birthDate};
   if(eid){S.players[S.teamId]=pl(S.teamId).map(x=>x.id===eid?{...x,...patch}:x);toast("✅ Actualizado");}
   else{if(!S.players[S.teamId])S.players[S.teamId]=[];S.players[S.teamId].push({id:uid(),addedAt:td(),...patch});toast("✅ Añadido");}
   clearDirty();
@@ -6236,7 +7702,40 @@ function delPlayer(id){
   // pl(S.teamId) y escapamos para el render.
   const p=pl(S.teamId).find(x=>x.id===id);
   if(!p)return;
-  _confirm("¿Eliminar a <b>"+esc(p.name||"")+"</b>?","🗑 Eliminar",()=>{S.players[S.teamId]=pl(S.teamId).filter(x=>x.id!==id);save();render();toast("🗑 Eliminado");});
+  // v3.0.0-dev.65 · B-DELP1: si está en pista AHORA MISMO en un partido en
+  // directo, no lo dejamos borrar -- desaparecería de la plantilla pero
+  // seguiría "en pista" en m.live.onCourt, un hueco invisible imposible de
+  // arreglar desde la sustitución normal. Mismo bloqueo que ya existía para
+  // este caso en toggleConvocado (B-ADV5).
+  const liveMatch=(S.matches[S.teamId]||[]).find(m=>m.live&&(m.live.onCourt||[]).includes(id));
+  if(liveMatch){toast("⛔ Está en pista ahora mismo en un partido en directo — sustitúyelo antes de eliminarlo");return;}
+  _confirm("¿Eliminar a <b>"+esc(p.name||"")+"</b>?","🗑 Eliminar",()=>{
+    S.players[S.teamId]=pl(S.teamId).filter(x=>x.id!==id);
+    // v3.0.0-dev.65 · B-DELP1: bug real encontrado en pruebas de "casos
+    // raros del día a día" -- borrar a un jugador NO lo quitaba de la
+    // convocatoria/titulares/capitán de ningún partido (ni de la
+    // convocatoria de eventos). El hueco fantasma se quedaba para siempre
+    // porque "máximo 12 convocados"/"máximo 5 titulares" cuentan el tamaño
+    // BRUTO del array, sin filtrar por si el jugador sigue existiendo en la
+    // plantilla -- así que un solo jugador borrado que ya estuviera
+    // convocado o de titular en un partido bloqueaba silenciosamente ese
+    // hueco para siempre, sin ninguna pista visual (el resto de la UI SÍ
+    // filtra por jugadores existentes, así que la fila fantasma ni se
+    // pintaba). Se limpian aquí los campos de SELECCIÓN -- los datos
+    // históricos de rendimiento ya registrado (live.stats de partidos ya
+    // jugados) NO se tocan, igual que al fusionar puntuales duplicados
+    // (_mergeGuestGroup) ya hacía con la convocatoria pero no con las stats.
+    (S.matches[S.teamId]||[]).forEach(m=>{
+      if(m.convocados)m.convocados=m.convocados.filter(x=>x!==id);
+      if(m.titulares)m.titulares=m.titulares.filter(x=>x!==id);
+      if(m.reducedMinutesDismissed)m.reducedMinutesDismissed=m.reducedMinutesDismissed.filter(x=>x!==id);
+      if(m.capitan===id)m.capitan=null;
+    });
+    (S.events[S.teamId]||[]).forEach(e=>{
+      if(e.convocados)e.convocados=e.convocados.filter(x=>x!==id);
+    });
+    save();render();toast("🗑 Eliminado");
+  });
 }
 // v1.8.32 · B-GUEST1: jugadores puntuales/invitados -- alguien que no es
 // de la plantilla fija (sube de categoría solo para un partido, o un
@@ -6247,69 +7746,262 @@ function delPlayer(id){
 // mantenerlos en una lista aparte -- así heredan gratis todo el pipeline de
 // stats/asistencia ya existente, sin tener que duplicar lógica en ningún
 // sitio.
-function openGuestPlayerModal(opts){
-  const mode=(opts&&opts.mode)||"att"; // "match" | "att"
-  document.getElementById("m-guest-player")?.remove();
-  const el=document.createElement("div");
-  el.id="m-guest-player";
-  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:100000;display:flex;align-items:flex-end;justify-content:center;";
-  el.onclick=e=>{if(e.target===el)el.remove();};
-  el.innerHTML=`<div class="modal">
-    <div class="mhandle"></div>
-    <div class="mtitle">🔄 Jugador puntual</div>
-    <div class="msub">No se queda en la plantilla fija — solo para ${mode==="match"?"este partido":"este entrenamiento"}. Cuenta igual en las estadísticas del equipo.</div>
-    <div class="frow">
+/* ═══════════════════════════════════════
+   JUGADOR PUNTUAL · picker mejorado (v3.0.0-dev.59 · B-GUEST5)
+   Reemplaza al selector de dev.58 (chips sueltos + checkboxes de HTML) por
+   un único mecanismo de selección múltiple reutilizado de la convocatoria
+   de partido (.conv-row/.conv-cb/.pnum: insignia con dorsal + check que se
+   pone naranja al tocar la fila) -- mismo componente para "Más frecuentes"
+   Y "Categoría inferior", con un solo botón "Añadir seleccionados" al
+   final. La categoría inferior ahora respeta también el GÉNERO del equipo
+   (masculino con masculino, femenino con femenino -- ver GENDERS y
+   _lowerCategoryTeams). El alta manual ("Es alguien nuevo") se mantiene
+   intacta pero pasa a un segundo plano (colapsada por defecto), porque lo
+   normal es reutilizar a alguien frecuente o traerlo de categoría inferior,
+   no escribir un nombre desde cero.
+   También evita duplicar por NOMBRE (además del dedup por origen que ya
+   había): si al traer de categoría inferior o al añadir manualmente ya
+   existe un puntual del mismo modo (entreno/partido) con el mismo nombre en
+   este equipo, se reutiliza esa entrada en vez de crear una segunda -- así
+   sus estadísticas individuales quedan siempre unificadas en una sola.
+═══════════════════════════════════════ */
+// Normaliza un nombre para comparar duplicados (may/min, acentos, espacios).
+function _normName(s){
+  return (s||"").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
+}
+// Cuenta de veces que un puntual ha contado para este equipo, para ordenar
+// "Más frecuentes" por quién es más probable que repita.
+function _guestUseCount(p,mode){
+  if(mode==="att")return Array.isArray(p.attDates)?p.attDates.length:(p.addedAt?1:0);
+  return mlist(S.teamId).filter(m=>(m.convocados||[]).includes(p.id)).length;
+}
+// Añade `date` al historial de días de un puntual de entreno sin duplicar
+// (retrocompatible con los que solo tenían addedAt de antes de este cambio).
+function _guestMarkAttDate(p,date){
+  const dates=Array.isArray(p.attDates)?[...p.attDates]:(p.addedAt?[p.addedAt]:[]);
+  if(!dates.includes(date))dates.push(date);
+  p.attDates=dates;
+}
+// Fila de selección reutilizada de la convocatoria de partido (mismo look:
+// insignia con dorsal + check que se pone naranja), para que "Más
+// frecuentes" y "Categoría inferior" se vean y se usen exactamente igual.
+function _guestCardRowHtml(kind,item,selected,subtitle){
+  return `<div class="conv-row" onclick="_guestToggle('${kind}','${item.id}')">
+    <div class="conv-cb ${selected?"on":""}">${selected?"✓":""}</div>
+    <div class="pnum" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)">${item.number!=null?item.number:"?"}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:15px">${esc(item.name)}</div>
+      <div style="font-size:12px;color:var(--td)">${subtitle}</div>
+    </div>
+  </div>`;
+}
+function _guestToggle(kind,id){
+  const picker=window._guestPicker;if(!picker)return;
+  const set=kind==="freq"?picker.selectedFrequent:picker.selectedLower;
+  if(set.has(id))set.delete(id);else set.add(id);
+  _refreshGuestPickerBody();
+}
+function _guestToggleLowerOpen(){
+  const picker=window._guestPicker;if(!picker)return;
+  picker.lowerOpen=!picker.lowerOpen;
+  _refreshGuestPickerBody();
+}
+function _guestToggleManualOpen(){
+  const picker=window._guestPicker;if(!picker)return;
+  picker.manualOpen=!picker.manualOpen;
+  _refreshGuestPickerBody();
+  if(picker.manualOpen)setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
+}
+function _refreshGuestPickerBody(){
+  const el=document.getElementById("guest-picker-body");
+  if(el)el.innerHTML=_guestPickerBodyHtml();
+}
+function _guestPickerBodyHtml(){
+  const picker=window._guestPicker;if(!picker)return "";
+  const {frequent,lowerRows,selectedFrequent,selectedLower,lowerOpen,manualOpen}=picker;
+  const totalSelected=selectedFrequent.size+selectedLower.size;
+  const freqHtml=frequent.length?`<label class="fl">🔁 Más frecuentes</label>
+    <div class="card" style="margin-bottom:14px;max-height:220px;overflow-y:auto">
+      ${frequent.map(p=>_guestCardRowHtml("freq",p,selectedFrequent.has(p.id),`Usad${p.useCount===1?"o":"os"} ${p.useCount} ve${p.useCount===1?"z":"ces"}`)).join("")}
+    </div>`:"";
+  const lowerTeamNames=[...new Set(lowerRows.map(r=>r.teamName))].join(" · ");
+  const lowerToggleHtml=lowerRows.length?`<button class="btn-s" onclick="_guestToggleLowerOpen()" style="margin-bottom:${lowerOpen?"8":"14"}px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>⬇️ Categoría inferior <span style="color:var(--tm);font-weight:400">(${esc(lowerTeamNames)})</span></span>
+      <span>${lowerOpen?"▲":"▼"}</span>
+    </button>`:"";
+  const lowerListHtml=(lowerRows.length&&lowerOpen)?`<div class="card" style="margin-bottom:14px;max-height:220px;overflow-y:auto">
+      ${lowerRows.map(r=>_guestCardRowHtml("lower",r,selectedLower.has(r.id),esc(r.teamName))).join("")}
+    </div>`:"";
+  const addBtnHtml=(frequent.length||lowerRows.length)?`<button class="btn-p" id="guest-add-btn" onclick="_guestPickerCommit()" ${totalSelected===0?"disabled":""} style="margin-bottom:12px">✅ Añadir seleccionados${totalSelected?` (${totalSelected})`:""}</button>`:"";
+  const manualToggleHtml=(frequent.length||lowerRows.length)?`<button class="btn-s" onclick="_guestToggleManualOpen()" style="margin-bottom:${manualOpen?"10":"4"}px;color:var(--td)">${manualOpen?"▲ ":"＋ "}Es alguien nuevo <span style="font-weight:400">(no está en ninguna lista)</span></button>`:`<label class="fl">🆕 Nueva persona</label>`;
+  const manualFormHtml=manualOpen?`<div class="frow">
       <div class="fg" style="flex:2"><label class="fl">Nombre</label><input class="fi" id="gp-name" placeholder="Nombre Apellido"/></div>
       <div class="fg" style="flex:1"><label class="fl">Dorsal</label><input class="fi" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" id="gp-num" placeholder="9" style="text-align:center" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)"/></div>
     </div>
     <div class="fg"><label class="fl">Nota (opcional)</label><input class="fi" id="gp-note" placeholder="ej. Infantil Masculino · sube puntualmente"/></div>
-    <button class="btn-p" onclick="_guestPlayerCommit('${mode}')">✅ Añadir</button>
+    <button class="btn-p" onclick="_guestPlayerCommit('${picker.mode}')" style="margin-bottom:14px">✅ Añadir nueva persona</button>`:"";
+  return `${freqHtml}${lowerToggleHtml}${lowerListHtml}${addBtnHtml}${manualToggleHtml}${manualFormHtml}`;
+}
+function openGuestPlayerModal(opts){
+  const mode=(opts&&opts.mode)||"att"; // "match" | "att"
+  document.getElementById("m-guest-player")?.remove();
+  const flag=mode==="att"?"attOnly":"matchOnly";
+  const m=mode==="match"?mById(S.teamId,S.matchId):null;
+  // "Más frecuentes": puntuales ya usados con este equipo para este modo,
+  // ordenados por más veces usados. Se excluye a quien ya está activo/
+  // convocado HOY (no tiene sentido volver a añadirlo).
+  const frequent=pl(S.teamId).filter(p=>p.guest&&p[flag]).filter(p=>{
+    if(mode==="att")return !(Array.isArray(p.attDates)&&p.attDates.includes(S.date));
+    return !(m&&(m.convocados||[]).includes(p.id));
+  }).map(p=>({id:p.id,name:p.name,number:p.number??null,useCount:_guestUseCount(p,mode)}))
+    .sort((a,b)=>b.useCount-a.useCount||(a.name||"").localeCompare(b.name||""));
+  // "Categoría inferior": roster real (no puntuales) del equipo de la
+  // categoría de edad Y GÉNERO inmediatamente inferior (_lowerCategoryTeams,
+  // B-GUEST5), sin repetir a quien ya se trajo antes para este mismo modo.
+  const lowerTeams=_lowerCategoryTeams(S.teamId);
+  const alreadyBrought=new Set(pl(S.teamId).filter(p=>p.guest&&p[flag]&&p.sourceTeamId).map(p=>p.sourceTeamId+"::"+p.sourcePlayerId));
+  const lowerRows=lowerTeams.flatMap(t=>pl(t.id).filter(p=>!p.guest&&!alreadyBrought.has(t.id+"::"+p.id)).map(p=>({id:p.id,name:p.name,number:p.number??null,teamId:t.id,teamName:t.name})))
+    .sort((a,b)=>(a.number??999)-(b.number??999));
+  window._guestPicker={mode,frequent,lowerRows,selectedFrequent:new Set(),selectedLower:new Set(),lowerOpen:false,manualOpen:!frequent.length&&!lowerRows.length};
+  const el=document.createElement("div");
+  el.id="m-guest-player";
+  // v3.0.0-dev.64 · B-GUEST6: mismo fallo de z-index que m-guest-dupes (ver
+  // comentario allí) -- este modal también quedaba por ENCIMA del techo real
+  // de _confirm()/_confirmTyped() (99999). Ahora mismo ningún botón de este
+  // picker abre un _confirm() por encima, así que no se veía como bug
+  // todavía, pero se corrige igual para que no aparezca en cuanto se
+  // encadene una confirmación desde aquí en el futuro.
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔄 Jugador puntual</div>
+    <div class="msub">No se queda en la plantilla fija — solo para ${mode==="match"?"este partido":"este entrenamiento"}. Cuenta igual en las estadísticas del equipo.</div>
+    <div id="guest-picker-body">${_guestPickerBodyHtml()}</div>
     <button class="btn-s" onclick="document.getElementById('m-guest-player').remove()">Cancelar</button>
   </div>`;
   document.body.appendChild(el);
-  setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
+  if(window._guestPicker.manualOpen)setTimeout(()=>document.getElementById("gp-name")?.focus(),50);
+}
+// Confirma TODA la selección de golpe (frecuentes reutilizados + copias
+// nuevas de categoría inferior), con dedup por nombre para no crear
+// duplicados si ya existe un puntual de este modo con ese mismo nombre.
+function _guestPickerCommit(){
+  const picker=window._guestPicker;
+  if(!picker)return;
+  const mode=picker.mode;
+  const freqIds=[...picker.selectedFrequent];
+  const lowerSel=picker.lowerRows.filter(r=>picker.selectedLower.has(r.id));
+  if(!freqIds.length&&!lowerSel.length)return;
+  if(!S.players[S.teamId])S.players[S.teamId]=[];
+  const list=S.players[S.teamId];
+  const flag=mode==="att"?"attOnly":"matchOnly";
+  const today=mode==="att"?S.date:td();
+  const addedIds=[];
+  const names=[];
+  let numberClashes=0;
+  freqIds.forEach(pid=>{
+    const p=list.find(x=>x.id===pid);
+    if(!p)return;
+    if(mode==="att")_guestMarkAttDate(p,S.date);
+    addedIds.push(pid);
+    names.push(p.name);
+  });
+  lowerSel.forEach(r=>{
+    // v3.0.0-dev.59 · B-GUEST5: si YA existe un puntual de este mismo modo
+    // con el mismo nombre (normalizado) en este equipo, se reutiliza en vez
+    // de crear una entrada duplicada -- unifica sus estadísticas desde el
+    // principio, que es justo el sentido de tener este picker.
+    const existing=list.find(x=>x.guest&&x[flag]&&_normName(x.name)===_normName(r.name));
+    if(existing){
+      if(mode==="att")_guestMarkAttDate(existing,S.date);
+      if(existing.number==null&&r.number!=null&&!list.some(x=>x.id!==existing.id&&String(x.number)===String(r.number)))existing.number=r.number;
+      addedIds.push(existing.id);
+      names.push(existing.name);
+      return;
+    }
+    let number=r.number;
+    if(number!=null&&list.some(x=>String(x.number)===String(number))){number=null;numberClashes++;}
+    const id=uid();
+    // Copia independiente (no enlazada al jugador de origen -- decisión
+    // explícita de Mario): si luego cambia de dorsal en su equipo real, aquí
+    // no se actualiza solo. sourceTeamId/sourcePlayerId solo se usan para no
+    // volver a ofrecer al mismo jugador dos veces en esta lista.
+    const np={id,name:r.name,number,guest:true,guestNote:r.teamName,addedAt:today,matchOnly:mode==="match",attOnly:mode==="att",sourceTeamId:r.teamId,sourcePlayerId:r.id};
+    if(mode==="att")np.attDates=[today];
+    list.push(np);
+    addedIds.push(id);
+    names.push(r.name);
+  });
+  if(mode==="match"){
+    const m=mById(S.teamId,S.matchId);
+    if(m)m.convocados=[...new Set([...(m.convocados||[]),...addedIds])];
+  } else {
+    const k=sk(S.teamId,S.date);
+    const sess={...S.sessions[k]||{}};
+    addedIds.forEach(id=>{sess[id]="present";});
+    S.sessions[k]=sess;
+  }
+  save();
+  document.getElementById("m-guest-player")?.remove();
+  window._guestPicker=null;
+  if(mode==="match"){
+    const m=mById(S.teamId,S.matchId);
+    const t=S.teams.find(x=>x.id===S.teamId);
+    const wiz=document.getElementById("m-conv-setup");
+    if(wiz&&t&&m)wiz.innerHTML=_convSetupHtml(m,t,wiz._step||0);
+  } else {
+    render();
+  }
+  const uniqueNames=[...new Set(names)];
+  toast(`✅ ${uniqueNames.length} jugador${uniqueNames.length>1?"es":""} añadido${uniqueNames.length>1?"s":""}`+(numberClashes?` (${numberClashes} sin dorsal por estar repetido)`:""));
 }
 function _guestPlayerCommit(mode){
   const name=(document.getElementById("gp-name")?.value||"").trim();
   if(!name){toast("Ponle un nombre al jugador");return;}
   const numV=(document.getElementById("gp-num")?.value||"").replace(/[^0-9]/g,"").slice(0,2);
-  // Mismo guard de dorsal duplicado que savePlayer() (B-ADV4) -- un invitado
-  // con el mismo número que alguien de la plantilla fija sería igual de
-  // ilegal en pista.
-  if(numV!==""){
-    const dupe=pl(S.teamId).find(x=>String(x.number)===numV);
-    if(dupe){toast("⚠️ El dorsal #"+numV+" ya lo lleva "+esc(dupe.name||"otro jugador"));return;}
-  }
   const note=(document.getElementById("gp-note")?.value||"").trim();
   if(!S.players[S.teamId])S.players[S.teamId]=[];
-  const id=uid();
-  // v3.0.0-dev · B-GUEST2: un puntual añadido para un PARTIDO (mode="match")
-  // se guardaba igual que uno añadido desde un entrenamiento (mode="att"),
-  // así que a partir de esa fecha (addedAt) empezaba a aparecer también en
-  // el pase de lista de TODOS los entrenamientos siguientes -- contradice
-  // el propio texto del modal ("solo para este partido") y no tiene
-  // sentido: alguien convocado puntualmente para un partido no entrena con
-  // el equipo. matchOnly:true lo excluye del pase de lista y de las
-  // estadísticas de asistencia (sigue contando igual en las estadísticas
-  // DEL PARTIDO). Si el jugador acaba subiendo de categoría de verdad, eso
-  // se gestiona aparte (editarlo para quitarle matchOnly, o añadirlo como
-  // jugador normal en ese momento).
-  // v3.0.0-dev.37 · B-GUEST3: idem matchOnly pero al reves -- un puntual
-  // añadido desde un ENTRENAMIENTO (mode="att") lleva attOnly:true, para
-  // que _isPlayerActiveOn() lo cuente solo el día exacto (addedAt) y quede
-  // excluido de toda convocatoria de partidos/eventos (nunca "sube" solo
-  // por haberse dado de alta un día).
-  // v3.0.0-dev.37 · B-GUEST3: para un puntual de entreno, addedAt tiene que
-  // ser la fecha de la SESIÓN que se está pasando lista (S.date), no la
-  // fecha real de hoy (td()) -- si el entrenador añade el puntual pasando
-  // lista de un día atrasado (flujo habitual, "ayer se me olvidó apuntar
-  // esto"), td() y S.date no coinciden y el puntual desaparecería incluso
-  // del día para el que se le dio de alta.
-  S.players[S.teamId].push({id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt:mode==="att"?S.date:td(),matchOnly:mode==="match",attOnly:mode==="att"});
+  const list=S.players[S.teamId];
+  const flag=mode==="att"?"attOnly":"matchOnly";
+  // v3.0.0-dev · B-GUEST2/B-GUEST3: matchOnly/attOnly son excluyentes --
+  // marcan si el puntual es "solo para este partido" o "solo para este
+  // entrenamiento" respectivamente, y con qué fecha cuenta cada uno
+  // (addedAt para partido = hoy real; para entreno = la fecha de la sesión
+  // que se está pasando lista, no la fecha real de hoy, por si se pasa
+  // lista de un día atrasado).
+  const addedAt=mode==="att"?S.date:td();
+  // v3.0.0-dev.59 · B-GUEST5: si ya existe un puntual de este mismo modo con
+  // el mismo nombre (normalizado) en este equipo, se reutiliza esa entrada
+  // en vez de crear una segunda -- evita fragmentar sus estadísticas.
+  const existing=list.find(x=>x.guest&&x[flag]&&_normName(x.name)===_normName(name));
+  let id;
+  if(existing){
+    id=existing.id;
+    if(mode==="att")_guestMarkAttDate(existing,S.date);
+    if(numV!==""&&existing.number==null&&!list.some(x=>x.id!==existing.id&&String(x.number)===numV))existing.number=numV;
+    if(note&&!existing.guestNote)existing.guestNote=note;
+  } else {
+    // Mismo guard de dorsal duplicado que savePlayer() (B-ADV4) -- un
+    // invitado con el mismo número que alguien de la plantilla fija sería
+    // igual de ilegal en pista. Solo aplica al crear uno nuevo -- si se
+    // reutiliza uno existente no tiene sentido bloquear el alta por esto.
+    if(numV!==""){
+      const dupe=pl(S.teamId).find(x=>String(x.number)===numV);
+      if(dupe){toast("⚠️ El dorsal #"+numV+" ya lo lleva "+esc(dupe.name||"otro jugador"));return;}
+    }
+    id=uid();
+    const np={id,name,number:numV!==""?numV:null,guest:true,guestNote:note,addedAt,matchOnly:mode==="match",attOnly:mode==="att"};
+    // v3.0.0-dev.58 · B-GUEST4: attDates arranca con el día de alta, para
+    // que este mismo puntual pueda reutilizarse en días futuros ("Más
+    // frecuentes") sin crear una segunda entrada duplicada.
+    if(mode==="att")np.attDates=[addedAt];
+    list.push(np);
+  }
   if(mode==="match"){
     const m=mById(S.teamId,S.matchId);
     if(m){
-      m.convocados=[...(m.convocados||[]),id];
+      if(!(m.convocados||[]).includes(id))m.convocados=[...(m.convocados||[]),id];
       save();
       document.getElementById("m-guest-player")?.remove();
       // Redibuja el paso "nuestro equipo" del wizard de convocatoria con el
@@ -6331,6 +8023,143 @@ function _guestPlayerCommit(mode){
   render();
   toast(`✅ ${name} añadido`);
 }
+/* ═══════════════════════════════════════
+   PUNTUALES DUPLICADOS · fusionar (v3.0.0-dev.59 · B-GUEST5)
+   Duplicados que ya existieran ANTES de este cambio (o que se cuelen por
+   cualquier otra vía) se pueden revisar y fusionar en una sola entrada por
+   persona desde la pantalla Equipo. No se borra ningún dato: se combinan
+   attDates/estadísticas/convocatorias del/de los duplicado(s) "perdedor(es)"
+   en la entrada "superviviente" (la más antigua), y solo entonces se quita
+   la entrada redundante ya vacía de contenido propio.
+═══════════════════════════════════════ */
+function _findDuplicateGuestGroups(teamId){
+  const guests=pl(teamId).filter(p=>p.guest&&(p.attOnly||p.matchOnly));
+  const groups={};
+  guests.forEach(p=>{
+    const key=(p.attOnly?"att":"match")+"::"+_normName(p.name);
+    (groups[key]=groups[key]||[]).push(p);
+  });
+  return Object.values(groups).filter(g=>g.length>1);
+}
+function _remapIdArr(arr,oldId,newId){
+  if(!Array.isArray(arr))return arr;
+  return [...new Set(arr.map(id=>id===oldId?newId:id))];
+}
+function _remapStatsObj(obj,oldId,newId){
+  if(!obj||!obj[oldId])return obj;
+  if(obj[newId]){
+    const merged={...obj[newId]};
+    Object.keys(obj[oldId]).forEach(k=>{merged[k]=(merged[k]||0)+(obj[oldId][k]||0);});
+    obj[newId]=merged;
+  } else obj[newId]=obj[oldId];
+  delete obj[oldId];
+  return obj;
+}
+function _remapSumObj(obj,oldId,newId){
+  if(!obj||obj[oldId]==null)return obj;
+  obj[newId]=(obj[newId]||0)+obj[oldId];
+  delete obj[oldId];
+  return obj;
+}
+// Fusiona un grupo de duplicados (mismo nombre normalizado + mismo modo) en
+// una única entrada superviviente (la más antigua por addedAt), reasignando
+// TODA referencia a los ids "perdedores" en el resto de los datos del
+// equipo. Un puntual de ENTRENO (attOnly) nunca aparece en partidos/eventos
+// (excluido por diseño), así que solo hace falta tocar S.sessions; uno de
+// PARTIDO (matchOnly) nunca aparece en el pase de lista, así que solo hace
+// falta tocar S.matches/S.events -- por construcción del propio modelo de
+// puntuales, nunca hace falta tocar ambos a la vez para un mismo grupo.
+function _mergeGuestGroup(teamId,group){
+  if(!group||group.length<2)return null;
+  const sorted=[...group].sort((a,b)=>(a.addedAt||"9999-99-99").localeCompare(b.addedAt||"9999-99-99"));
+  const survivor=sorted[0];
+  const losers=sorted.slice(1);
+  const isAtt=!!survivor.attOnly;
+  losers.forEach(loser=>{
+    if(survivor.number==null&&loser.number!=null)survivor.number=loser.number;
+    if(!survivor.guestNote&&loser.guestNote)survivor.guestNote=loser.guestNote;
+    if(isAtt){
+      const dates=new Set([...(survivor.attDates||(survivor.addedAt?[survivor.addedAt]:[])),...(loser.attDates||(loser.addedAt?[loser.addedAt]:[]))]);
+      survivor.attDates=[...dates].sort();
+      if(survivor.attDates.length)survivor.addedAt=survivor.attDates[0];
+      Object.keys(S.sessions).filter(k=>k.startsWith(teamId+"_")).forEach(k=>{
+        const sess=S.sessions[k];
+        Object.keys(sess).forEach(sk2=>{
+          if(sk2===loser.id||sk2.startsWith(loser.id+"_")){
+            const newKey=survivor.id+sk2.slice(loser.id.length);
+            if(sess[newKey]===undefined)sess[newKey]=sess[sk2];
+            delete sess[sk2];
+          }
+        });
+      });
+    } else {
+      (S.matches[teamId]||[]).forEach(m=>{
+        m.convocados=_remapIdArr(m.convocados,loser.id,survivor.id);
+        m.titulares=_remapIdArr(m.titulares,loser.id,survivor.id);
+        if(m.capitan===loser.id)m.capitan=survivor.id;
+        if(m.live){
+          m.live.onCourt=_remapIdArr(m.live.onCourt,loser.id,survivor.id);
+          if(m.live.stats)m.live.stats=_remapStatsObj(m.live.stats,loser.id,survivor.id);
+          if(m.live.minTracked)m.live.minTracked=_remapSumObj(m.live.minTracked,loser.id,survivor.id);
+          if(m.live.plusMinusTracked)m.live.plusMinusTracked=_remapSumObj(m.live.plusMinusTracked,loser.id,survivor.id);
+          if(m.live.inSince&&m.live.inSince[loser.id]!=null){if(m.live.inSince[survivor.id]==null)m.live.inSince[survivor.id]=m.live.inSince[loser.id];delete m.live.inSince[loser.id];}
+          if(m.live.plusMinusBaseline&&m.live.plusMinusBaseline[loser.id]!=null){if(m.live.plusMinusBaseline[survivor.id]==null)m.live.plusMinusBaseline[survivor.id]=m.live.plusMinusBaseline[loser.id];delete m.live.plusMinusBaseline[loser.id];}
+          if(Array.isArray(m.live.shots))m.live.shots.forEach(s=>{if(s.pid===loser.id)s.pid=survivor.id;});
+        }
+      });
+      (S.events[teamId]||[]).forEach(ev=>{
+        ev.convocados=_remapIdArr(ev.convocados,loser.id,survivor.id);
+      });
+    }
+  });
+  S.players[teamId]=(S.players[teamId]||[]).filter(p=>!losers.some(l=>l.id===p.id));
+  return {survivor,mergedCount:losers.length};
+}
+function openGuestDuplicatesModal(){
+  document.getElementById("m-guest-dupes")?.remove();
+  const groups=_findDuplicateGuestGroups(S.teamId);
+  if(!groups.length){toast("✅ No hay puntuales duplicados en este equipo");return;}
+  const el=document.createElement("div");el.id="m-guest-dupes";
+  // v3.0.0-dev.64 · B-GUEST6: este modal usaba z-index:100000 -- por ENCIMA
+  // del que usa _confirm() (99999, el techo real de toda la app para diálogos
+  // de confirmación). Al pulsar "Fusionar" aquí, _confirmMergeAllGuestDuplicates()
+  // abre el _confirm() de "¿Fusionar N grupos?" pero, al quedar por DEBAJO en
+  // z-index, aparecía tapado detrás de este mismo modal en vez de encima --
+  // Mario tenía que cancelar este modal para poder ver y pulsar el botón real
+  // de confirmación. Se baja a 9999 (el mismo z-index que usan el resto de
+  // modales de contenido normal de la app) para que _confirm() quede siempre
+  // por encima, como en todos los demás flujos de confirmación.
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const rowsHtml=groups.map(g=>{
+    const tipo=g[0].attOnly?"Entreno":"Partido";
+    return `<div style="padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
+      <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(g[0].name)} <span style="font-size:11px;font-weight:400;color:var(--tm)">(${tipo})</span></div>
+      <div style="font-size:12px;color:var(--td)">${g.length} entradas repetidas → se fusionan en una sola, sin perder nada de su historial</div>
+    </div>`;
+  }).join("");
+  el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">🔍 Puntuales duplicados</div>
+    <div class="msub">Mismo nombre, varias entradas -- probablemente el mismo jugador dado de alta más de una vez. Al fusionar se combinan en una única entrada: se suman sus estadísticas y días/convocatorias, no se pierde nada.</div>
+    ${rowsHtml}
+    <button class="btn-p" style="background:#f59e0b" onclick="_confirmMergeAllGuestDuplicates()">🔗 Fusionar ${groups.length>1?"todos":""}</button>
+    <button class="btn-s" onclick="document.getElementById('m-guest-dupes').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _confirmMergeAllGuestDuplicates(){
+  const groups=_findDuplicateGuestGroups(S.teamId);
+  if(!groups.length)return;
+  _confirm(`¿Fusionar ${groups.length} grupo${groups.length>1?"s":""} de puntuales duplicados?<br><span style="font-size:12px;color:var(--td)">No se pierde ningún dato -- se combinan en una sola entrada por persona.</span>`,"🔗 Fusionar",()=>{
+    let merged=0;
+    groups.forEach(g=>{const r=_mergeGuestGroup(S.teamId,g);if(r)merged+=r.mergedCount;});
+    save();
+    document.getElementById("m-guest-dupes")?.remove();
+    render();
+    toast(`✅ ${merged} entrada${merged>1?"s":""} fusionada${merged>1?"s":""}`);
+  });
+}
 function delTeam(){
   // v1.8.6 · B-NEW-2: nombre se resolvía desde el onclick (`delTeam('${esc(t.name)}')`),
   // pero el HTML decodifica `&#39;` antes de ejecutar el JS — un nombre con
@@ -6348,6 +8177,20 @@ function delTeam(){
       delete S.players[S.teamId];
       Object.keys(S.sessions).filter(k=>k.startsWith(S.teamId+"_")).forEach(k=>delete S.sessions[k]);
       if(S.matches[S.teamId])delete S.matches[S.teamId];
+      // v3.0.0-dev.65 · B-DELT1: el mensaje de confirmación ya decía "se
+      // borrarán todos los jugadores, entrenamientos y partidos" pero el
+      // código solo limpiaba jugadores/sesiones/partidos -- los eventos y
+      // convocatorias (S.events), el catálogo de ejercicios (S.drills), su
+      // historial de estadísticas en vivo (S.drillLive) y las notas de
+      // entreno (S.trainingNotes, clave `teamId_fecha`) se quedaban
+      // huérfanos para siempre (nunca vuelven a aparecer en ningún sitio,
+      // porque el equipo ya no existe, pero siguen ocupando espacio real en
+      // Firestore/localStorage indefinidamente). Se completa la limpieza
+      // para que "eliminar equipo" borre de verdad TODO lo que dice borrar.
+      if(S.events&&S.events[S.teamId])delete S.events[S.teamId];
+      if(S.drills&&S.drills[S.teamId])delete S.drills[S.teamId];
+      if(S.drillLive&&S.drillLive[S.teamId])delete S.drillLive[S.teamId];
+      if(S.trainingNotes)Object.keys(S.trainingNotes).filter(k=>k.startsWith(S.teamId+"_")).forEach(k=>delete S.trainingNotes[k]);
       save();S.screen="equipos";render();toast("🗑 Equipo eliminado");
     }
   );
@@ -6364,24 +8207,22 @@ function chgDate(d){
 function cycleAtt(pid){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  // Para lesionados el estado efectivo es "excused" (auto). Si no hay estado
-  // explícito, arrancamos desde el auto para que el ciclo tenga sentido visual.
+  // Para lesionados (activa o archivada, ver isInjuredOn) el estado efectivo
+  // es "excused" (auto). Si no hay estado explícito, arrancamos desde el
+  // auto para que el ciclo tenga sentido visual.
   let cur=sess[pid];
   if(!cur){
     const p=pl(S.teamId).find(x=>x.id===pid);
-    if(p&&isInjured(p)){
-      const st=injuryStart(p);
-      if(!st||st<=S.date)cur="excused";
-    }
+    if(p&&isInjuredOn(p,S.date))cur="excused";
     if(!cur)cur="present";
   }
   const next=ASTS[(ASTS.indexOf(cur)+1)%ASTS.length];
   sess[pid]=next;
   if(next!=="excused"){delete sess[pid+"_jr"];delete sess[pid+"_jn"];}
   else if(!sess[pid+"_jr"]){
-    // Si el jugador está lesionado y pasamos a excused sin motivo, ponemos "injury".
+    // Si el jugador estaba lesionado ese día y pasamos a excused sin motivo, ponemos "injury".
     const p=pl(S.teamId).find(x=>x.id===pid);
-    if(p&&isInjured(p))sess[pid+"_jr"]="injury";
+    if(p&&isInjuredOn(p,S.date))sess[pid+"_jr"]="injury";
   }
   S.sessions[k]=sess;save();render();
 }
@@ -6480,18 +8321,20 @@ function _tsLongPressEnd(el){
 function _flushSess(){
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  // Auto-justifica lesionados (con startDate<=fecha) cuando no hay estado
-  // explícito. Persiste excused + _jr='injury' para que el motivo se note
-  // en exports y en la tabla de justificaciones.
+  // Auto-justifica lesionados cuando no hay estado explícito. Persiste
+  // excused + _jr='injury' para que el motivo se note en exports y en la
+  // tabla de justificaciones.
+  // v3.0.0-dev.60 · B-INJ2: usa isInjuredOn() (activa O ya archivada en
+  // injuryHistory) en vez de solo isInjured()+injuryStart() -- así confirmar
+  // una sesión de un día ATRASADO en el que el jugador ya estaba lesionado
+  // (aunque hoy ya esté recuperado) también se auto-justifica bien, en vez
+  // de quedar como "present" por defecto.
   pl(S.teamId).forEach(p=>{
     if(!sess[p.id]){
-      if(isInjured(p)){
-        const st=injuryStart(p);
-        if(!st||st<=S.date){
-          sess[p.id]="excused";
-          if(!sess[p.id+"_jr"])sess[p.id+"_jr"]="injury";
-          return;
-        }
+      if(isInjuredOn(p,S.date)){
+        sess[p.id]="excused";
+        if(!sess[p.id+"_jr"])sess[p.id+"_jr"]="injury";
+        return;
       }
       sess[p.id]="present";
     }
