@@ -44,21 +44,30 @@
 // después con total libertad -- el autorrelleno solo actúa en el momento de
 // elegir el tipo (evento change del selector), nunca se reimpone solo.
 //
-// v3.0.0-dev.71 · B-DLS7: Mario preguntó si merecía la pena guardar las
-// sesiones de "Contraataque de 11"/"Final de partido" archivadas con su
-// fecha "para sacar estadísticas" -- la respuesta es que ya se guardaban así
-// desde B-DLS1 (y de verdad, desde el fix de persistencia B-DLS4), pero
-// faltaba una pantalla que cruzara todas las sesiones guardadas. El botón
-// "📊" del catálogo/picker (antes abría solo la ÚLTIMA sesión, mal
-// etiquetado "Ver historial") ahora abre openDlsHistoryModal(): lista TODAS
-// las sesiones del ejercicio (más reciente primero, cada una tocable para
-// ver su resumen exacto) + un informe agregado por jugador de toda la
-// temporada arriba -- _dlsAggregateB11 (sesiones/tiros/rebotes/valoración
-// media) para "Contraataque de 11", _dlsAggregateEndgame (partidos jugados/
-// ganados/perdidos/puntos a favor y en contra según el equipo al que le
-// tocara cada mini-partido) para "Final de partido". Solo cuentan las
-// sesiones con status "finished" -- una en curso todavía no tiene sus
-// estadísticas cerradas.
+// v3.0.0-dev.71 · B-DLS7 (SUSTITUIDO por B-DLS8, dev.72 -- ver más abajo):
+// primer intento de historial, agregado por ejercicio del CATÁLOGO
+// (openDlsHistoryModal). Mario lo probó y pidió cambiar el planteamiento --
+// el motivo real de guardar por fecha ya estaba resuelto desde B-DLS4
+// (persistencia), lo único que faltaba era la vista, pero agregarla por
+// ejercicio del catálogo no encajaba con cómo Mario quiere usar el catálogo.
+//
+// v3.0.0-dev.72 · B-DLS8: Mario pidió un planteamiento distinto: el Catálogo
+// de ejercicios pasa a ser SOLO referencia (qué ejercicios existen y cómo
+// son) -- puede tener "Contraataque de 11" repetido 100 veces con el mismo
+// nombre, sin que eso importe. Las estadísticas en vivo de un ejercicio
+// (arrancar/continuar/ver resultado) ya NO viven en el catálogo ni en el
+// picker "Ejercicios de la sesión" (openDrillPickerModal) -- viven en el
+// propio DÍA del entrenamiento: att() (el pase de lista de una fecha
+// concreta) muestra, para cada ejercicio con estadísticas en vivo adjuntado
+// a ESE día, una tarjeta con sus controles (_dlsDayCardHtml), y "Ver
+// resultado de hoy" (_dlsOpenDaySummary) filtra las sesiones de ese
+// ejercicio a las de esa fecha exacta (_dlsDayInfo), nunca un agregado por
+// ejercicio del catálogo. `toggleSessionDrill` copia también `dlsType` al
+// adjuntar un ejercicio al día, para que la tarjeta siga sabiendo qué
+// controles ofrecer aunque el ejercicio cambie de tipo o se borre del
+// catálogo más adelante. `_dlsRenderSessionSummary`/`_dlsOpenHistorySession`
+// (de B-DLS7) se reutilizan tal cual para abrir el resumen de una sesión
+// concreta por su id.
 const { loadApp, newReporter } = require("./harness.js");
 
 async function run() {
@@ -141,21 +150,19 @@ async function run() {
   const dlsTypeFieldOrder = [...document.querySelectorAll("#m-add-drill .fg .fl")].map(l => l.textContent.trim());
   report.assert(dlsTypeFieldOrder[0] === "Tipo de ejercicio" && dlsTypeFieldOrder.indexOf("Nombre") === 1, "B-DLS6: 'Tipo de ejercicio' es ahora el primer campo del alta, por delante de Nombre y Categoría, para que el autorrelleno tenga sentido en el orden en que se rellena el formulario");
 
-  // ── Un ejercicio normal (Tipo="Normal") no ofrece el botón de en vivo ──
+  // ── B-DLS8 (dev.72): ni el Catálogo de ejercicios ni el picker "Ejercicios de la sesión" ofrecen YA ningún control de en vivo -- solo el badge de referencia ──
   win.openDrillModal();
   document.getElementById("m-add-drill-name").value = "Rueda de tiro exterior";
   win.saveDrill("m-add-drill", "");
-  const libHtmlBoth = win._drillLibraryRowsHtml();
-  report.assert(libHtmlBoth.includes("openDlsSetupModal('" + drill.id + "')"), "un ejercicio de tipo b11 ofrece el botón 'Iniciar en vivo' en la fila del catálogo");
   const normalDrill = win.S.drills.t1.find(d => d.name === "Rueda de tiro exterior");
-  report.assert(!libHtmlBoth.includes("openDlsSetupModal('" + normalDrill.id + "')") && !libHtmlBoth.includes("openDlsResumeOrLive('" + normalDrill.id + "')"), "un ejercicio de tipo Normal no ofrece ningún botón de en vivo");
+  const libHtmlBoth = win._drillLibraryRowsHtml();
+  report.assert(libHtmlBoth.includes("🎯 EN VIVO"), "B-DLS8: el catálogo sigue mostrando el badge '🎯 EN VIVO' como referencia de qué ejercicios tienen estadísticas en vivo");
+  report.assert(!libHtmlBoth.includes("openDlsSetupModal(") && !libHtmlBoth.includes("openDlsResumeOrLive(") && !libHtmlBoth.includes("openDlsMatchSetupModal("), "B-DLS8: el catálogo YA NO ofrece ningún control de arrancar/continuar en vivo -- pasa a ser solo referencia, a petición de Mario");
 
-  // ── B-DLS2: el picker de "Ejercicios de la sesión" (planificar el entrenamiento del día) AHORA SÍ ofrece lanzar/ver en vivo ──
   win.S.screen = "att";
   const pickerHtml = win._drillPickerListHtml();
-  report.assert(pickerHtml.includes("openDlsSetupModal('" + drill.id + "')"), "_drillPickerListHtml() (planificar el entrenamiento del día) ahora SÍ ofrece 'Iniciar en vivo' para un ejercicio con estadísticas -- antes vivía solo en el catálogo");
-  report.assert(pickerHtml.includes("🎯 EN VIVO"), "el picker de la sesión también muestra la insignia '🎯 EN VIVO' del ejercicio, igual que el catálogo");
-  report.assert(!pickerHtml.includes("openDlsSetupModal('" + normalDrill.id + "')"), "un ejercicio de tipo Normal sigue sin ofrecer nada de esto en el picker de la sesión");
+  report.assert(pickerHtml.includes("🎯 EN VIVO"), "B-DLS8: el picker de 'Ejercicios de la sesión' también conserva el badge de referencia");
+  report.assert(!pickerHtml.includes("openDlsSetupModal(") && !pickerHtml.includes("openDlsResumeOrLive(") && !pickerHtml.includes("openDlsMatchSetupModal("), "B-DLS8: el picker de 'Ejercicios de la sesión' tampoco ofrece ya controles de en vivo -- solo sirve para adjuntar/quitar del día; los controles viven en el propio día (att())");
 
   // ── El pase de lista no tiene ningún resto del B11 fijo anterior ──
   const attHtml = win.att();
@@ -345,13 +352,9 @@ async function run() {
   report.assert(!!document.getElementById("m-dls-summary"), "al terminar se abre el resumen automáticamente");
   document.getElementById("m-dls-summary").remove();
 
-  // ── La fila del catálogo refleja el estado 'finished': ya no ofrece "continuar", sí "ver historial" ──
+  // ── B-DLS8: la fila del catálogo NO cambia según haya o no una sesión activa/terminada -- es pura referencia, no le afecta el estado en vivo ──
   const libHtmlAfterFinish = win._drillLibraryRowsHtml();
-  report.assert(libHtmlAfterFinish.includes("openDlsSetupModal('" + drill.id + "')"), "tras terminar, la fila vuelve a ofrecer 'Iniciar en vivo' (nueva sesión) en vez de 'Continuar'");
-  // v3.0.0-dev.71 · B-DLS7: el botón "📊" pasa de abrir solo la última sesión
-  // (openDlsSummaryModal) a abrir el historial real (openDlsHistoryModal) --
-  // ver la sección B-DLS7 más abajo para la cobertura completa del cambio.
-  report.assert(libHtmlAfterFinish.includes("openDlsHistoryModal('" + drill.id + "')"), "tras terminar, la fila ofrece un acceso para ver el historial");
+  report.assert(!libHtmlAfterFinish.includes("openDlsSetupModal(") && !libHtmlAfterFinish.includes("openDlsResumeOrLive(") && !libHtmlAfterFinish.includes("openDlsHistoryModal("), "B-DLS8: terminar una sesión en vivo no hace aparecer ningún control en la fila del catálogo -- sigue sin ofrecer nada de eso");
 
   // ── Lanzar una nueva sesión el mismo día NO sobreescribe el historial anterior ──
   const sessCountBefore = win.S.drillLive.t1[drill.id].length;
@@ -386,7 +389,7 @@ async function run() {
   report.assert(win._dlsType(matchDrill) === "endgame", "el tipo 'Final de partido' se guarda como drill.dlsType='endgame'");
   const libHtmlMatch = win._drillLibraryRowsHtml();
   report.assert(libHtmlMatch.includes("⏱️ FINAL PARTIDO"), "el catálogo muestra la insignia '⏱️ FINAL PARTIDO' para este tipo (distinta de '🎯 EN VIVO')");
-  report.assert(libHtmlMatch.includes("openDlsMatchSetupModal('" + matchDrill.id + "')"), "el catálogo ofrece 'Configurar mini-partido' (openDlsMatchSetupModal), no el setup de b11");
+  report.assert(!libHtmlMatch.includes("openDlsMatchSetupModal('" + matchDrill.id + "')"), "B-DLS8: el catálogo YA NO ofrece 'Configurar mini-partido' (openDlsMatchSetupModal) desde su fila -- solo la insignia de referencia, igual que con b11");
 
   // ── Setup: reparto manual de equipos, jugador nuevo, marcador inicial exacto ──
   win.openDlsMatchSetupModal(matchDrill.id);
@@ -500,73 +503,81 @@ async function run() {
   report.assert(win.S.drillLive.t1[matchDrill.id].every(s => s.type === "endgame"), "ambas sesiones guardadas mantienen su type='endgame'");
 
   // ══════════════════════════════════════════════════════════════════════
-  // B-DLS7 (dev.71): historial real (todas las sesiones) + informe agregado
-  // por jugador. Mario preguntó si merecía la pena guardar las sesiones
-  // archivadas con su fecha "para sacar estadísticas" -- ya se guardaban así
-  // (B-DLS4), lo que faltaba era esta pantalla que las cruzara. El botón
-  // "📊" del catálogo (antes abría solo la ÚLTIMA sesión, mal etiquetado
-  // "Ver historial") ahora abre el historial real.
+  // B-DLS8 (dev.72): controles y resultados en vivo viven en el DÍA del
+  // entrenamiento (att()), no en un agregado por ejercicio del catálogo --
+  // Mario probó B-DLS7 (arriba, en la sección eliminada) y pidió cambiar el
+  // planteamiento. _dlsDayInfo() filtra las sesiones de un ejercicio a una
+  // fecha exacta; _dlsDayCardHtml() es la tarjeta que se pinta en att() para
+  // cada ejercicio en vivo adjuntado a ESE día; _dlsOpenDaySummary()/
+  // _dlsOpenDaySessionsList() abren el resultado de hoy (directo si hay una
+  // sola sesión, o un selector si el ejercicio se repitió el mismo día).
   // ══════════════════════════════════════════════════════════════════════
 
-  // ── El catálogo ahora enlaza el botón "📊" a openDlsHistoryModal, no a openDlsSummaryModal ──
-  const libHtmlHistBtn = win._drillLibraryRowsHtml();
-  report.assert(libHtmlHistBtn.includes("openDlsHistoryModal('" + matchDrill.id + "')"), "B-DLS7: el botón '📊 Ver historial' del catálogo ahora abre el historial real (openDlsHistoryModal), no solo la última sesión");
-  report.assert(!libHtmlHistBtn.includes("openDlsSummaryModal('" + matchDrill.id + "')"), "B-DLS7: openDlsSummaryModal ya no se ofrece directamente desde la fila del catálogo");
+  // ── Alta de un ejercicio 'b11' nuevo y lo adjuntamos al día actual (S.date) ──
+  win.openDrillModal();
+  document.getElementById("m-add-drill-name").value = "Rueda B-DLS8";
+  document.getElementById("m-add-drill-dlstype").value = "b11";
+  win.saveDrill("m-add-drill", "");
+  const dayDrill = win.S.drills.t1.find(d => d.name === "Rueda B-DLS8");
+  win.S.screen = "att";
+  win.toggleSessionDrill(dayDrill.id);
+  const sessDrillCopy = win._sessionDrills().find(d => d.id === dayDrill.id);
+  report.assert(!!sessDrillCopy, "toggleSessionDrill adjunta el ejercicio a la sesión del día actual (S.date)");
+  report.assert(sessDrillCopy.dlsType === "b11", "B-DLS8: toggleSessionDrill copia también dlsType al adjuntar el ejercicio al día -- la tarjeta del día sabrá qué controles ofrecer aunque el ejercicio cambie de tipo o se borre del catálogo más adelante");
 
-  // ── Informe agregado de "Final de partido" (_dlsAggregateEndgame): p1 (Equipo A las dos veces) y p3 (Equipo B las dos veces), con los dos mini-partidos ya jugados en este test (47-40 y 2-3) ──
-  const endSessions = win.S.drillLive.t1[matchDrill.id];
-  const aggEnd = win._dlsAggregateEndgame(endSessions);
-  const aggP1 = aggEnd.find(a => a.p.id === "p1"), aggP3 = aggEnd.find(a => a.p.id === "p3");
-  report.assert(aggP1.played === 2 && aggP1.won === 1 && aggP1.lost === 1, "B-DLS7: p1 jugó los 2 mini-partidos, ganó el primero (47-40) y perdió el segundo (2-3)");
-  report.assert(aggP1.pf === 49 && aggP1.pc === 43, "B-DLS7: puntos a favor/en contra de p1 sumados de las dos sesiones (47+2=49 a favor, 40+3=43 en contra)");
-  report.assert(aggP3.played === 2 && aggP3.won === 1 && aggP3.lost === 1, "B-DLS7: p3 (siempre en el equipo contrario a p1) también queda 1-1");
-  report.assert(aggP3.pf === 43 && aggP3.pc === 49, "B-DLS7: puntos a favor/en contra de p3 son justo los inversos de los de p1");
+  // ── Sin ninguna sesión todavía de hoy: la tarjeta del día ofrece 'Iniciar en vivo', sin botón de resultado ──
+  const attHtmlNoSess = win.att();
+  report.assert(attHtmlNoSess.includes("Rueda B-DLS8") && attHtmlNoSess.includes("🏀 Iniciar en vivo") && attHtmlNoSess.includes("openDlsSetupModal('" + dayDrill.id + "')"), "B-DLS8: att() pinta la tarjeta del ejercicio en vivo adjuntado al día, con botón para arrancarlo, cuando todavía no hay ninguna sesión de hoy");
+  report.assert(!attHtmlNoSess.includes("Ver resultado de hoy"), "B-DLS8: sin ninguna sesión guardada hoy, la tarjeta no ofrece el botón de resultado");
 
-  // ── Historial real: openDlsHistoryModal muestra el informe agregado + las 2 sesiones, cada una con su marcador ──
-  win.openDlsHistoryModal(matchDrill.id);
-  const histEl = document.getElementById("m-dls-history");
-  report.assert(!!histEl, "openDlsHistoryModal abre un modal de historial");
-  report.assert(histEl.innerHTML.includes("47") && histEl.innerHTML.includes("40") && histEl.innerHTML.includes("2 - 3"), "el historial lista el marcador de las dos sesiones jugadas");
-  report.assert(histEl.innerHTML.includes("PJ") && histEl.innerHTML.includes("Pts a favor"), "el informe agregado de 'Final de partido' muestra partidos jugados y puntos a favor/en contra por jugador");
-  report.assert(histEl.innerHTML.includes("2 sesiones guardadas"), "el historial indica cuántas sesiones hay guardadas en total");
+  // ── _dlsDayInfo(): una sesión de OTRO día no cuenta para el día actual (S.date) -- la clave de la nueva organización por día, no por ejercicio del catálogo ──
+  win.S.drillLive.t1[dayDrill.id] = [
+    { id: "dls_otherday", drillId: dayDrill.id, drillName: "Rueda B-DLS8", date: "2026-09-10", type: "b11", status: "finished", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: win._dlsEmptyStats() }, log: [] }
+  ];
+  const infoOtherDayOnly = win._dlsDayInfo(win.S.teamId, dayDrill.id, win.S.date);
+  report.assert(infoOtherDayOnly.sessions.length === 0 && infoOtherDayOnly.finished.length === 0 && !infoOtherDayOnly.active, "B-DLS8: _dlsDayInfo() no cuenta una sesión hecha OTRO día distinto al pedido");
+  const attHtmlOtherDay = win.att();
+  report.assert(!attHtmlOtherDay.includes("Ver resultado de hoy") && attHtmlOtherDay.includes("🏀 Iniciar en vivo"), "B-DLS8: la sesión de otro día tampoco hace aparecer el botón de resultado en la tarjeta de HOY");
 
-  // ── Tocar una sesión concreta del historial abre SU resumen exacto (no siempre el último) ──
-  const firstSessBtn = [...histEl.querySelectorAll("[data-dls-hist-session]")].find(b => b.getAttribute("data-dls-hist-session") === endSessions[0].id);
-  report.assert(!!firstSessBtn, "cada sesión del historial es tocable individualmente, identificada por su propio id");
-  firstSessBtn.click();
-  report.assert(!document.getElementById("m-dls-history"), "al tocar una sesión, el modal de historial se cierra");
-  const firstSessSummary = document.getElementById("m-dls-summary")?.innerHTML || "";
-  report.assert(firstSessSummary.includes("47") && firstSessSummary.includes("40") && firstSessSummary.includes("Gana Equipo A"), "B-DLS7: tocar la PRIMERA sesión del historial abre el resumen de esa sesión concreta (47-40), no el de la última (2-3) aunque esa fuera más reciente");
+  // ── Una sesión ACTIVA (en curso) de HOY: la tarjeta ofrece 'Continuar', no 'Iniciar' ──
+  win.S.drillLive.t1[dayDrill.id].push({ id: "dls_today_running", drillId: dayDrill.id, drillName: "Rueda B-DLS8", date: win.S.date, type: "b11", status: "running", durationSec: 600, remainingSec: 480, checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: win._dlsEmptyStats() }, log: [] });
+  const attHtmlActive = win.att();
+  report.assert(attHtmlActive.includes("▶ Continuar") && attHtmlActive.includes("openDlsResumeOrLive('" + dayDrill.id + "')"), "B-DLS8: con una sesión de HOY en curso, la tarjeta del día ofrece 'Continuar' en vez de 'Iniciar'");
+  report.assert(!attHtmlActive.includes("Ver resultado de hoy"), "B-DLS8: mientras la sesión de hoy sigue en curso (no terminada), todavía no hay botón de resultado");
+
+  // ── Terminamos la sesión de hoy: la tarjeta pasa a ofrecer 'Iniciar' de nuevo + el botón de resultado ──
+  win.S.drillLive.t1[dayDrill.id][1].status = "finished";
+  const infoTodayOne = win._dlsDayInfo(win.S.teamId, dayDrill.id, win.S.date);
+  report.assert(infoTodayOne.sessions.length === 1 && infoTodayOne.finished.length === 1 && !infoTodayOne.active, "B-DLS8: _dlsDayInfo() ahora sí cuenta la sesión de HOY ya terminada (y sigue sin contar la del otro día)");
+  const attHtmlFinished = win.att();
+  report.assert(attHtmlFinished.includes("📊") && attHtmlFinished.includes("_dlsOpenDaySummary('" + dayDrill.id + "','" + win.S.date + "')"), "B-DLS8: con una sesión de hoy terminada, la tarjeta ofrece el botón 📊 'Ver resultado de hoy'");
+
+  // ── _dlsOpenDaySummary(): con UNA sola sesión de hoy, abre su resumen directamente (sin selector intermedio) ──
+  win._dlsOpenDaySummary(dayDrill.id, win.S.date);
+  report.assert(!!document.getElementById("m-dls-summary") && !document.getElementById("m-dls-day-sessions"), "B-DLS8: con una única sesión de hoy, _dlsOpenDaySummary() abre directamente su resumen, sin pasar por el selector de varias sesiones");
   document.getElementById("m-dls-summary")?.remove();
 
-  // ── Informe agregado de "Contraataque de 11" (_dlsAggregateB11): datos sintéticos controlados, no depende de lo ya jugado antes en el test ──
-  const b11StatsA = { p2m: 3, p2a: 1, p3m: 1, p3a: 0, reb: 2, to: 1, stl: 0, ast: 1, blk: 0 }; // val sin penalización: (3*1+1*2) + reb2+ast1+stl0+blk0-to1 = 5+2 = 7
-  const b11StatsB = { p2m: 1, p2a: 0, p3m: 0, p3a: 0, reb: 0, to: 0, stl: 1, ast: 0, blk: 1 }; // val: 1 + stl1+blk1 = 3
-  const synthDrillId = "dr_synth1";
-  win.S.drillLive.t1[synthDrillId] = [
-    { id: "dls_synA", drillId: synthDrillId, drillName: "Contraataque de 11 (sintético)", date: "2026-09-10", type: "b11", status: "finished", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }, { id: "p2", name: "Bea López", number: 5 }], stats: { p1: b11StatsA, p2: b11StatsB }, log: [] },
-    { id: "dls_synB", drillId: synthDrillId, drillName: "Contraataque de 11 (sintético)", date: "2026-09-12", type: "b11", status: "finished", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: b11StatsA }, log: [] }, // p2 no participó en esta segunda sesión
-    { id: "dls_synC", drillId: synthDrillId, drillName: "Contraataque de 11 (sintético)", date: "2026-09-14", type: "b11", status: "running", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: b11StatsA }, log: [] } // sesión EN CURSO -- no debe entrar en el agregado
-  ];
-  const aggB11Synth = win._dlsAggregateB11(win.S.drillLive.t1[synthDrillId]);
-  const aggP1b11 = aggB11Synth.find(a => a.p.id === "p1"), aggP2b11 = aggB11Synth.find(a => a.p.id === "p2");
-  report.assert(aggP1b11.sessions === 2, "B-DLS7: p1 aparece en 2 sesiones agregadas (la tercera, en curso, no cuenta)");
-  report.assert(aggP1b11.p2m === 6 && aggP1b11.p3m === 2 && aggP1b11.reb === 4, "B-DLS7: los totales de p1 son la SUMA de las 2 sesiones terminadas (2m: 3+3=6, 3m: 1+1=2, reb: 2+2=4)");
-  report.assert(aggP1b11.avgVal === 7, "B-DLS7: la valoración media de p1 es 7 (misma valoración en las dos sesiones: 7 y 7)");
-  report.assert(aggP2b11.sessions === 1, "B-DLS7: p2 solo aparece en 1 sesión (la única en la que participó)");
-  report.assert(aggP2b11.avgVal === 3, "B-DLS7: la valoración media de p2 es exactamente la de su única sesión (3)");
-  report.assert(aggB11Synth[0].p.id === "p1", "B-DLS7: el informe se ordena por valoración media de mayor a menor (p1 con 7 antes que p2 con 3)");
+  // ── Segunda sesión del mismo ejercicio, TAMBIÉN terminada HOY: ahora sí hace falta elegir cuál ver ──
+  win.S.drillLive.t1[dayDrill.id].push({ id: "dls_today_second", drillId: dayDrill.id, drillName: "Rueda B-DLS8", date: win.S.date, type: "b11", status: "finished", durationSec: 600, remainingSec: 0, checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: win._dlsEmptyStats() }, log: [] });
+  win._dlsOpenDaySummary(dayDrill.id, win.S.date);
+  report.assert(!document.getElementById("m-dls-summary") && !!document.getElementById("m-dls-day-sessions"), "B-DLS8: si el mismo ejercicio se ha hecho DOS veces hoy, _dlsOpenDaySummary() abre el selector de sesiones en vez de asumir cuál se quiere ver");
+  const daySessionsEl = document.getElementById("m-dls-day-sessions");
+  report.assert(daySessionsEl.innerHTML.includes("se ha hecho 2 veces hoy"), "B-DLS8: el selector avisa de cuántas veces se ha repetido el ejercicio hoy");
+  const daySessBtns = [...daySessionsEl.querySelectorAll("[data-dls-day-session]")];
+  report.assert(daySessBtns.length === 2, "B-DLS8: el selector lista las 2 sesiones de hoy, cada una tocable por separado");
 
-  win.openDlsHistoryModal(synthDrillId);
-  const histB11El = document.getElementById("m-dls-history");
-  report.assert(histB11El.innerHTML.includes("Val. media") && histB11El.innerHTML.includes("2pt") && histB11El.innerHTML.includes("3pt"), "B-DLS7: el informe agregado de 'Contraataque de 11' usa las columnas de tiro/valoración, distintas de las de 'Final de partido'");
-  report.assert(histB11El.innerHTML.includes("(en curso)"), "B-DLS7: la sesión todavía en marcha se lista en el historial marcada como 'en curso', aunque no cuente para el agregado");
-  document.getElementById("m-dls-history")?.remove();
+  // ── Tocar una sesión concreta del selector abre SU resumen exacto, identificado por su propio id (_dlsOpenHistorySession, reutilizado de B-DLS7) ──
+  const secondSessBtn = daySessBtns.find(b => b.getAttribute("data-dls-day-session") === "dls_today_second");
+  report.assert(!!secondSessBtn, "cada fila del selector se identifica por el id real de su sesión");
+  secondSessBtn.click();
+  report.assert(!document.getElementById("m-dls-day-sessions") && !!document.getElementById("m-dls-summary"), "B-DLS8: tocar una sesión del selector la cierra y abre el resumen de esa sesión exacta");
+  document.getElementById("m-dls-summary")?.remove();
 
-  // ── Sin ninguna sesión guardada, no revienta -- avisa con un toast en vez de abrir un modal vacío ──
-  win.openDlsHistoryModal("dr_no_existe");
-  report.assert(!document.getElementById("m-dls-history"), "B-DLS7: pedir el historial de un ejercicio sin ninguna sesión guardada no abre un modal vacío");
-  report.assert((document.querySelector(".toast")?.textContent || "").includes("Todavía no hay ninguna sesión guardada"), "B-DLS7: en su lugar avisa con un toast");
+  // ── Sin ninguna sesión terminada hoy para un ejercicio, no revienta -- avisa con un toast en vez de abrir un modal vacío ──
+  win.S.drillLive.t1["dr_no_existe_dls8"] = [];
+  win._dlsOpenDaySummary("dr_no_existe_dls8", win.S.date);
+  report.assert(!document.getElementById("m-dls-summary") && !document.getElementById("m-dls-day-sessions"), "B-DLS8: sin ninguna sesión terminada hoy para ese ejercicio, no se abre ningún modal");
+  report.assert((document.querySelector(".toast")?.textContent || "").includes("Todavía no hay ningún resultado"), "B-DLS8: en su lugar avisa con un toast");
   document.querySelector(".toast")?.remove();
 
   return report.summary();
