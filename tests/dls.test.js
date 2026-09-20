@@ -34,6 +34,15 @@
 // individuales activadas, en cuyo caso REUTILIZA tal cual el motor de
 // captura de b11 (dlsShot/dlsRebound/...) y el marcador de cada equipo se
 // calcula solo a partir de los puntos reales anotados por sus jugadores.
+//
+// v3.0.0-dev.70 · B-DLS6: pedido por Mario tras usar el selector de tipo de
+// B-DLS3 -- "Tipo de ejercicio" pasa a ser el PRIMER campo del alta/edición
+// (antes de Nombre y Categoría), y elegir "Contraataque de 11" o "Final de
+// partido" rellena solos el nombre y la categoría "de libro" de ese tipo
+// (offense/"Ataque / Táctica" y scrimmage/"Partido / Situaciones" de
+// DRILL_CATS) vía _dlsTypeAutofill(). El usuario puede cambiar el nombre
+// después con total libertad -- el autorrelleno solo actúa en el momento de
+// elegir el tipo (evento change del selector), nunca se reimpone solo.
 const { loadApp, newReporter } = require("./harness.js");
 
 async function run() {
@@ -93,6 +102,28 @@ async function run() {
   // ── Retrocompatibilidad: un ejercicio antiguo con liveStats:true (sin dlsType) sigue reconociéndose como 'b11' ──
   report.assert(win._dlsType({ liveStats: true }) === "b11", "B-DLS3: un ejercicio creado con el checkbox viejo (liveStats:true, sin dlsType) sigue tratándose como 'b11' -- no deja de funcionar por el cambio de UI");
   report.assert(win._dlsType({}) === "" && win._dlsType(null) === "", "_dlsType() no revienta con un ejercicio normal o inexistente");
+
+  // ── B-DLS6 (dev.70): elegir el tipo rellena solo el nombre y la categoría "de libro" de ese tipo -- Mario no quiere escribirlo a mano cada vez ──
+  win.openDrillModal();
+  const typeSelAuto = document.getElementById("m-add-drill-dlstype");
+  const nameElAuto = document.getElementById("m-add-drill-name");
+  const catElAuto = document.getElementById("m-add-drill-cat");
+  report.assert(nameElAuto.value === "" && catElAuto.value === "warmup", "B-DLS6: al abrir el alta en blanco, nombre y categoría siguen vacíos/por defecto -- el autorrelleno solo actúa cuando se elige un tipo");
+  typeSelAuto.value = "b11";
+  win._dlsTypeAutofill("m-add-drill");
+  report.assert(nameElAuto.value === "Contraataque de 11", "B-DLS6: elegir el tipo 'Contraataque de 11' rellena el nombre solo");
+  report.assert(catElAuto.value === "offense", "B-DLS6: elegir el tipo 'Contraataque de 11' rellena la categoría 'Ataque / Táctica' sola");
+  nameElAuto.value = "Contraataque de 11 (variante rápida)";
+  report.assert(nameElAuto.value === "Contraataque de 11 (variante rápida)", "B-DLS6: el usuario puede cambiar el nombre después de que se autorrellene, sin que nada se lo pise");
+  typeSelAuto.value = "endgame";
+  win._dlsTypeAutofill("m-add-drill");
+  report.assert(nameElAuto.value === "Final de partido", "B-DLS6: elegir el tipo 'Final de partido' rellena el nombre solo -- y sí sobrescribe lo que hubiera antes, porque el usuario ha vuelto a elegir un tipo explícitamente");
+  report.assert(catElAuto.value === "scrimmage", "B-DLS6: elegir el tipo 'Final de partido' rellena la categoría 'Partido / Situaciones' sola");
+  typeSelAuto.value = "";
+  win._dlsTypeAutofill("m-add-drill");
+  report.assert(nameElAuto.value === "Final de partido", "B-DLS6: volver a 'Normal' no toca nada -- el autorrelleno solo actúa al elegir un tipo con estadísticas en vivo");
+  const dlsTypeFieldOrder = [...document.querySelectorAll("#m-add-drill .fg .fl")].map(l => l.textContent.trim());
+  report.assert(dlsTypeFieldOrder[0] === "Tipo de ejercicio" && dlsTypeFieldOrder.indexOf("Nombre") === 1, "B-DLS6: 'Tipo de ejercicio' es ahora el primer campo del alta, por delante de Nombre y Categoría, para que el autorrelleno tenga sentido en el orden en que se rellena el formulario");
 
   // ── Un ejercicio normal (Tipo="Normal") no ofrece el botón de en vivo ──
   win.openDrillModal();
