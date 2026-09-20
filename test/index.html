@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.69";
+const APP_VERSION = "3.0.0-dev.70";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5669,6 +5669,23 @@ function _dlsType(d){
   if(d.dlsType)return d.dlsType;
   return d.liveStats?"b11":"";
 }
+// v3.0.0-dev.70 · B-DLS6: al elegir un tipo de ejercicio con estadísticas en
+// vivo, se rellenan solos el nombre y la categoría "de libro" de ese tipo
+// (el usuario puede cambiar el nombre después si quiere uno distinto) --
+// pedido explícito de Mario para no tener que escribir "Contraataque de 11"
+// a mano cada vez. "Normal" no tiene valores por defecto: no se toca nada.
+const DLS_TYPE_DEFAULTS={
+  b11:{name:"Contraataque de 11",category:"offense"},
+  endgame:{name:"Final de partido",category:"scrimmage"}
+};
+function _dlsTypeAutofill(modalId){
+  const def=DLS_TYPE_DEFAULTS[document.getElementById(modalId+"-dlstype")?.value];
+  if(!def)return;
+  const nameEl=document.getElementById(modalId+"-name");
+  const catEl=document.getElementById(modalId+"-cat");
+  if(nameEl)nameEl.value=def.name;
+  if(catEl)catEl.value=def.category;
+}
 function _dlsBadgeHtml(d){
   const type=_dlsType(d);
   if(type==="b11")return ' <span style="font-size:9.5px;font-weight:800;color:var(--orange);background:rgba(240,99,24,.12);border-radius:6px;padding:2px 6px;margin-left:2px;white-space:nowrap">🎯 EN VIVO</span>';
@@ -5805,17 +5822,17 @@ function openDrillModal(init){
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">${init?"Editar ejercicio":"Nuevo ejercicio"}</div>
-    <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-name" value="${esc(init?.name||"")}" placeholder="ej. Rueda de tiro exterior" maxlength="60"/></div>
-    <div class="fg"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
-    <div class="fg"><label class="fl">Duración (min) <span style="color:var(--tm)">(opcional)</span></label><input class="fi" id="${id}-min" type="number" min="1" max="120" value="${init?.minutes||""}" placeholder="ej. 10"/></div>
     <div class="fg"><label class="fl">Tipo de ejercicio</label>
-      <select class="fi" id="${id}-dlstype">
+      <select class="fi" id="${id}-dlstype" onchange="_dlsTypeAutofill('${id}')">
         <option value="" ${_dlsType(init)===""?"selected":""}>Normal (sin estadísticas en vivo)</option>
         <option value="b11" ${_dlsType(init)==="b11"?"selected":""}>🎯 Contraataque de 11 (estadísticas de tiro)</option>
         <option value="endgame" ${_dlsType(init)==="endgame"?"selected":""}>⏱️ Final de partido (mini-partido con marcador)</option>
       </select>
-      <div style="font-size:11px;color:var(--tm);margin-top:4px">Elegir un tipo activa sus propias estadísticas/marcador en vivo al lanzar el ejercicio.</div>
+      <div style="font-size:11px;color:var(--tm);margin-top:4px">Elegir un tipo activa sus propias estadísticas/marcador en vivo al lanzar el ejercicio, y rellena el nombre y la categoría de abajo (puedes cambiarlos después).</div>
     </div>
+    <div class="fg"><label class="fl">Nombre</label><input class="fi" id="${id}-name" value="${esc(init?.name||"")}" placeholder="ej. Rueda de tiro exterior" maxlength="60"/></div>
+    <div class="fg"><label class="fl">Categoría</label><select class="fi" id="${id}-cat">${catsHtml}</select></div>
+    <div class="fg"><label class="fl">Duración (min) <span style="color:var(--tm)">(opcional)</span></label><input class="fi" id="${id}-min" type="number" min="1" max="120" value="${init?.minutes||""}" placeholder="ej. 10"/></div>
     <div class="fg"><label class="fl">Notas <span style="color:var(--tm)">(opcional)</span></label><textarea class="fi" id="${id}-notes" rows="3" style="resize:none" placeholder="Descripción, variantes, material...">${esc(init?.notes||"")}</textarea></div>
     <button class="btn-p" onclick="saveDrill('${id}','${init?.id||""}')">${init?"Guardar":"Añadir al catálogo"}</button>
     ${init?`<button class="btn-s" onclick="deleteDrill('${init.id}')" style="color:#ef4444">🗑 Eliminar del catálogo</button>`:""}
