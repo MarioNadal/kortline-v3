@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.72";
+const APP_VERSION = "3.0.0-dev.73";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4046,15 +4046,25 @@ function navBar(){
 ═══════════════════════════════════════ */
 function hoy(){
   const ti=todayIdx();
-  const todayTeams=S.teams.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
+  const today=td();
+  const scheduledToday=S.teams.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
+  // v3.0.0-dev.73 · B-HOY2: un "Entrenamiento sorpresa" (openHoyAddSheet,
+  // fuera del horario semanal fijo) guarda su asistencia exactamente igual
+  // que cualquier otro entreno (S.sessions[sk(teamId,date)], vía cycleAtt/
+  // confirmSession) -- pero el equipo nunca aparecía en "Hoy" porque este
+  // filtro solo miraba el horario semanal fijo, nunca si ya se había pasado
+  // lista hoy. Pedido explícito de Mario: si se guarda la asistencia de un
+  // entrenamiento sorpresa, debe verse en "Hoy" igual que uno programado.
+  const surpriseToday=S.teams.filter(t=>!(t.schedule&&t.schedule.hasOwnProperty(ti))&&!!S.sessions[sk(t.id,today)]);
+  const todayTeams=[...scheduledToday,...surpriseToday];
   // v1.8.31 · B-HOY1: la pantalla Hoy iba en el orden de la pantalla Equipos
   // (S.teams / _sortTeams()), que no tiene por que coincidir con la hora de
   // cada entreno. Aqui interesa el orden cronologico: primero el entreno mas
   // proximo (al que antes hay que pasar lista). Los que no tienen hora puesta
-  // van al final.
-  const todayTeams_sorted=[...todayTeams].sort((a,b)=>(a.schedule[ti]||"99:99").localeCompare(b.schedule[ti]||"99:99"));
+  // van al final -- un entrenamiento sorpresa nunca tiene hora fija, así que
+  // siempre cae al final del todo, junto a los programados sin hora puesta.
+  const todayTeams_sorted=[...todayTeams].sort((a,b)=>((a.schedule&&a.schedule[ti])||"99:99").localeCompare((b.schedule&&b.schedule[ti])||"99:99"));
   const dateStr=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
-  const today=td();
   // ── Today's matches ──
   // Deduplicate matches by id (in case same match indexed under multiple keys)
   const _allMatchMap={};
@@ -4119,7 +4129,7 @@ function hoy(){
   }).join("");
 // ── Training cards ──
   const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
-    const time=t.schedule[ti];
+    const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija
     const sess=so(t.id,today);
     const _hasTN=!!tn(t.id,today); // v3 · B-TNOTES1: ¿ya hay notas de entrenamiento para hoy?
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
@@ -4169,7 +4179,7 @@ function hoy(){
   // ahora"); si aun no ha llegado, como aviso normal.
   const _nowHM=new Date().toTimeString().slice(0,5);
   const _nextTrainingPending=todayTeams_sorted.find(t=>{
-    const time=t.schedule[ti];
+    const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija, nunca cuenta como "pendiente por hora"
     if(!time)return false;
     const sess=so(t.id,today);
     return pl(t.id).filter(p=>sess[p.id]).length===0;
