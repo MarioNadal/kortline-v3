@@ -43,6 +43,22 @@
 // DRILL_CATS) vía _dlsTypeAutofill(). El usuario puede cambiar el nombre
 // después con total libertad -- el autorrelleno solo actúa en el momento de
 // elegir el tipo (evento change del selector), nunca se reimpone solo.
+//
+// v3.0.0-dev.71 · B-DLS7: Mario preguntó si merecía la pena guardar las
+// sesiones de "Contraataque de 11"/"Final de partido" archivadas con su
+// fecha "para sacar estadísticas" -- la respuesta es que ya se guardaban así
+// desde B-DLS1 (y de verdad, desde el fix de persistencia B-DLS4), pero
+// faltaba una pantalla que cruzara todas las sesiones guardadas. El botón
+// "📊" del catálogo/picker (antes abría solo la ÚLTIMA sesión, mal
+// etiquetado "Ver historial") ahora abre openDlsHistoryModal(): lista TODAS
+// las sesiones del ejercicio (más reciente primero, cada una tocable para
+// ver su resumen exacto) + un informe agregado por jugador de toda la
+// temporada arriba -- _dlsAggregateB11 (sesiones/tiros/rebotes/valoración
+// media) para "Contraataque de 11", _dlsAggregateEndgame (partidos jugados/
+// ganados/perdidos/puntos a favor y en contra según el equipo al que le
+// tocara cada mini-partido) para "Final de partido". Solo cuentan las
+// sesiones con status "finished" -- una en curso todavía no tiene sus
+// estadísticas cerradas.
 const { loadApp, newReporter } = require("./harness.js");
 
 async function run() {
@@ -329,10 +345,13 @@ async function run() {
   report.assert(!!document.getElementById("m-dls-summary"), "al terminar se abre el resumen automáticamente");
   document.getElementById("m-dls-summary").remove();
 
-  // ── La fila del catálogo refleja el estado 'finished': ya no ofrece "continuar", sí "ver último resultado" ──
+  // ── La fila del catálogo refleja el estado 'finished': ya no ofrece "continuar", sí "ver historial" ──
   const libHtmlAfterFinish = win._drillLibraryRowsHtml();
   report.assert(libHtmlAfterFinish.includes("openDlsSetupModal('" + drill.id + "')"), "tras terminar, la fila vuelve a ofrecer 'Iniciar en vivo' (nueva sesión) en vez de 'Continuar'");
-  report.assert(libHtmlAfterFinish.includes("openDlsSummaryModal('" + drill.id + "')"), "tras terminar, la fila ofrece un acceso para ver el último resultado");
+  // v3.0.0-dev.71 · B-DLS7: el botón "📊" pasa de abrir solo la última sesión
+  // (openDlsSummaryModal) a abrir el historial real (openDlsHistoryModal) --
+  // ver la sección B-DLS7 más abajo para la cobertura completa del cambio.
+  report.assert(libHtmlAfterFinish.includes("openDlsHistoryModal('" + drill.id + "')"), "tras terminar, la fila ofrece un acceso para ver el historial");
 
   // ── Lanzar una nueva sesión el mismo día NO sobreescribe el historial anterior ──
   const sessCountBefore = win.S.drillLive.t1[drill.id].length;
@@ -479,6 +498,76 @@ async function run() {
   // ── El historial de "Final de partido" se guarda en el mismo S.drillLive de siempre, junto al de b11 -- nunca se borra nada ──
   report.assert(win.S.drillLive.t1[matchDrill.id].length === 2, "las dos sesiones de 'Final de partido' quedan en el histórico del ejercicio, sin sobreescribirse entre sí");
   report.assert(win.S.drillLive.t1[matchDrill.id].every(s => s.type === "endgame"), "ambas sesiones guardadas mantienen su type='endgame'");
+
+  // ══════════════════════════════════════════════════════════════════════
+  // B-DLS7 (dev.71): historial real (todas las sesiones) + informe agregado
+  // por jugador. Mario preguntó si merecía la pena guardar las sesiones
+  // archivadas con su fecha "para sacar estadísticas" -- ya se guardaban así
+  // (B-DLS4), lo que faltaba era esta pantalla que las cruzara. El botón
+  // "📊" del catálogo (antes abría solo la ÚLTIMA sesión, mal etiquetado
+  // "Ver historial") ahora abre el historial real.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── El catálogo ahora enlaza el botón "📊" a openDlsHistoryModal, no a openDlsSummaryModal ──
+  const libHtmlHistBtn = win._drillLibraryRowsHtml();
+  report.assert(libHtmlHistBtn.includes("openDlsHistoryModal('" + matchDrill.id + "')"), "B-DLS7: el botón '📊 Ver historial' del catálogo ahora abre el historial real (openDlsHistoryModal), no solo la última sesión");
+  report.assert(!libHtmlHistBtn.includes("openDlsSummaryModal('" + matchDrill.id + "')"), "B-DLS7: openDlsSummaryModal ya no se ofrece directamente desde la fila del catálogo");
+
+  // ── Informe agregado de "Final de partido" (_dlsAggregateEndgame): p1 (Equipo A las dos veces) y p3 (Equipo B las dos veces), con los dos mini-partidos ya jugados en este test (47-40 y 2-3) ──
+  const endSessions = win.S.drillLive.t1[matchDrill.id];
+  const aggEnd = win._dlsAggregateEndgame(endSessions);
+  const aggP1 = aggEnd.find(a => a.p.id === "p1"), aggP3 = aggEnd.find(a => a.p.id === "p3");
+  report.assert(aggP1.played === 2 && aggP1.won === 1 && aggP1.lost === 1, "B-DLS7: p1 jugó los 2 mini-partidos, ganó el primero (47-40) y perdió el segundo (2-3)");
+  report.assert(aggP1.pf === 49 && aggP1.pc === 43, "B-DLS7: puntos a favor/en contra de p1 sumados de las dos sesiones (47+2=49 a favor, 40+3=43 en contra)");
+  report.assert(aggP3.played === 2 && aggP3.won === 1 && aggP3.lost === 1, "B-DLS7: p3 (siempre en el equipo contrario a p1) también queda 1-1");
+  report.assert(aggP3.pf === 43 && aggP3.pc === 49, "B-DLS7: puntos a favor/en contra de p3 son justo los inversos de los de p1");
+
+  // ── Historial real: openDlsHistoryModal muestra el informe agregado + las 2 sesiones, cada una con su marcador ──
+  win.openDlsHistoryModal(matchDrill.id);
+  const histEl = document.getElementById("m-dls-history");
+  report.assert(!!histEl, "openDlsHistoryModal abre un modal de historial");
+  report.assert(histEl.innerHTML.includes("47") && histEl.innerHTML.includes("40") && histEl.innerHTML.includes("2 - 3"), "el historial lista el marcador de las dos sesiones jugadas");
+  report.assert(histEl.innerHTML.includes("PJ") && histEl.innerHTML.includes("Pts a favor"), "el informe agregado de 'Final de partido' muestra partidos jugados y puntos a favor/en contra por jugador");
+  report.assert(histEl.innerHTML.includes("2 sesiones guardadas"), "el historial indica cuántas sesiones hay guardadas en total");
+
+  // ── Tocar una sesión concreta del historial abre SU resumen exacto (no siempre el último) ──
+  const firstSessBtn = [...histEl.querySelectorAll("[data-dls-hist-session]")].find(b => b.getAttribute("data-dls-hist-session") === endSessions[0].id);
+  report.assert(!!firstSessBtn, "cada sesión del historial es tocable individualmente, identificada por su propio id");
+  firstSessBtn.click();
+  report.assert(!document.getElementById("m-dls-history"), "al tocar una sesión, el modal de historial se cierra");
+  const firstSessSummary = document.getElementById("m-dls-summary")?.innerHTML || "";
+  report.assert(firstSessSummary.includes("47") && firstSessSummary.includes("40") && firstSessSummary.includes("Gana Equipo A"), "B-DLS7: tocar la PRIMERA sesión del historial abre el resumen de esa sesión concreta (47-40), no el de la última (2-3) aunque esa fuera más reciente");
+  document.getElementById("m-dls-summary")?.remove();
+
+  // ── Informe agregado de "Contraataque de 11" (_dlsAggregateB11): datos sintéticos controlados, no depende de lo ya jugado antes en el test ──
+  const b11StatsA = { p2m: 3, p2a: 1, p3m: 1, p3a: 0, reb: 2, to: 1, stl: 0, ast: 1, blk: 0 }; // val sin penalización: (3*1+1*2) + reb2+ast1+stl0+blk0-to1 = 5+2 = 7
+  const b11StatsB = { p2m: 1, p2a: 0, p3m: 0, p3a: 0, reb: 0, to: 0, stl: 1, ast: 0, blk: 1 }; // val: 1 + stl1+blk1 = 3
+  const synthDrillId = "dr_synth1";
+  win.S.drillLive.t1[synthDrillId] = [
+    { id: "dls_synA", drillId: synthDrillId, drillName: "Contraataque de 11 (sintético)", date: "2026-09-10", type: "b11", status: "finished", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }, { id: "p2", name: "Bea López", number: 5 }], stats: { p1: b11StatsA, p2: b11StatsB }, log: [] },
+    { id: "dls_synB", drillId: synthDrillId, drillName: "Contraataque de 11 (sintético)", date: "2026-09-12", type: "b11", status: "finished", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: b11StatsA }, log: [] }, // p2 no participó en esta segunda sesión
+    { id: "dls_synC", drillId: synthDrillId, drillName: "Contraataque de 11 (sintético)", date: "2026-09-14", type: "b11", status: "running", checklist: { missPenalty: false }, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: b11StatsA }, log: [] } // sesión EN CURSO -- no debe entrar en el agregado
+  ];
+  const aggB11Synth = win._dlsAggregateB11(win.S.drillLive.t1[synthDrillId]);
+  const aggP1b11 = aggB11Synth.find(a => a.p.id === "p1"), aggP2b11 = aggB11Synth.find(a => a.p.id === "p2");
+  report.assert(aggP1b11.sessions === 2, "B-DLS7: p1 aparece en 2 sesiones agregadas (la tercera, en curso, no cuenta)");
+  report.assert(aggP1b11.p2m === 6 && aggP1b11.p3m === 2 && aggP1b11.reb === 4, "B-DLS7: los totales de p1 son la SUMA de las 2 sesiones terminadas (2m: 3+3=6, 3m: 1+1=2, reb: 2+2=4)");
+  report.assert(aggP1b11.avgVal === 7, "B-DLS7: la valoración media de p1 es 7 (misma valoración en las dos sesiones: 7 y 7)");
+  report.assert(aggP2b11.sessions === 1, "B-DLS7: p2 solo aparece en 1 sesión (la única en la que participó)");
+  report.assert(aggP2b11.avgVal === 3, "B-DLS7: la valoración media de p2 es exactamente la de su única sesión (3)");
+  report.assert(aggB11Synth[0].p.id === "p1", "B-DLS7: el informe se ordena por valoración media de mayor a menor (p1 con 7 antes que p2 con 3)");
+
+  win.openDlsHistoryModal(synthDrillId);
+  const histB11El = document.getElementById("m-dls-history");
+  report.assert(histB11El.innerHTML.includes("Val. media") && histB11El.innerHTML.includes("2pt") && histB11El.innerHTML.includes("3pt"), "B-DLS7: el informe agregado de 'Contraataque de 11' usa las columnas de tiro/valoración, distintas de las de 'Final de partido'");
+  report.assert(histB11El.innerHTML.includes("(en curso)"), "B-DLS7: la sesión todavía en marcha se lista en el historial marcada como 'en curso', aunque no cuente para el agregado");
+  document.getElementById("m-dls-history")?.remove();
+
+  // ── Sin ninguna sesión guardada, no revienta -- avisa con un toast en vez de abrir un modal vacío ──
+  win.openDlsHistoryModal("dr_no_existe");
+  report.assert(!document.getElementById("m-dls-history"), "B-DLS7: pedir el historial de un ejercicio sin ninguna sesión guardada no abre un modal vacío");
+  report.assert((document.querySelector(".toast")?.textContent || "").includes("Todavía no hay ninguna sesión guardada"), "B-DLS7: en su lugar avisa con un toast");
+  document.querySelector(".toast")?.remove();
 
   return report.summary();
 }
