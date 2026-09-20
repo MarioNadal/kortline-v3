@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.71";
+const APP_VERSION = "3.0.0-dev.72";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4370,12 +4370,23 @@ function att(){
   // f.exercises), como una forma más rápida de registrar ejercicios
   // repetidos sin escribirlos a mano cada vez.
   const sessDrills=f.exercises?_sessionDrills():[];
+  // v3.0.0-dev.72 · B-DLS8: los ejercicios con estadísticas en vivo
+  // (Contraataque de 11 / Final de partido) adjuntados a ESTE día muestran
+  // aquí mismo sus controles (Iniciar/Continuar/Ver resultado de hoy) --
+  // pedido explícito de Mario tras probar B-DLS7: el Catálogo de ejercicios
+  // pasa a ser solo referencia (qué ejercicios existen), y arrancar/ver
+  // resultados de un ejercicio en vivo vive SIEMPRE en el día concreto en
+  // que se hace, no en una vista agregada por ejercicio del catálogo (que
+  // además no tendría sentido si hay varios ejercicios con el mismo nombre
+  // en el catálogo -- ver _dlsDayCardHtml).
+  const dlsDayCardsHtml=f.exercises?sessDrills.filter(d=>_dlsType(d)).map(d=>_dlsDayCardHtml(d)).join(""):"";
   const drillsChipsHtml=f.exercises?`<div class="fg">
     <label class="fl">🗂️ Del catálogo <span style="color:var(--tm)">(opcional)</span></label>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
       ${sessDrills.map(d=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(240,99,24,.12);color:var(--orange);border:1px solid rgba(240,99,24,.3)">${_drillCat(d.category).icon} ${esc(d.name)}<button onclick="toggleSessionDrill('${d.id}')" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;line-height:1">✕</button></span>`).join("")}
       <button onclick="openDrillPickerModal()" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;background:var(--s2);color:var(--td);border:1px dashed var(--border);cursor:pointer">+ Añadir</button>
     </div>
+    ${dlsDayCardsHtml}
   </div>`:"";
   const isAutoMode=f.playerScore&&!sess._teamScoreManual;
   const hasIndivScores=f.playerScore&&players.some(p=>sess[p.id+"_score"]>0);
@@ -5648,7 +5659,11 @@ function toggleSessionDrill(drillId){
     // Se guarda una copia (nombre/categoria/minutos) en vez de solo el id:
     // si el ejercicio se edita o se borra del catalogo mas adelante, el
     // historial de esa sesion sigue mostrando lo que de verdad se hizo ese dia.
-    cur.push({id:lib.id,name:lib.name,category:lib.category,minutes:lib.minutes||null});
+    // v3.0.0-dev.72 · B-DLS8: se copia también dlsType -- el día necesita
+    // saber si este ejercicio tiene estadísticas en vivo (para ofrecer sus
+    // controles directamente en el propio día) aunque el ejercicio se borre
+    // o cambie de tipo en el catálogo más adelante.
+    cur.push({id:lib.id,name:lib.name,category:lib.category,minutes:lib.minutes||null,dlsType:_dlsType(lib)});
   }
   sess.drills=cur;
   S.sessions[k]=sess;
@@ -5692,24 +5707,75 @@ function _dlsBadgeHtml(d){
   if(type==="endgame")return ' <span style="font-size:9.5px;font-weight:800;color:#3b82f6;background:rgba(59,130,246,.12);border-radius:6px;padding:2px 6px;margin-left:2px;white-space:nowrap">⏱️ FINAL PARTIDO</span>';
   return "";
 }
-// Fila de botones "en vivo" compartida entre el catálogo (Equipo →
-// Catálogo de ejercicios) y el picker de la sesión del día -- evita tener
-// la misma lógica duplicada en dos sitios (ya pasó con B-DLS2). Cada tipo
-// abre su propio modal de configuración (b11: openDlsSetupModal, endgame:
-// openDlsMatchSetupModal) pero comparten "Continuar"/"Ver historial".
-function _dlsLiveRowHtml(d){
+// v3.0.0-dev.72 · B-DLS8: Mario probó B-DLS7 (historial agregado por
+// ejercicio del catálogo) y pidió cambiar el planteamiento por completo --
+// el Catálogo de ejercicios pasa a ser solo referencia (qué ejercicios
+// existen), sin ningún control de "en vivo". Arrancar, continuar y ver el
+// resultado de un ejercicio con estadísticas vive SIEMPRE en el DÍA
+// concreto del entrenamiento (el propio pase de lista de esa fecha, sección
+// "🗂️ Del catálogo" de att()) -- así, si el catálogo tiene varios ejercicios
+// llamados igual ("Contraataque de 11" x100), cada uno guarda sus
+// estadísticas por SESIÓN/DÍA, sin necesidad de un agregado por ejercicio
+// del catálogo que Mario no quiere. _dlsDayInfo() filtra las sesiones de un
+// ejercicio a las de una fecha concreta; _dlsDayCardHtml() es la tarjeta que
+// se pinta en att() para cada ejercicio en vivo adjuntado a ese día.
+function _dlsDayInfo(teamId,drillId,date){
+  const sessions=_dlsList(teamId,drillId).filter(s=>(s.date||td())===date);
+  return {
+    sessions,
+    active:sessions.find(s=>s.status!=="finished")||null,
+    finished:sessions.filter(s=>s.status==="finished")
+  };
+}
+function _dlsDayCardHtml(d){
   const type=_dlsType(d);
   if(!type)return "";
-  const active=_dlsActive(S.teamId,d.id);
-  const lastFinished=!active?_dlsLastFinished(S.teamId,d.id):null;
+  const info=_dlsDayInfo(S.teamId,d.id,S.date);
   const setupFn=type==="endgame"?"openDlsMatchSetupModal":"openDlsSetupModal";
   const startLabel=type==="endgame"?"⏱️ Configurar mini-partido":"🏀 Iniciar en vivo";
-  return `<div style="display:flex;gap:6px;margin-top:8px">
-    ${active
-      ?`<button class="btn-p" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="openDlsResumeOrLive('${d.id}')">▶ Continuar (${_fmtClock(active.remainingSec)})</button>`
-      :`<button class="btn-s" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="${setupFn}('${d.id}')">${startLabel}</button>`}
-    ${lastFinished?`<button class="btn-s" style="padding:9px 12px;font-size:12.5px;margin:0" onclick="openDlsHistoryModal('${d.id}')" title="Ver historial">📊</button>`:""}
+  const actionHtml=info.active
+    ?`<button class="btn-p" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="openDlsResumeOrLive('${d.id}')">▶ Continuar (${_fmtClock(info.active.remainingSec)})</button>`
+    :`<button class="btn-s" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="${setupFn}('${d.id}')">${startLabel}</button>`;
+  const resultBtn=info.finished.length
+    ?`<button class="btn-s" style="padding:9px 12px;font-size:12.5px;margin:0" onclick="_dlsOpenDaySummary('${d.id}','${S.date}')" title="Ver resultado de hoy">📊</button>`
+    :"";
+  return `<div data-dls-day-card="${d.id}" style="padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:18px">${_drillCat(d.category).icon}</span>
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}${_dlsBadgeHtml(d)}</div></div>
+    </div>
+    <div style="display:flex;gap:6px">${actionHtml}${resultBtn}</div>
   </div>`;
+}
+// Abre el resultado de HOY de este ejercicio -- si se ha repetido varias
+// veces el mismo día (poco habitual, pero posible), deja elegir cuál ver en
+// vez de asumir que quieres siempre la última.
+function _dlsOpenDaySummary(drillId,date){
+  const info=_dlsDayInfo(S.teamId,drillId,date);
+  if(!info.finished.length){toast("Todavía no hay ningún resultado de este ejercicio hoy");return;}
+  if(info.finished.length===1)return _dlsRenderSessionSummary(info.finished[0],drillId);
+  _dlsOpenDaySessionsList(drillId,info.finished);
+}
+function _dlsOpenDaySessionsList(drillId,sessions){
+  document.getElementById("m-dls-day-sessions")?.remove();
+  const rows=sessions.map((s,i)=>{
+    const type=_dlsSessType(s);
+    const recap=type==="endgame"?`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`:`${(s.players||[]).length} jugadores`;
+    return `<button data-dls-day-session="${s.id}" onclick="_dlsOpenHistorySession('${drillId}','${s.id}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;margin-bottom:6px;font-family:inherit">
+      <span style="font-size:12.5px">Sesión ${i+1}</span><span style="font-size:12px;color:var(--tm)">${recap}</span>
+    </button>`;
+  }).join("");
+  const el=document.createElement("div");el.id="m-dls-day-sessions";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">📊 Resultados de hoy</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">Este ejercicio se ha hecho ${sessions.length} veces hoy -- elige cuál quieres ver</div>
+    ${rows}
+    <button class="btn-s" onclick="document.getElementById('m-dls-day-sessions').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
 }
 function _drillPickerListHtml(){
   const lib=_teamDrills(S.teamId);
@@ -5720,14 +5786,12 @@ function _drillPickerListHtml(){
   return lib.map(d=>{
     const cat=_drillCat(d.category);
     const on=chosen.has(d.id);
-    // v3.0.0-dev.66 · B-DLS2: mismos accesos a "en vivo" que ya tenía el
-    // catálogo (Equipo → Catálogo de ejercicios) pero AQUÍ, en "Ejercicios
-    // de la sesión" de hoy -- pedido explícito de Mario para no tener que
-    // salir de la planificación del entrenamiento del día para arrancar,
-    // continuar o revisar el historial de un ejercicio con estadísticas.
-    // v3.0.0-dev.67 · B-DLS3: ahora cubre los dos tipos (b11 / endgame) vía
-    // _dlsLiveRowHtml/_dlsBadgeHtml, en vez de mirar d.liveStats a mano.
-    const liveBtnHtml=_dlsLiveRowHtml(d);
+    // v3.0.0-dev.72 · B-DLS8: ya no se ofrecen aquí los controles de "en
+    // vivo" (arrancar/continuar/ver resultado) -- este picker es solo para
+    // adjuntar/quitar ejercicios del día. Una vez adjuntado, sus controles
+    // en vivo aparecen en el propio día (att(), sección "🗂️ Del catálogo"),
+    // ver _dlsDayCardHtml(). El badge (🎯/⏱️) se mantiene, solo como
+    // referencia de qué ejercicios tienen estadísticas en vivo disponibles.
     return `<div style="padding:10px;border:1px solid ${on?"var(--orange)":"var(--border)"};background:${on?"rgba(240,99,24,.1)":"var(--s2)"};border-radius:10px;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <button onclick="toggleSessionDrill('${d.id}')" style="flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;cursor:pointer;padding:0">
@@ -5739,7 +5803,6 @@ function _drillPickerListHtml(){
         </button>
         <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
       </div>
-      ${liveBtnHtml}
     </div>`;
   }).join("");
 }
@@ -5775,11 +5838,13 @@ function _drillLibraryRowsHtml(){
   return lib.map(d=>{
     const cat=_drillCat(d.category);
     const notesPreview=d.notes?` · ${esc(d.notes.slice(0,40))}${d.notes.length>40?"…":""}`:"";
-    // v3.0.0-dev.57 · B-DLS1: si el ejercicio tiene un tipo en vivo asignado
-    // (_dlsType), esta fila ofrece además el botón para lanzar/continuar la
-    // captura en vivo (o ver el último resultado). v3.0.0-dev.67 · B-DLS3:
-    // ahora cubre los dos tipos (b11 / endgame) vía _dlsLiveRowHtml/_dlsBadgeHtml.
-    const liveBtnHtml=_dlsLiveRowHtml(d);
+    // v3.0.0-dev.72 · B-DLS8: el Catálogo de ejercicios pasa a ser solo
+    // referencia (qué ejercicios existen y cómo son) -- pedido explícito de
+    // Mario, para poder tener "Contraataque de 11" repetido tantas veces
+    // como quiera sin que eso implique nada sobre estadísticas. Ya no ofrece
+    // arrancar/continuar/ver resultado en vivo (eso vive en el día concreto
+    // del entrenamiento, ver _dlsDayCardHtml en att()). El badge (🎯/⏱️) se
+    // mantiene, solo como referencia de qué tipo de ejercicio es.
     return `<div style="padding:10px;border:1px solid var(--border);background:var(--s2);border-radius:10px;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:18px">${cat.icon}</span>
@@ -5789,7 +5854,6 @@ function _drillLibraryRowsHtml(){
         </div>
         <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
       </div>
-      ${liveBtnHtml}
     </div>`;
   }).join("");
 }
@@ -5805,7 +5869,7 @@ function openDrillLibraryModal(){
   el.innerHTML=`<div class="modal" style="max-height:85vh;overflow-y:auto">
     <div class="mhandle"></div>
     <div class="mtitle">🗂️ Catálogo de ejercicios</div>
-    <div style="font-size:12px;color:var(--tm);margin:-8px 0 12px">Ejercicios reutilizables de este equipo. Para usarlos en un entrenamiento concreto, adjúntalos desde el pase de lista (📋 Ejercicios de la sesión). Los marcados 🎯 o ⏱️ permiten además capturar estadísticas o un mini-partido en vivo desde aquí mismo.</div>
+    <div style="font-size:12px;color:var(--tm);margin:-8px 0 12px">Ejercicios reutilizables de este equipo. Para usarlos en un entrenamiento concreto, adjúntalos desde el pase de lista (📋 Ejercicios de la sesión). Los marcados 🎯 o ⏱️ tienen estadísticas o un mini-partido en vivo -- una vez adjuntados a un día, sus controles y resultados aparecen ahí mismo, en el pase de lista de ese día.</div>
     <div id="drill-library-list">${_drillLibraryRowsHtml()}</div>
     <button class="btn-p" onclick="openDrillModal()" style="margin-top:4px">+ Nuevo ejercicio</button>
     <button class="btn-s" onclick="document.getElementById('m-drill-library').remove()">Cerrar</button>
@@ -6659,8 +6723,9 @@ function openDlsSummaryModal(drillId){
 }
 // v3.0.0-dev.71 · B-DLS7: separado de openDlsSummaryModal (que solo sabía
 // mostrar la sesión ACTIVA o la ÚLTIMA terminada) para poder reutilizarlo
-// también desde el historial real (openDlsHistoryModal) y abrir el resumen
-// de CUALQUIER sesión pasada, no solo la más reciente.
+// también desde el resultado de un día concreto (ver B-DLS8 más abajo,
+// _dlsOpenDaySummary/_dlsOpenHistorySession) y abrir el resumen de
+// CUALQUIER sesión pasada, no solo la más reciente.
 function _dlsRenderSessionSummary(b,targetId){
   if(_dlsSessType(b)==="endgame")return _openDlsMatchSummaryModal(b,targetId);
   document.getElementById("m-dls-summary")?.remove();
@@ -6751,135 +6816,14 @@ function _openDlsMatchSummaryModal(b,targetId){
   </div>`;
   document.body.appendChild(el);
 }
-/* ── Historial real + informe agregado (B-DLS7, dev.71) ──
-   Mario preguntó explícitamente si merecía la pena guardar las sesiones de
-   "Contraataque de 11"/"Final de partido" archivadas con su fecha para poder
-   sacar estadísticas más adelante -- la respuesta es que ya se guardaban así
-   (fecha, plantilla completa, estadísticas y log de acciones, para siempre,
-   desde el fix de B-DLS4), pero lo que NO existía era una pantalla que
-   cruzara todas esas sesiones. El botón "📊" del catálogo/picker de sesión
-   ya decía "Ver historial" pero en realidad solo abría la ÚLTIMA sesión
-   (openDlsSummaryModal) -- ahora sí abre un historial real.
-   Solo se agregan sesiones con status "finished": una sesión en curso todavía
-   no tiene sus estadísticas cerradas y falsearía las medias. */
-function _dlsAggregateB11(sessions){
-  const byPid={};
-  sessions.filter(s=>s.status==="finished").forEach(s=>{
-    const missPenalty=!!(s.checklist&&s.checklist.missPenalty);
-    (s.players||[]).forEach(p=>{
-      const st=(s.stats&&s.stats[p.id])||_dlsEmptyStats();
-      if(!byPid[p.id])byPid[p.id]={p,sessions:0,p2m:0,p2a:0,p3m:0,p3a:0,reb:0,to:0,stl:0,ast:0,blk:0,totalVal:0};
-      const a=byPid[p.id];
-      a.p=p; // se queda con la copia más reciente (por si cambió apodo/dorsal entre sesiones)
-      a.sessions++;
-      a.p2m+=st.p2m||0;a.p2a+=st.p2a||0;a.p3m+=st.p3m||0;a.p3a+=st.p3a||0;
-      a.reb+=st.reb||0;a.to+=st.to||0;a.stl+=st.stl||0;a.ast+=st.ast||0;a.blk+=st.blk||0;
-      a.totalVal+=_dlsValoracion(st,missPenalty);
-    });
-  });
-  return Object.values(byPid)
-    .map(a=>({...a,avgVal:a.sessions?Math.round((a.totalVal/a.sessions)*10)/10:0}))
-    .sort((x,y)=>y.avgVal-x.avgVal);
-}
-// Un mini-partido no tiene "Equipo A"/"Equipo B" fijos de sesión a sesión --
-// el entrenador los arma a mano cada vez -- así que "agregar por equipo" no
-// tendría sentido. Lo que SÍ es estable es cada JUGADOR: cuántos mini-
-// partidos ha jugado, cuántos ganó/perdió según el lado al que le tocara ese
-// día, y puntos a favor/en contra de su equipo en cada uno.
-function _dlsAggregateEndgame(sessions){
-  const byPid={};
-  sessions.filter(s=>s.status==="finished").forEach(s=>{
-    const scoreA=_dlsMatchTeamScore(s,"A"),scoreB=_dlsMatchTeamScore(s,"B");
-    (s.players||[]).forEach(p=>{
-      if(p.team!=="A"&&p.team!=="B")return;
-      const own=p.team==="A"?scoreA:scoreB, rival=p.team==="A"?scoreB:scoreA;
-      if(!byPid[p.id])byPid[p.id]={p,played:0,won:0,lost:0,tied:0,pf:0,pc:0};
-      const a=byPid[p.id];
-      a.p=p;a.played++;a.pf+=own;a.pc+=rival;
-      if(own>rival)a.won++;else if(own<rival)a.lost++;else a.tied++;
-    });
-  });
-  return Object.values(byPid).sort((x,y)=>(y.won-y.lost)-(x.won-x.lost));
-}
-function _dlsHistoryRowsHtml(aggB11,aggEnd){
-  const b11Html=aggB11.length?`<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
-      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
-      <th style="font-size:10px;color:var(--tm)">Ses.</th>
-      <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
-      <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Pérd</th><th style="font-size:10px;color:var(--tm)">Rob</th>
-      <th style="font-size:10px;color:var(--tm)">Ast</th><th style="font-size:10px;color:var(--tm)">Tap</th>
-      <th style="font-size:10px;color:var(--orange)">Val. media</th>
-    </tr></thead><tbody>${aggB11.map(a=>`<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(a.p))}${a.p.number!=null?` <span style="color:var(--tm);font-size:10px">#${a.p.number}</span>`:""}</td>
-      <td style="text-align:center;font-size:12px">${a.sessions}</td>
-      <td style="text-align:center;font-size:12px">${a.p2m}/${a.p2m+a.p2a}</td>
-      <td style="text-align:center;font-size:12px">${a.p3m}/${a.p3m+a.p3a}</td>
-      <td style="text-align:center;font-size:12px">${a.reb}</td>
-      <td style="text-align:center;font-size:12px">${a.to}</td>
-      <td style="text-align:center;font-size:12px">${a.stl}</td>
-      <td style="text-align:center;font-size:12px">${a.ast}</td>
-      <td style="text-align:center;font-size:12px">${a.blk}</td>
-      <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${a.avgVal}</td>
-    </tr>`).join("")}</tbody></table></div>`:"";
-  const endHtml=aggEnd.length?`<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
-      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
-      <th style="font-size:10px;color:var(--tm)">PJ</th><th style="font-size:10px;color:#22c55e">G</th><th style="font-size:10px;color:#ef4444">P</th>
-      <th style="font-size:10px;color:var(--tm)">Pts a favor</th><th style="font-size:10px;color:var(--tm)">Pts en contra</th>
-    </tr></thead><tbody>${aggEnd.map(a=>`<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(a.p))}${a.p.number!=null?` <span style="color:var(--tm);font-size:10px">#${a.p.number}</span>`:""}</td>
-      <td style="text-align:center;font-size:12px">${a.played}</td>
-      <td style="text-align:center;font-size:12px;color:#22c55e;font-weight:700">${a.won}</td>
-      <td style="text-align:center;font-size:12px;color:#ef4444;font-weight:700">${a.lost}</td>
-      <td style="text-align:center;font-size:12px">${a.pf}</td>
-      <td style="text-align:center;font-size:12px">${a.pc}</td>
-    </tr>`).join("")}</tbody></table></div>`:"";
-  return b11Html+endHtml;
-}
-function openDlsHistoryModal(drillId){
-  const list=_dlsList(S.teamId,drillId);
-  if(!list.length){toast("Todavía no hay ninguna sesión guardada de este ejercicio");return;}
-  document.getElementById("m-dls-history")?.remove();
-  const drillName=list[list.length-1].drillName||"Ejercicio";
-  const b11Sessions=list.filter(s=>_dlsSessType(s)==="b11");
-  const endgameSessions=list.filter(s=>_dlsSessType(s)==="endgame");
-  const aggB11=_dlsAggregateB11(b11Sessions);
-  const aggEnd=_dlsAggregateEndgame(endgameSessions);
-  const sorted=[...list].sort((a,b)=>{
-    const da=a.date||"",db=b.date||"";
-    if(da!==db)return db.localeCompare(da);
-    return (b.startedAt||0)-(a.startedAt||0);
-  });
-  const sessionRowsHtml=sorted.map(s=>{
-    const type=_dlsSessType(s);
-    const statusLabel=s.status!=="finished"?' <span style="color:var(--tm);font-size:10px">(en curso)</span>':"";
-    let recap;
-    if(type==="endgame"){
-      recap=`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`;
-    }else{
-      const totalPts=Object.values(s.stats||{}).reduce((sum,st)=>sum+(st.p2m||0)*2+(st.p3m||0)*3,0);
-      recap=`${(s.players||[]).length} jugadores · ${totalPts} pts`;
-    }
-    return `<button data-dls-hist-session="${s.id}" onclick="_dlsOpenHistorySession('${drillId}','${s.id}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;margin-bottom:6px;font-family:inherit">
-      <span style="font-size:12.5px">${cap(fd(s.date||td(),true))}${statusLabel}</span>
-      <span style="font-size:12px;color:var(--tm)">${recap}</span>
-    </button>`;
-  }).join("");
-  const el=document.createElement("div");el.id="m-dls-history";
-  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
-  el.onclick=e=>{if(e.target===el)el.remove();};
-  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
-    <div class="mhandle"></div>
-    <div class="mtitle">📈 ${esc(drillName)} · Historial</div>
-    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${list.length} ${list.length===1?"sesión":"sesiones"} guardada${list.length===1?"":"s"} · informe agregado por jugador de toda la temporada</div>
-    ${_dlsHistoryRowsHtml(aggB11,aggEnd)}
-    <div class="fl" style="margin-bottom:6px">Sesiones</div>
-    ${sessionRowsHtml}
-    <button class="btn-s" onclick="document.getElementById('m-dls-history').remove()" style="margin-top:8px">Cerrar</button>
-  </div>`;
-  document.body.appendChild(el);
-}
+// v3.0.0-dev.72 · B-DLS8: reutilizado por el resultado de un día concreto
+// (_dlsOpenDaySummary/_dlsOpenDaySessionsList, ver arriba, junto a
+// _dlsDayCardHtml) -- abre el resumen exacto de UNA sesión guardada por su
+// propio id, sin depender de si es la última o no.
 function _dlsOpenHistorySession(drillId,sessionId){
   const s=_dlsList(S.teamId,drillId).find(x=>x.id===sessionId);
   if(!s)return;
-  document.getElementById("m-dls-history")?.remove();
+  document.getElementById("m-dls-day-sessions")?.remove();
   _dlsRenderSessionSummary(s,drillId);
 }
 function dayScheduleRows(mid,initSched){
