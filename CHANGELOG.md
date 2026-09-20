@@ -3,6 +3,201 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Un entrenamiento sorpresa con asistencia guardada hoy no aparecía en "Hoy" (B-HOY2, 2026-09-20)
+
+### Corregido
+
+- **B-HOY2**. Reportado por el usuario probando `/test/`: "cuando en un entrenamiento guardas la asistencia de un entrenamiento sorpresa, debe salir en Hoy si ha sido hoy". La app ya tenía el botón "＋ Añadir actividad" → "🏋️ Entrenamiento sorpresa" (fuera del horario semanal fijo del equipo), pero solo abría el pase de lista de ese equipo para hoy — la pantalla "Hoy" seguía construyendo su lista de entrenamientos mirando ÚNICAMENTE el horario semanal fijo (`t.schedule.hasOwnProperty(todayIdx())`), sin comprobar nunca si ya se había guardado una sesión de asistencia para hoy. Un equipo sin hora fija ese día de la semana quedaba invisible en "Hoy" pasara lo que pasara, aunque el entrenador ya hubiera pasado lista de verdad. Ahora `hoy()` incluye también los equipos que, sin estar programados ese día, ya tienen una sesión de asistencia guardada para hoy — se muestran igual que un entrenamiento programado (badge "✓ Pasada", contador "HOY"), siempre al final de la lista (un entrenamiento sorpresa nunca tiene hora fija) y sin duplicarse si el equipo además sí estaba programado. De paso se blindaron dos accesos a `t.schedule[ti]` que asumían que el campo `schedule` siempre existía (cierto para cualquier equipo dado de alta/editado desde entonces, pero no para un dato muy antiguo sin ese campo).
+
+### Probado (jsdom)
+
+- `tests/hoy_screen.test.js` ampliado (7 comprobaciones nuevas): un entrenamiento sorpresa con sesión de hoy aparece en "Hoy" como "✓ Pasada"; sin ninguna sesión guardada no aparece (no hay nada que avisar todavía); un equipo sin el campo `schedule` en absoluto no revienta la pantalla ni con ni sin sesión de hoy; y un equipo ya programado hoy que además tiene sesión guardada no se duplica en la lista.
+- Suite completa: 1067/1067.
+- CACHE_VERSION → `kortline-v3.0.0-dev.73`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Ejercicios en vivo: los controles y resultados pasan a vivir en el día del entrenamiento, no en el catálogo (B-DLS8, 2026-09-20)
+
+### Cambiado
+
+- **B-DLS8**. Un primer intento (historial agregado por ejercicio del catálogo, con informe de temporada por jugador) se probó en `/test/` y el usuario pidió cambiar el planteamiento de raíz: *"el catalogo de ejercicios vamos a dejarlo para explicar ejercicios que se podrian hacer que ya tiene ese equipo [...] mejor en catalogo de ejercicios no, que quede guardado en el dia en el planteamiento de la sesion"*. El Catálogo de ejercicios pasa a ser **solo referencia** (qué ejercicios existen y cómo son, sin que importe si hay varios con el mismo nombre — se puede repetir "Contraataque de 11" las veces que haga falta), y arrancar/continuar/ver el resultado de un ejercicio con estadísticas en vivo pasa a vivir **siempre en el día concreto del entrenamiento** (el pase de lista de esa fecha), archivado por sesión/día. El Catálogo y el picker "Ejercicios de la sesión" pierden todos sus controles de en vivo — solo conservan la insignia de referencia (🎯 EN VIVO / ⏱️ FINAL PARTIDO). El pase de lista del día (`att()`) muestra ahora, para cada ejercicio en vivo adjuntado a ese día, una tarjeta con "🏀 Iniciar en vivo"/"⏱️ Configurar mini-partido" (si no hay nada empezado hoy), "▶ Continuar (mm:ss)" (si hay una sesión de hoy en curso) y "📊 Ver resultado de hoy" (si ya hay al menos una sesión de hoy terminada — abre el resumen directo, o un selector si el mismo ejercicio se repitió el mismo día). El almacenamiento interno no cambia — sigue siendo el mismo `S.drillLive[equipo][ejercicio]` de siempre, con fecha propia por sesión, nunca se borra nada — solo cambia cómo se accede desde la interfaz.
+
+### Probado (jsdom)
+
+- `tests/dls.test.js`: 19 comprobaciones nuevas sustituyen a las del planteamiento descartado — adjuntar un ejercicio al día copiando su tipo, que una sesión de OTRO día no cuente para el día actual, los tres estados de la tarjeta del día (iniciar/continuar/ver resultado), abrir directo con una sola sesión de hoy frente al selector con dos, y el aviso por toast sin sesiones guardadas.
+- Suite completa: 1056/1056.
+- CACHE_VERSION → `kortline-v3.0.0-dev.72`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · El tipo de ejercicio rellena solo nombre y categoría (B-DLS6, 2026-09-19)
+
+### Añadido
+
+- **B-DLS6**. Sobre el selector "Tipo de ejercicio" (ver B-DLS3 más abajo): elegir "Contraataque de 11" o "Final de partido" al dar de alta o editar un ejercicio del catálogo rellena solo el nombre y la categoría "de libro" de ese tipo (Ataque/Táctica y Partido/Situaciones respectivamente) — el usuario puede cambiar el nombre después con total libertad, el autorrelleno no se reimpone salvo que se vuelva a elegir un tipo explícitamente. "Tipo de ejercicio" pasa a ser el PRIMER campo del formulario (antes de Nombre y Categoría), para que tenga sentido elegirlo antes de que autorrellene lo demás. Elegir "Normal" no toca nada.
+
+### Probado (jsdom)
+
+- `tests/dls.test.js` ampliado (9 comprobaciones nuevas): el autorrelleno no actúa hasta elegir un tipo, cada tipo rellena su nombre/categoría exactos, el nombre queda editable después, volver a "Normal" no toca nada, y el nuevo orden de campos.
+- Suite completa: 1040/1040.
+- CACHE_VERSION → `kortline-v3.0.0-dev.70`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Ejercicios en vivo: el historial nunca se guardaba de verdad + selector de jugador más rápido (B-DLS4/B-DLS5, 2026-09-19)
+
+### Corregido
+
+- **B-DLS4** — bug real de pérdida de datos. Reportado por el usuario: "deben de guardarse las estadísticas... si no se pierde al cerrar la aplicación". Desde que se introdujo el historial de ejercicios en vivo (`S.drillLive`, B-DLS1), cada acción durante un ejercicio guardaba bien el estado en memoria, pero `save()` nunca escribía esa clave en `localStorage`, `load()` nunca la leía de vuelta al arrancar, y la sincronización con Firestore tampoco la incluía. Todo el historial de "Contraataque de 11"/"Final de partido" vivía única y exclusivamente en la memoria de esa pestaña del navegador — se perdía sin ningún aviso al cerrar la app, refrescar, o recibir cualquier otra sincronización. Corregido en las tres capas (localStorage, sincronización con Firestore por documento — un documento por sesión, mismo patrón que partidos/eventos/ejercicios —, y exclusión del segundero del cronómetro de la comparación de cambios para no disparar una sincronización de más cada segundo).
+
+### Cambiado
+
+- **B-DLS5**. El usuario, tras usar "Contraataque de 11" en un entrenamiento real: "el juego va muy rápido... tienes que encontrar o acordarte de tres nombres en 2 segundos". El selector de "¿quién ha hecho X?" quitaba por completo de la rejilla al jugador no elegible en ese paso concreto, recolocando a todos los demás en cada pregunta encadenada — ahora la rejilla muestra SIEMPRE la plantilla completa de la sesión, en el mismo orden en las 3 preguntas encadenadas, con el jugador excluido atenuado en su sitio de siempre en vez de desaparecer. Tarjetas también más grandes y legibles (más padding, texto más grande).
+
+### Probado (jsdom)
+
+- `tests/drilllive_persistence.test.js` (nuevo, 16 comprobaciones): round-trip guardar → "cerrar app" → recargar, y el aplanado/reconstrucción sin pérdida para la sincronización con Firestore.
+- `tests/drilllive_cloud_sync.test.js` (nuevo, 8 comprobaciones, con mock de Firestore): una sesión en vivo se sube de verdad como documento propio, el contenido llega íntegro, y un tick del cronómetro no dispara una sincronización de más.
+- `tests/dls.test.js` ampliado (6 comprobaciones nuevas): la rejilla sigue mostrando a los 3 jugadores de la sesión (no solo los elegibles), el excluido es un elemento atenuado no pulsable, el resto sigue pulsable con normalidad, y el aumento de tamaño de fuente/padding.
+- Suite completa: 1032/1032.
+- CACHE_VERSION → `kortline-v3.0.0-dev.69`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · "Contraataque de 11" pasa a ser un tipo de ejercicio + nuevo tipo "Final de partido" (B-DLS3, 2026-09-18)
+
+### Añadido
+
+- **B-DLS3**. Dos peticiones del usuario tras probar el rediseño de Ejercicios en vivo (B-DLS2, más abajo): (1) que "Contraataque de 11" deje de ser un checkbox genérico que cualquier ejercicio del catálogo puede activar, y pase a ser un TIPO concreto a elegir ("Normal" / "Contraataque de 11" / "Final de partido"); y (2) un tipo de ejercicio nuevo, **"Final de partido"** — un mini-partido con cuenta atrás configurable en minutos y segundos (para poder fijar situaciones tipo "quedan 2:36") donde uno de los dos equipos puede empezar con una ventaja real (marcador de salida exacto por equipo). Los dos equipos se forman por asignación manual del entrenador (sin reparto automático), con la opción de activar estadísticas individuales completas además del simple marcador — en ese caso el marcador de cada equipo se calcula solo a partir de los puntos reales anotados por sus jugadores, reutilizando tal cual todo el motor ya existente de "Contraataque de 11" (tiros, rebotes, robos, pérdidas, asistencias, tapones, deshacer). Los ejercicios "Contraataque de 11" ya existentes (con el checkbox viejo) siguen funcionando exactamente igual, sin que el usuario tenga que volver a configurarlos.
+
+### Probado (jsdom)
+
+- `tests/dls.test.js` ampliado (40 comprobaciones nuevas, 142 en total): retrocompatibilidad con el checkbox viejo, el selector de tipo y sus insignias, el reparto manual de equipos (asignar/desasignar/cambiar), validación de que ambos equipos necesitan al menos un jugador, modo solo-marcador completo y modo con estadísticas individuales (cálculo correcto del marcador a partir de los tiros reales), y que el historial de varias sesiones de "Final de partido" no se pisa entre sí.
+- Suite completa: 1002/1002.
+- CACHE_VERSION → `kortline-v3.0.0-dev.68`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Fix botón "Añadir" de jugador nuevo tapando el input en Ejercicios en vivo (2026-09-18)
+
+### Corregido
+
+- Reportado por el usuario probando `/test/`: el botón "Añadir" junto al campo "+ jugador nuevo" del setup de un ejercicio en vivo se comía casi todo el ancho de la fila (heredaba `width:100%` de su clase por defecto dentro de un contenedor flex), dejando el input del nombre aplastado e ilegible mientras se escribía. Corregido con `width:auto` explícito, mismo patrón ya usado en otros botones de ancho fijo de la app.
+
+### Probado (jsdom)
+
+- Nueva comprobación en `tests/dls.test.js`: el botón "Añadir" tiene `width:auto` explícito en su estilo.
+- Suite completa: 957/957.
+- CACHE_VERSION → `kortline-v3.0.0-dev.67`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Rediseño completo de "Ejercicios en vivo" (B-DLS2, 2026-09-18)
+
+### Cambiado
+
+- **B-DLS2**. El usuario pidió rehacer el primer intento (B-DLS1, más abajo) porque "está para rellenar muy feo" y quería algo "súper profesional y con la estética de la aplicación". El selector de jugadores (para empezar un ejercicio y para "¿quién ha hecho X?" durante él) pasa a usar el mismo componente visual que la convocatoria de partido. Nuevo campo opcional "Apodo" en la ficha del jugador, y un ajuste fijo por equipo en Ajustes ("Nombre"/"Apodo"/"Apellido") para decidir cómo se muestra durante el ejercicio. Valoración propia del ejercicio (más comedida que la de un partido real: un 2 anotado vale 1 punto, un 3 vale 2, el resto igual que en partidos), con el resumen final ordenado de mayor a menor valoración. Tiros fallados configurables por sesión (registrarlos o no, y si restan a la valoración o no — por defecto se registran pero NO restan). Panel de botones de estadísticas completo y SIEMPRE visible (rebote/robo/asistencia sueltos, además de los ya encadenados tras un tiro/pérdida), para poder anotar algo que no encaje en el flujo automático. Nuevo botón "✕ Cancelar" en mitad de una cadena de preguntas, que deshace TODOS los pasos ya registrados de esa acción concreta (no solo el último, como ya hacía "Deshacer última acción"). El picker de ejercicios de la sesión del día ("Ejercicios de la sesión") pasa también a ofrecer los mismos controles en vivo que ya había en el Catálogo del equipo, no solo desde ahí.
+
+### Probado (jsdom)
+
+- `tests/dls.test.js` reescrito por completo para el nuevo diseño (96 comprobaciones).
+- `tests/dls_nickname_settings.test.js` (nuevo, 10 comprobaciones): el campo Apodo de la ficha y el selector de Ajustes del club.
+- Suite completa: 956/956.
+- CACHE_VERSION → `kortline-v3.0.0-dev.66`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Dos bugs reales de "hueco fantasma" al borrar jugadores/equipos (B-DELP1/B-DELT1, 2026-09-17)
+
+### Corregido
+
+- **B-DELP1**. Borrar un jugador solo lo quitaba de la plantilla — nunca de la convocatoria/titulares/capitán de ningún partido, ni de la convocatoria de ningún evento. Como los límites de convocados (12, FIBA) y titulares (5) comprueban el tamaño bruto de esos arrays sin filtrar si el jugador sigue existiendo, un jugador borrado que ya estuviera convocado o de titular dejaba ese hueco ocupado para siempre, sin ninguna pista visual de por qué (la fila fantasma nunca se pinta, así que el hueco "parece" libre pero bloquea añadir a nadie más). Al confirmar el borrado, ahora se limpian esas referencias en TODOS los partidos y eventos del equipo — las estadísticas ya registradas de partidos ya jugados no se tocan. De paso, no se deja borrar a un jugador que esté EN PISTA ahora mismo en un partido en directo (hay que sustituirlo primero).
+- **B-DELT1**. Borrar un equipo avisaba de que se borrarían "todos los jugadores, entrenamientos y partidos", pero dejaba huérfanos para siempre los eventos/convocatorias sueltas, el catálogo de ejercicios, su historial de estadísticas en vivo y las notas de entrenamiento diarias — datos que nunca vuelven a aparecer en ningún sitio (los ids de equipo no se reutilizan) pero siguen ocupando espacio real en Firestore/localStorage. Completada la limpieza para que también borre esas 4 estructuras.
+
+### Probado (jsdom)
+
+- `tests/roster_delete_cleanup.test.js` (nuevo, 22 comprobaciones).
+- `tests/team_delete_cleanup.test.js` (nuevo, 9 comprobaciones).
+- Suite completa: 909/909.
+- CACHE_VERSION → `kortline-v3.0.0-dev.65`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Fix z-index del modal de fusión de puntuales duplicados + fix real del CI en rojo (B-GUEST6/B-CI2, 2026-09-17)
+
+### Corregido
+
+- **B-GUEST6**. Reportado por el usuario probando `/test/`: al pulsar "Fusionar" en el modal de puntuales duplicados, el diálogo de confirmación real quedaba TAPADO detrás del propio modal de duplicados (z-index invertido) — había que cancelar el modal de duplicados a ciegas para poder confirmar. Corregido bajando su z-index por debajo del de cualquier diálogo de confirmación de la app, igual que el resto de modales normales; corregido preventivamente el mismo fallo latente en el picker de jugador puntual.
+- **B-CI2**. Tras B-CI1 (ver `/test/` más abajo, sección de Auditoría/CI) el workflow de GitHub Actions seguía en rojo — un test (`version_and_backup_removal.test.js`) leía `index.html`/`sw.js` de la raíz por su cuenta, en vez de a través del harness compartido, así que en CI (donde la raíz se queda congelada a propósito por debajo de `/test/`) comparaba versiones de dos sitios distintos. Corregido sin tocar ni un byte de `index.html`/`sw.js` — solo el test.
+
+### Probado (jsdom)
+
+- `tests/guest_dupes_zindex.test.js` (nuevo, 10 comprobaciones).
+- Suite completa: 878/878 (verificado también dentro de una réplica exacta del estado divergente real de GitHub, con `KORTLINE_TEST_INDEX`, para reproducir fielmente lo que corre CI).
+- CACHE_VERSION → `kortline-v3.0.0-dev.64`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Fix "dar de alta el mismo día sigue mostrando la ambulancia" + arreglo del CI en rojo (B-INJ4/B-CI1, 2026-09-17)
+
+### Corregido
+
+- **B-INJ4**. Reportado por el usuario: al dar de alta médica a un jugador el MISMO día en que vuelve, la ambulancia/badge de lesionado seguía saliendo ese día en el pase de lista — el rango de la lesión archivada trataba su fecha de fin como inclusiva. Ahora es exclusiva: el propio día del alta se comporta como un día normal en cuanto se pulsa el botón, sin afectar a los días anteriores dentro del rango.
+- **B-CI1**. El workflow "Tests" de GitHub Actions salía en rojo en casi todos los pushes recientes (sin ser un bug real de la app) porque los tests siempre cargaban el `index.html` de la raíz del repo, que se queda deliberadamente por detrás de `/test/` mientras algo está en pruebas — cualquier test nuevo para una función que solo existiera en `/test/` reventaba en CI aunque funcionara bien. El harness ahora respeta una variable de entorno para poder validar explícitamente contra `/test/`, que es justo lo que valida el workflow.
+
+### Probado (jsdom)
+
+- `tests/injury_recovery_same_day.test.js` (nuevo, 13 comprobaciones).
+- Suite completa: 878/878, verificada con y sin la variable de entorno de CI.
+- CACHE_VERSION → `kortline-v3.0.0-dev.63`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Cumpleaños de jugadores (B-BDAY1, 2026-09-16)
+
+### Añadido
+
+- **B-BDAY1**. Petición del usuario. Nuevo campo opcional de fecha de nacimiento completa en la ficha del jugador (para poder anunciar la edad exacta que cumple). Aviso decorativo en el pase de lista del equipo el día del cumpleaños, y un aviso agregado de TODOS los equipos del club en la pantalla "Hoy" — a propósito fuera del bloque de "sin actividad hoy", porque si el cumpleaños cae un día sin entreno de ese equipo es precisamente cuando más falta hace que se vea ahí.
+
+### Probado (jsdom)
+
+- `tests/birthday_reminder.test.js` (nuevo, 16 comprobaciones).
+- CACHE_VERSION → `kortline-v3.0.0-dev.62`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Aviso de vuelta de lesión en el pase de lista (B-INJ3, 2026-09-16)
+
+### Añadido
+
+- **B-INJ3**. Petición del usuario: "que salga un aviso ese día, si quieres dar alta médica o dar otra estimación, y si omite sigue lesionada hasta dar alta médica". Banner en el pase de lista, desde la fecha de vuelta estimada de un jugador lesionado hasta que se actúe (cada día, no solo el día exacto), con tres botones: dar de alta médica, poner una nueva fecha estimada, u omitir por hoy (reaparece al día siguiente si sigue sin resolverse).
+
+### Probado (jsdom)
+
+- `tests/injury_reminder.test.js` (nuevo, 14 comprobaciones).
+- CACHE_VERSION → `kortline-v3.0.0-dev.61`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Bug real de asistencia con jugadores lesionados + tipo de lesión y vuelta estimada (B-INJ1/B-INJ2, 2026-09-16)
+
+### Corregido
+
+- **B-INJ1/B-INJ2** — bug real reportado en PRODUCCIÓN. Un jugador lesionado y justificado aparecía con 100% de asistencia en Historial en vez de reflejar su baja. El pase de lista pintaba visualmente a un lesionado sin marca explícita como "justificado", pero esa pintura nunca llegaba a guardarse — y el resto de pantallas que cuentan asistencia (Historial, gráficas, exports, resumen de "Hoy", WhatsApp) leían el valor crudo guardado y trataban la ausencia de marca como "presente", sin mirar si el jugador estaba lesionado ese día. Corregido con un único punto de verdad reutilizado en los ~13 sitios que cuentan asistencia.
+
+### Añadido
+
+- Tipo de lesión (con sugerencia automática de duración típica) y fecha de vuelta estimada, editable a mano en cualquier momento, visible en la Plantilla y en Riesgo FEB.
+
+### Probado (jsdom)
+
+- `tests/injury_attendance_bug.test.js` (nuevo, 12 comprobaciones).
+- `tests/injury_type_estimate.test.js` (nuevo, 22 comprobaciones).
+- CACHE_VERSION → `kortline-v3.0.0-dev.60`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Picker de jugador puntual: rediseño + género de equipo + fusión de duplicados (B-GUEST5, 2026-09-16)
+
+### Cambiado
+
+- **B-GUEST5**. Sustituye por completo a un primer intento (checkboxes HTML sencillos, dev.58) que el usuario encontró "soso" y con un flujo distinto al deseado. Nuevo picker unificado con el mismo componente visual que la convocatoria de partido, tanto para jugadores "más frecuentes" como para traer a alguien de categoría inferior — con selección múltiple y un único botón de confirmar. Nuevo campo "Género" en el equipo, usado para filtrar correctamente qué categoría inferior ofrecer. Deduplicación automática por nombre al traer o dar de alta un puntual, para no crear entradas repetidas sin querer.
+
+### Añadido
+
+- Herramienta "🔍 Puntuales duplicados" para fusionar entradas ya duplicadas de antes de que existiera la deduplicación automática, sin perder ningún dato (asistencia, estadísticas de partido, convocatorias).
+
+### Probado (jsdom)
+
+- `tests/guest_picker.test.js` reescrito por completo (80 comprobaciones).
+- CACHE_VERSION → `kortline-v3.0.0-dev.59`. APP_VERSION sincronizada.
+
+## [Sin publicar] · kortline-v3 · Estadísticas en vivo del catálogo de ejercicios (B-DLS1, 2026-09-16)
+
+### Añadido
+
+- **B-DLS1**. Petición del usuario: estadísticas en vivo (tiros, rebotes, pérdidas, robos, asistencias, tapones) para cualquier ejercicio del catálogo marcado como "con estadísticas en vivo", lanzables desde Equipo → Catálogo de ejercicios, con cronómetro pausable, deshacer última acción, y confirmación antes de terminar. Historial completo por ejercicio, con fecha propia por sesión, que nunca se borra ni se sobrescribe (ni siquiera si se borra el ejercicio del catálogo).
+
+### Probado (jsdom)
+
+- `tests/dls.test.js` (nuevo, 59 comprobaciones).
+- CACHE_VERSION → `kortline-v3.0.0-dev.57`. APP_VERSION sincronizada.
+
 ## [Sin publicar] · kortline-v3 · Excluir la pretemporada de las estadísticas de asistencia (2026-09-10)
 
 ### Añadido
