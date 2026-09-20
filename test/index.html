@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.70";
+const APP_VERSION = "3.0.0-dev.71";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5708,7 +5708,7 @@ function _dlsLiveRowHtml(d){
     ${active
       ?`<button class="btn-p" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="openDlsResumeOrLive('${d.id}')">▶ Continuar (${_fmtClock(active.remainingSec)})</button>`
       :`<button class="btn-s" style="flex:1;padding:9px;font-size:12.5px;margin:0" onclick="${setupFn}('${d.id}')">${startLabel}</button>`}
-    ${lastFinished?`<button class="btn-s" style="padding:9px 12px;font-size:12.5px;margin:0" onclick="openDlsSummaryModal('${d.id}')" title="Ver historial">📊</button>`:""}
+    ${lastFinished?`<button class="btn-s" style="padding:9px 12px;font-size:12.5px;margin:0" onclick="openDlsHistoryModal('${d.id}')" title="Ver historial">📊</button>`:""}
   </div>`;
 }
 function _drillPickerListHtml(){
@@ -6655,6 +6655,13 @@ function openDlsSummaryModal(drillId){
   if(!targetId)return;
   const b=_dlsActive(S.teamId,targetId)||_dlsLastFinished(S.teamId,targetId);
   if(!b)return;
+  _dlsRenderSessionSummary(b,targetId);
+}
+// v3.0.0-dev.71 · B-DLS7: separado de openDlsSummaryModal (que solo sabía
+// mostrar la sesión ACTIVA o la ÚLTIMA terminada) para poder reutilizarlo
+// también desde el historial real (openDlsHistoryModal) y abrir el resumen
+// de CUALQUIER sesión pasada, no solo la más reciente.
+function _dlsRenderSessionSummary(b,targetId){
   if(_dlsSessType(b)==="endgame")return _openDlsMatchSummaryModal(b,targetId);
   document.getElementById("m-dls-summary")?.remove();
   // v3.0.0-dev.66 · B-DLS2: (1) valoración propia de Ejercicios (_dlsValoracion
@@ -6743,6 +6750,137 @@ function _openDlsMatchSummaryModal(b,targetId){
     <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
   </div>`;
   document.body.appendChild(el);
+}
+/* ── Historial real + informe agregado (B-DLS7, dev.71) ──
+   Mario preguntó explícitamente si merecía la pena guardar las sesiones de
+   "Contraataque de 11"/"Final de partido" archivadas con su fecha para poder
+   sacar estadísticas más adelante -- la respuesta es que ya se guardaban así
+   (fecha, plantilla completa, estadísticas y log de acciones, para siempre,
+   desde el fix de B-DLS4), pero lo que NO existía era una pantalla que
+   cruzara todas esas sesiones. El botón "📊" del catálogo/picker de sesión
+   ya decía "Ver historial" pero en realidad solo abría la ÚLTIMA sesión
+   (openDlsSummaryModal) -- ahora sí abre un historial real.
+   Solo se agregan sesiones con status "finished": una sesión en curso todavía
+   no tiene sus estadísticas cerradas y falsearía las medias. */
+function _dlsAggregateB11(sessions){
+  const byPid={};
+  sessions.filter(s=>s.status==="finished").forEach(s=>{
+    const missPenalty=!!(s.checklist&&s.checklist.missPenalty);
+    (s.players||[]).forEach(p=>{
+      const st=(s.stats&&s.stats[p.id])||_dlsEmptyStats();
+      if(!byPid[p.id])byPid[p.id]={p,sessions:0,p2m:0,p2a:0,p3m:0,p3a:0,reb:0,to:0,stl:0,ast:0,blk:0,totalVal:0};
+      const a=byPid[p.id];
+      a.p=p; // se queda con la copia más reciente (por si cambió apodo/dorsal entre sesiones)
+      a.sessions++;
+      a.p2m+=st.p2m||0;a.p2a+=st.p2a||0;a.p3m+=st.p3m||0;a.p3a+=st.p3a||0;
+      a.reb+=st.reb||0;a.to+=st.to||0;a.stl+=st.stl||0;a.ast+=st.ast||0;a.blk+=st.blk||0;
+      a.totalVal+=_dlsValoracion(st,missPenalty);
+    });
+  });
+  return Object.values(byPid)
+    .map(a=>({...a,avgVal:a.sessions?Math.round((a.totalVal/a.sessions)*10)/10:0}))
+    .sort((x,y)=>y.avgVal-x.avgVal);
+}
+// Un mini-partido no tiene "Equipo A"/"Equipo B" fijos de sesión a sesión --
+// el entrenador los arma a mano cada vez -- así que "agregar por equipo" no
+// tendría sentido. Lo que SÍ es estable es cada JUGADOR: cuántos mini-
+// partidos ha jugado, cuántos ganó/perdió según el lado al que le tocara ese
+// día, y puntos a favor/en contra de su equipo en cada uno.
+function _dlsAggregateEndgame(sessions){
+  const byPid={};
+  sessions.filter(s=>s.status==="finished").forEach(s=>{
+    const scoreA=_dlsMatchTeamScore(s,"A"),scoreB=_dlsMatchTeamScore(s,"B");
+    (s.players||[]).forEach(p=>{
+      if(p.team!=="A"&&p.team!=="B")return;
+      const own=p.team==="A"?scoreA:scoreB, rival=p.team==="A"?scoreB:scoreA;
+      if(!byPid[p.id])byPid[p.id]={p,played:0,won:0,lost:0,tied:0,pf:0,pc:0};
+      const a=byPid[p.id];
+      a.p=p;a.played++;a.pf+=own;a.pc+=rival;
+      if(own>rival)a.won++;else if(own<rival)a.lost++;else a.tied++;
+    });
+  });
+  return Object.values(byPid).sort((x,y)=>(y.won-y.lost)-(x.won-x.lost));
+}
+function _dlsHistoryRowsHtml(aggB11,aggEnd){
+  const b11Html=aggB11.length?`<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+      <th style="font-size:10px;color:var(--tm)">Ses.</th>
+      <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
+      <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Pérd</th><th style="font-size:10px;color:var(--tm)">Rob</th>
+      <th style="font-size:10px;color:var(--tm)">Ast</th><th style="font-size:10px;color:var(--tm)">Tap</th>
+      <th style="font-size:10px;color:var(--orange)">Val. media</th>
+    </tr></thead><tbody>${aggB11.map(a=>`<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(a.p))}${a.p.number!=null?` <span style="color:var(--tm);font-size:10px">#${a.p.number}</span>`:""}</td>
+      <td style="text-align:center;font-size:12px">${a.sessions}</td>
+      <td style="text-align:center;font-size:12px">${a.p2m}/${a.p2m+a.p2a}</td>
+      <td style="text-align:center;font-size:12px">${a.p3m}/${a.p3m+a.p3a}</td>
+      <td style="text-align:center;font-size:12px">${a.reb}</td>
+      <td style="text-align:center;font-size:12px">${a.to}</td>
+      <td style="text-align:center;font-size:12px">${a.stl}</td>
+      <td style="text-align:center;font-size:12px">${a.ast}</td>
+      <td style="text-align:center;font-size:12px">${a.blk}</td>
+      <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${a.avgVal}</td>
+    </tr>`).join("")}</tbody></table></div>`:"";
+  const endHtml=aggEnd.length?`<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+      <th style="font-size:10px;color:var(--tm)">PJ</th><th style="font-size:10px;color:#22c55e">G</th><th style="font-size:10px;color:#ef4444">P</th>
+      <th style="font-size:10px;color:var(--tm)">Pts a favor</th><th style="font-size:10px;color:var(--tm)">Pts en contra</th>
+    </tr></thead><tbody>${aggEnd.map(a=>`<tr><td style="padding:6px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(_dlsPlayerLabel(a.p))}${a.p.number!=null?` <span style="color:var(--tm);font-size:10px">#${a.p.number}</span>`:""}</td>
+      <td style="text-align:center;font-size:12px">${a.played}</td>
+      <td style="text-align:center;font-size:12px;color:#22c55e;font-weight:700">${a.won}</td>
+      <td style="text-align:center;font-size:12px;color:#ef4444;font-weight:700">${a.lost}</td>
+      <td style="text-align:center;font-size:12px">${a.pf}</td>
+      <td style="text-align:center;font-size:12px">${a.pc}</td>
+    </tr>`).join("")}</tbody></table></div>`:"";
+  return b11Html+endHtml;
+}
+function openDlsHistoryModal(drillId){
+  const list=_dlsList(S.teamId,drillId);
+  if(!list.length){toast("Todavía no hay ninguna sesión guardada de este ejercicio");return;}
+  document.getElementById("m-dls-history")?.remove();
+  const drillName=list[list.length-1].drillName||"Ejercicio";
+  const b11Sessions=list.filter(s=>_dlsSessType(s)==="b11");
+  const endgameSessions=list.filter(s=>_dlsSessType(s)==="endgame");
+  const aggB11=_dlsAggregateB11(b11Sessions);
+  const aggEnd=_dlsAggregateEndgame(endgameSessions);
+  const sorted=[...list].sort((a,b)=>{
+    const da=a.date||"",db=b.date||"";
+    if(da!==db)return db.localeCompare(da);
+    return (b.startedAt||0)-(a.startedAt||0);
+  });
+  const sessionRowsHtml=sorted.map(s=>{
+    const type=_dlsSessType(s);
+    const statusLabel=s.status!=="finished"?' <span style="color:var(--tm);font-size:10px">(en curso)</span>':"";
+    let recap;
+    if(type==="endgame"){
+      recap=`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`;
+    }else{
+      const totalPts=Object.values(s.stats||{}).reduce((sum,st)=>sum+(st.p2m||0)*2+(st.p3m||0)*3,0);
+      recap=`${(s.players||[]).length} jugadores · ${totalPts} pts`;
+    }
+    return `<button data-dls-hist-session="${s.id}" onclick="_dlsOpenHistorySession('${drillId}','${s.id}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;margin-bottom:6px;font-family:inherit">
+      <span style="font-size:12.5px">${cap(fd(s.date||td(),true))}${statusLabel}</span>
+      <span style="font-size:12px;color:var(--tm)">${recap}</span>
+    </button>`;
+  }).join("");
+  const el=document.createElement("div");el.id="m-dls-history";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">📈 ${esc(drillName)} · Historial</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${list.length} ${list.length===1?"sesión":"sesiones"} guardada${list.length===1?"":"s"} · informe agregado por jugador de toda la temporada</div>
+    ${_dlsHistoryRowsHtml(aggB11,aggEnd)}
+    <div class="fl" style="margin-bottom:6px">Sesiones</div>
+    ${sessionRowsHtml}
+    <button class="btn-s" onclick="document.getElementById('m-dls-history').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _dlsOpenHistorySession(drillId,sessionId){
+  const s=_dlsList(S.teamId,drillId).find(x=>x.id===sessionId);
+  if(!s)return;
+  document.getElementById("m-dls-history")?.remove();
+  _dlsRenderSessionSummary(s,drillId);
 }
 function dayScheduleRows(mid,initSched){
   const sc=initSched||{};
