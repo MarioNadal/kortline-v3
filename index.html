@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.73";
+const APP_VERSION = "3.0.0-dev.74";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2913,6 +2913,23 @@ function _playerStartDate(p,sessList){
   }
   return first;
 }
+// v3.0.0-dev.74 · B-GUEST7: helper único para "¿este puntual de ENTRENO
+// cuenta el día `date`?". v3.0.0-dev.58 · B-GUEST4 introdujo la reutilización
+// en varios días (picker "Más frecuentes"/"Categoría inferior" -> p.attDates
+// guarda TODOS los días para los que ha contado), pero tres sitios que
+// decidían si un puntual attOnly se ve ese día (att(), la tarjeta "Hoy" y el
+// texto de WhatsApp) seguían comparando solo p.addedAt===date -- la fecha de
+// ALTA, que nunca cambia al reutilizarlo. Resultado (reportado por Mario,
+// cadete masculino, 21/09): al añadir un puntual ya existente desde "Más
+// frecuentes" en un día distinto al de su alta, su asistencia SÍ se guardaba
+// (S.sessions[...][id]="present"), pero el jugador desaparecía por completo
+// del pase de lista, de la tarjeta "Hoy" y del resumen de WhatsApp de ese
+// día -- "se pierde en el vacío". Retrocompatible: si un puntual antiguo no
+// tiene attDates (datos de antes de B-GUEST4), se sigue comparando contra su
+// addedAt de siempre.
+function _attOnlyActiveOn(p,date){
+  return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
+}
 // v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
 // en el entrenamiento de una fecha dada. Antes esta misma comprobación (¿ya
 // estaba de alta ese día?) estaba reimplementada suelta en media docena de
@@ -2933,7 +2950,7 @@ function _isPlayerActiveOn(p,date,sessList){
   // días para los que ha contado. Retrocompatible: si un puntual antiguo no
   // tiene attDates (datos de antes de este cambio), seguimos comparando
   // contra su addedAt de siempre.
-  if(p.attOnly)return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
+  if(p.attOnly)return _attOnlyActiveOn(p,date);
   const start=_playerStartDate(p,sessList);
   return !start||date>=start;
 }
@@ -4135,7 +4152,7 @@ function hoy(){
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
     // partido (no entrenan) del resumen "Hoy" para no contarlos como
     // presentes por defecto en un entrenamiento al que no van.
-    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===today));
+    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today))); // B-GUEST7
     const marked=players.filter(p=>sess[p.id]).length;
     const done=players.length>0&&marked>0;
     const effSt=players.map(p=>_effAttState(p,today,sess[p.id]));
@@ -4245,7 +4262,7 @@ function att(){
   // v3.0.0-dev.37 · B-GUEST3: un puntual de ENTRENAMIENTO (attOnly) solo
   // aparece en el pase de lista del día exacto para el que se dio de alta
   // -- antes se quedaba para siempre como si fuera plantilla fija.
-  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===S.date));
+  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,S.date))); // B-GUEST7
   const sess=so(S.teamId,S.date);
   const f=S.cfg.features;
   // v3.0.0-dev.61 · B-INJ3: aviso de "vuelta estimada cumplida" para jugadores
@@ -5042,7 +5059,7 @@ function buildDailyText(tid,date,showMotivo,opts){
   // -- nunca están en sess[], así que sin este filtro "sess[p.id]||present"
   // los mostraba como PRESENTES por defecto en un entrenamiento al que
   // nunca fueron.
-  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===date));const sess=so(tid,date);
+  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date)));const sess=so(tid,date); // B-GUEST7
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
