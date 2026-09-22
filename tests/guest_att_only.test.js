@@ -88,6 +88,74 @@ async function run() {
   assert(win._isPlayerActiveOn(guest, "2026-08-02", []) === false, "_isPlayerActiveOn: false al día siguiente");
   assert(win._isPlayerActiveOn(guest, "2026-07-31", []) === false, "_isPlayerActiveOn: false al día anterior");
 
+  // ══════════════════════════════════════════════════════════════════════
+  // v3.0.0-dev.74 · B-GUEST7: bug real reportado por Mario (cadete
+  // masculino, 21/09) -- al REUTILIZAR un puntual de entreno ya existente
+  // desde "Más frecuentes" (picker de B-GUEST5) en un día distinto al de su
+  // alta, la sesión SÍ se guardaba (S.sessions[...][id]="present"), pero el
+  // jugador desaparecía de att(), de la tarjeta "Hoy" y de buildDailyText,
+  // porque esos tres sitios seguían comparando p.addedAt===fecha en vez de
+  // p.attDates.includes(fecha) -- exactamente el chequeo que _isPlayerActiveOn
+  // ya hacía bien, pero sin pasar por él.
+  // ══════════════════════════════════════════════════════════════════════
+  win.S.teamId = "t2";
+  win.S.teams = [{ id: "t2", name: "Cadete Masculino", category: "Cadete", coaches: [], color: "#f06318", schedule: {} }];
+  win.S.players = { t2: [{ id: "q1", name: "Fijo Cadete", number: 5, addedAt: "2026-01-01" }] };
+  win.S.sessions = {};
+  win.S.matches = { t2: [] };
+  win.S.events = { t2: [] };
+
+  // Alta inicial del puntual el día 1 (manual, "Es alguien nuevo")
+  win.S.date = "2026-09-01";
+  win.openGuestPlayerModal({ mode: "att" });
+  win.document.getElementById("gp-name").value = "Puntual Reutilizado";
+  win.document.getElementById("gp-num").value = "";
+  win._guestPlayerCommit("att");
+  const reused = win.pl("t2").find(p => p.name === "Puntual Reutilizado");
+  assert(!!reused, "el puntual se crea el día de su alta");
+  assert(Array.isArray(reused.attDates) && reused.attDates.includes("2026-09-01"), "attDates arranca con el día de alta");
+
+  // Una semana después, el entrenador lo vuelve a traer desde "Más frecuentes"
+  // para un entrenamiento distinto (el flujo real que dispara el bug).
+  win.S.date = "2026-09-08";
+  win.openGuestPlayerModal({ mode: "att" });
+  const picker = win._guestPicker;
+  assert(!!picker && picker.frequent.some(p => p.id === reused.id), "el puntual ya existente aparece en 'Más frecuentes' al pasar lista otro día");
+  win._guestToggle("freq", reused.id);
+  win._guestPickerCommit();
+
+  assert(reused.attDates.includes("2026-09-08"), "attDates suma el nuevo día sin perder el anterior");
+  assert(reused.attDates.includes("2026-09-01"), "el día de alta original se conserva en attDates");
+  assert(reused.addedAt === "2026-09-01", "addedAt NO cambia al reutilizarlo (sigue siendo la fecha de alta original) -- esto es justo lo que rompía a los 3 sitios antes del fix");
+  assert(win.S.sessions["t2_2026-09-08"] && win.S.sessions["t2_2026-09-08"][reused.id] === "present", "la sesión del nuevo día se guarda como presente");
+
+  const attReuseHtml = win.att(); // S.date sigue en 2026-09-08
+  assert(attReuseHtml.includes("Puntual Reutilizado"), "B-GUEST7: att() SÍ muestra al puntual reutilizado en el nuevo día, aunque addedAt sea de una semana antes -- antes de este fix se perdía en el vacío");
+  assert(attReuseHtml.includes("Fijo Cadete"), "el jugador de plantilla fija del equipo sigue apareciendo con normalidad");
+
+  const dailyReuseText = win.buildDailyText("t2", "2026-09-08", false, {});
+  assert(dailyReuseText.includes("Puntual Reutilizado"), "B-GUEST7: buildDailyText (resumen de WhatsApp) también incluye al puntual reutilizado en el nuevo día");
+
+  // Y sigue apareciendo también en su día de alta original, sin duplicarse ni desaparecer de ahí
+  win.S.date = "2026-09-01";
+  const attOriginalDayHtml = win.att();
+  assert(attOriginalDayHtml.includes("Puntual Reutilizado"), "sigue apareciendo también en su día de alta original");
+
+  // Un día en el que NUNCA se le añadió sigue sin mostrarlo
+  win.S.date = "2026-09-15";
+  win.S.sessions["t2_2026-09-15"] = { q1: "present" };
+  const attUnrelatedDayHtml = win.att();
+  assert(!attUnrelatedDayHtml.includes("Puntual Reutilizado"), "un día en el que nunca se le añadió sigue sin mostrarlo -- el fix no lo convierte en plantilla fija");
+
+  // ── Retrocompatibilidad: puntual antiguo SIN attDates (dato previo a B-GUEST4) ──
+  win.S.players.t2.push({ id: "legacyGuest", name: "Puntual Legado", number: 9, guest: true, attOnly: true, addedAt: "2026-09-01" });
+  win.S.date = "2026-09-01";
+  const attLegacyOwnDay = win.att();
+  assert(attLegacyOwnDay.includes("Puntual Legado"), "B-GUEST7: un puntual legado sin attDates sigue apareciendo en su día de alta (fallback a addedAt)");
+  win.S.date = "2026-09-08";
+  const attLegacyOtherDay = win.att();
+  assert(!attLegacyOtherDay.includes("Puntual Legado"), "B-GUEST7: y sigue sin aparecer en otro día, igual que antes del fix (no tiene attDates que lo reutilicen)");
+
   return report.summary();
 }
 
