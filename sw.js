@@ -2,7 +2,7 @@
 // Cache-first para los assets de la app shell, network-first para el resto.
 // Bump CACHE_VERSION en cada release para invalidar caché vieja en clientes.
 
-const CACHE_VERSION = "kortline-v3-test-dev.75";
+const CACHE_VERSION = "kortline-v3.0.0-dev.73";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -42,7 +42,7 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((k) => k.startsWith("kortline-v3-test-") && k !== CACHE_VERSION)
+          .filter((k) => k.startsWith("kortline-") && k !== CACHE_VERSION)
           .map((k) => caches.delete(k))
       )
     ).then(() => self.clients.claim())
