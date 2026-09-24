@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.74";
+const APP_VERSION = "3.0.0-dev.75";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2403,10 +2403,30 @@ function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
 // sessions, así que reutiliza esta misma función en vez de duplicarla
 // (mismo patrón de bug -- "misma lógica copiada dos veces" -- que ya ha
 // aparecido varias veces en este proyecto; aquí se evita desde el principio).
+// v3.0.0-dev.75 · B-SYNC4: bug real bastante serio, encontrado al escribir
+// los tests del reintento automático (B-SYNC3) -- `curSess`/`prevSess` solo
+// se defienden de venir undefined al construir `keys` (Object.keys(x||{})),
+// pero LUEGO se leen directamente como `curSess[key]`/`prevSess[key]`, SIN
+// el mismo `||{}`. `prevSess` es efectivamente `undefined` en la primera
+// sincronización de cada carga de la app (_lastSyncedSnapshot arranca a
+// null en cada recarga/reapertura, y no se persiste entre sesiones): si
+// esa PRIMERA sincronización de la sesión ya tiene alguna asistencia
+// existente que subir (el caso normal -- casi siempre hay historial),
+// `prevSess[key]` lanzaba un TypeError. Al estar dentro del try/catch de
+// _runCloudSync(), el fallo era silencioso (solo un aviso por consola) --
+// pero significaba que la primera sincronización de sesión de cada
+// entrenador, cada vez que abría la app, fallaba SIEMPRE que su caché local
+// ya coincidiera con Firestore (el caso normal, sin recibir todavía ningún
+// cambio remoto que fijara _lastSyncedSnapshot por otra vía) -- muy
+// probablemente la causa principal de "a veces cuesta o no llega a otro
+// móvil" que reportó Mario, ya que pasar lista es casi siempre lo primero
+// que se hace nada más abrir la app.
 function _diffSessions(batch, curSess, prevSess, colName){
   colName = colName || "sessions";
+  curSess = curSess || {};
+  prevSess = prevSess || {};
   let n=0;
-  const keys=new Set([...Object.keys(curSess||{}), ...Object.keys(prevSess||{})]);
+  const keys=new Set([...Object.keys(curSess), ...Object.keys(prevSess)]);
   for(const key of keys){
     if(JSON.stringify(curSess[key])!==JSON.stringify(prevSess[key])){
       const us=key.indexOf("_");const tid=key.slice(0,us),date=key.slice(us+1);
@@ -2444,16 +2464,48 @@ async function _runCloudSync(){
     n+=_diffSessions(batch, cur.trainingNotes, prev?.trainingNotes, "trainingNotes");
     if(n>0) await batch.commit();
     _lastSyncedSnapshot=cur;
-  }catch(e){ console.warn("⚠️ Sync con la nube falló, los datos siguen a salvo en este dispositivo", e); }
+  }catch(e){
+    console.warn("⚠️ Sync con la nube falló, los datos siguen a salvo en este dispositivo -- reintentando", e);
+    // v3.0.0-dev.75 · B-SYNC3: antes, si ESTE intento de sincronización
+    // fallaba (un corte de red justo al pulsar, error puntual del servidor...),
+    // el error solo se registraba en la consola y no pasaba nada más -- el
+    // cambio se quedaba a salvo en este dispositivo (localStorage), pero no
+    // volvía a intentarse subir a Firestore hasta que el entrenador tocara
+    // OTRA cosa en la app (lo que disparase un save() nuevo). Si cerraba la
+    // app justo después de ese fallo (típico: pasar lista y salir del
+    // pabellón con mala cobertura), ese cambio podía quedarse sin llegar a
+    // los demás dispositivos indefinidamente -- el síntoma que describió
+    // Mario ("a veces cuesta o no llega a otro móvil"). _lastSyncedSnapshot
+    // NO se actualiza aquí arriba (sigue apuntando al último envío que sí
+    // triunfó), así que el cambio fallido sigue "pendiente" y basta con
+    // volver a llamar a _scheduleCloudSync() para que el próximo intento lo
+    // recoja igual que si acabara de pasar -- sin necesidad de ningún cambio
+    // nuevo del usuario. El propio debounce de _scheduleCloudSync (mínimo
+    // ~3s entre intentos) evita que esto reintente en bucle sin freno.
+    _scheduleCloudSync();
+  }
 }
+// v3.0.0-dev.75 · B-SYNC3: además del reintento automático de arriba, dos
+// momentos en los que vale la pena comprobar activamente si hay algo
+// pendiente de subir: en cuanto el dispositivo recupera conexión (evento
+// "online" -- no hace falta esperar al siguiente cambio del usuario), y en
+// cuanto la app vuelve a primer plano (un móvil que estuvo con la pantalla
+// apagada/en segundo plano puede haber perdido cobertura y recuperado sin
+// que "online" llegase a dispararse). _scheduleCloudSync() ya es un no-op
+// seguro si no hay nada que sincronizar (o si la nube no está activa en
+// este dispositivo).
+window.addEventListener("online",()=>{try{_scheduleCloudSync();}catch(e){}});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible"){try{_scheduleCloudSync();}catch(e){}}
+});
 
 /* ── Entrada: Firestore → S en tiempo real ── */
 let _clubUnsubs=[],_teamUnsubs=[],_lastListenedTeamId=undefined;
-// v3 · B-SYNCATT1: listeners de asistencia (sessions) y notas de
-// entrenamiento (trainingNotes), uno por equipo, para TODOS los equipos
-// del club a la vez (ver _syncSessionListeners más abajo) — independiente
-// de qué equipo se esté viendo en pantalla.
-let _sessionUnsubsByTid={};
+// v3 · B-SYNCATT1 (asistencia/notas) + v3.0.0-dev.75 · B-SYNC2 (jugadoras y
+// partidos, ver más abajo): listeners "siempre activos", uno por equipo, para
+// TODOS los equipos del club a la vez (ver _syncGlobalTeamListeners más
+// abajo) — independiente de qué equipo se esté viendo en pantalla.
+let _globalUnsubsByTid={};
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
@@ -2472,15 +2524,15 @@ function _persistLocalCacheOnly(){
 // eco y no hay nada que hacer.
 function _attachClubListeners(){
   _teardown(_clubUnsubs);
-  Object.keys(_sessionUnsubsByTid).forEach(tid=>_teardown(_sessionUnsubsByTid[tid]));
-  _sessionUnsubsByTid={};
+  Object.keys(_globalUnsubsByTid).forEach(tid=>_teardown(_globalUnsubsByTid[tid]));
+  _globalUnsubsByTid={};
   // v3 · B-SYNCATT1: conectar ya mismo con los equipos que tengamos en caché
   // local (S.teams se rellena en load() antes de llegar aquí) -- si
   // esperásemos solo al primer snapshot de "teams" de más abajo, un día
   // normal en el que la lista de equipos no ha cambiado respecto a la
   // caché haría que ese snapshot saliera "igual que ya teníamos" y nunca
-  // llegásemos a conectar los listeners de asistencia.
-  _syncSessionListeners();
+  // llegásemos a conectar los listeners siempre-activos.
+  _syncGlobalTeamListeners();
   _clubUnsubs.push(_clubDocRef().onSnapshot(snap=>{
     if(!snap.exists)return;
     const rd=_fsRestore(snap.data()||{});
@@ -2505,9 +2557,9 @@ function _attachClubListeners(){
     const needsBackfill=_sortTeams();
     _applyingRemote=false;
     // v3 · B-SYNCATT1: cada vez que cambia la lista de equipos (incluida la
-    // primera vez, al entrar), (re)conectamos los listeners de asistencia
+    // primera vez, al entrar), (re)conectamos los listeners siempre-activos
     // de TODOS los equipos -- no solo del que se esté viendo.
-    _syncSessionListeners();
+    _syncGlobalTeamListeners();
     if(needsBackfill){
       // Equipos antiguos sin campo "order": lo asignamos aquí y lo subimos a
       // Firestore para que todos los entrenadores converjan al mismo orden
@@ -2528,11 +2580,22 @@ function _attachClubListeners(){
 // pantalla "Hoy" no se actualizaba con lo que ponían los demás). Ahora se
 // escucha la asistencia (y las notas de entrenamiento, que comparten
 // exactamente el mismo mecanismo) de TODOS los equipos del club a la vez,
-// se esté viendo esa pantalla o no. El resto de colecciones por equipo
-// (jugadoras, partidos, eventos, ejercicios) se editan casi siempre estando
-// dentro de ese equipo, así que se quedan igual que antes: por equipo, bajo
-// demanda, en _attachTeamListeners.
-function _attachSessionListeners(tid){
+// se esté viendo esa pantalla o no.
+// v3.0.0-dev.75 · B-SYNC2: el mismo problema, encontrado por Mario para
+// "jugadoras" -- cambiar la fecha de nacimiento de un jugador (o cualquier
+// otro dato suyo) sin entrar a SU equipo no se reflejaba en la pantalla
+// "Hoy" (el aviso de cumpleaños de hoy, _todaysBirthdays(), recorre
+// S.players[] de TODOS los equipos). Mismo motivo exacto que B-SYNCATT1: la
+// razón original para dejar "jugadoras"/"partidos" como listeners por
+// equipo bajo demanda ("se editan casi siempre estando dentro de ese
+// equipo") ya no era del todo cierta -- "Hoy" también LEE jugadoras
+// (cumpleaños) y partidos (todayMatches) de TODOS los equipos aunque no se
+// esté dentro de ellos. Se mueven aquí, junto a sessions/trainingNotes,
+// bajo el mismo mecanismo "siempre activo para todos los equipos".
+// "events"/"drills"/"drillLive" sí se quedan en _attachTeamListeners: nada
+// fuera de la propia pantalla del equipo los lee, así que no hace falta
+// pagar el coste de escucharlos para equipos que ni se han abierto.
+function _attachGlobalTeamListeners(tid){
   const unsubs=[];
   const teamRef=_teamDocRef(tid);
   unsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
@@ -2564,35 +2627,36 @@ function _attachSessionListeners(tid){
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
+  // v3.0.0-dev.75 · B-SYNC2 (ver comentario de arriba).
+  unsubs.push(teamRef.collection("players").onSnapshot(snap=>{
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
+    _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
+  unsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
+    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
   return unsubs;
 }
-function _syncSessionListeners(){
+function _syncGlobalTeamListeners(){
   const currentIds=new Set(S.teams.map(t=>t.id));
   // Baja: equipos que ya no existen (borrados) -- cortar sus listeners.
-  Object.keys(_sessionUnsubsByTid).forEach(tid=>{
-    if(!currentIds.has(tid)){ _teardown(_sessionUnsubsByTid[tid]); delete _sessionUnsubsByTid[tid]; }
+  Object.keys(_globalUnsubsByTid).forEach(tid=>{
+    if(!currentIds.has(tid)){ _teardown(_globalUnsubsByTid[tid]); delete _globalUnsubsByTid[tid]; }
   });
   // Alta: equipos nuevos (o la primera carga) que aún no tienen listener.
   currentIds.forEach(tid=>{
-    if(!_sessionUnsubsByTid[tid]) _sessionUnsubsByTid[tid]=_attachSessionListeners(tid);
+    if(!_globalUnsubsByTid[tid]) _globalUnsubsByTid[tid]=_attachGlobalTeamListeners(tid);
   });
 }
 function _attachTeamListeners(tid){
   _teardown(_teamUnsubs);
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
-  _teamUnsubs.push(teamRef.collection("players").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
-    if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
-    _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
-    _persistLocalCacheOnly();render();
-  }));
-  _teamUnsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
-    if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
-    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
-    _persistLocalCacheOnly();render();
-  }));
   _teamUnsubs.push(teamRef.collection("events").onSnapshot(snap=>{
     const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
     if(JSON.stringify(fresh)===JSON.stringify(S.events[tid]||[]))return;
@@ -2616,10 +2680,11 @@ function _attachTeamListeners(tid){
     _applyingRemote=true;if(!S.drillLive)S.drillLive={};S.drillLive[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
-  // v3 · B-SYNCATT1: "sessions" (asistencia) y "trainingNotes" ya NO se
+  // v3 · B-SYNCATT1 + v3.0.0-dev.75 · B-SYNC2: "sessions" (asistencia),
+  // "trainingNotes", "players" (jugadoras) y "matches" (partidos) ya NO se
   // escuchan aquí -- se escuchan para TODOS los equipos a la vez desde
-  // _attachSessionListeners/_syncSessionListeners (ver más arriba), no solo
-  // para el equipo que se está viendo. Ver ese comentario para el porqué.
+  // _attachGlobalTeamListeners/_syncGlobalTeamListeners (ver más arriba), no
+  // solo para el equipo que se está viendo. Ver ese comentario para el porqué.
 }
 
 /* ═══════════════════════════════════════
