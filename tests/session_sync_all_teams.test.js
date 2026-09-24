@@ -11,8 +11,18 @@
 // escuchan para TODOS los equipos del club a la vez, esté ese equipo
 // abierto en pantalla o no.
 //
+// v3.0.0-dev.75 · B-SYNC2: el mismo patrón exacto de bug, reportado por
+// Mario para "jugadoras": cambiar el cumpleaños (o cualquier dato) de un
+// jugador sin entrar a SU equipo no se reflejaba en la pantalla "Hoy" (el
+// aviso de cumpleaños de hoy mira S.players[] de TODOS los equipos). Lo
+// mismo pasaba con "partidos" (todayMatches en Hoy también mira TODOS los
+// equipos). "players" y "matches" se movieron al mismo mecanismo "siempre
+// activo para todos los equipos" que ya tenían sessions/trainingNotes desde
+// B-SYNCATT1 -- por eso este mismo archivo de test se amplía en vez de
+// crear uno nuevo, es exactamente el mismo bug y el mismo arreglo.
+//
 // Este test necesita ejercitar el camino real de _attachClubListeners /
-// _attachSessionListeners / _syncSessionListeners, que solo se activan
+// _attachGlobalTeamListeners / _syncGlobalTeamListeners, que solo se activan
 // cuando `firebase` existe como global (typeof firebase!=="undefined").
 // El resto de la suite carga index.html sin firebase (modo local), así
 // que aquí inyectamos un mock mínimo de Firestore vía loadApp({firebase}),
@@ -108,8 +118,20 @@ async function run() {
     "también hay un listener de asistencia conectado para t2, AUNQUE no sea el equipo que se está viendo -- el bug reportado"
   );
   report.assert(
-    mock.listenerCount(P("teams/t2/players")) === 0,
-    "el resto de colecciones de t2 (jugadoras, partidos...) NO se escuchan hasta entrar en ese equipo -- eso no cambia con este fix"
+    mock.listenerCount(P("teams/t2/players")) === 1,
+    "v3.0.0-dev.75 · B-SYNC2: ahora también hay un listener de jugadoras conectado para t2 aunque no sea el equipo que se está viendo (antes era 0 -- el bug del cumpleaños)"
+  );
+  report.assert(
+    mock.listenerCount(P("teams/t2/matches")) === 1,
+    "v3.0.0-dev.75 · B-SYNC2: y también uno de partidos, por el mismo motivo (todayMatches en Hoy mira todos los equipos)"
+  );
+  report.assert(
+    mock.listenerCount(P("teams/t2/events")) === 0,
+    "eventos SÍ se sigue escuchando solo bajo demanda -- nada fuera de la propia pantalla del equipo los lee"
+  );
+  report.assert(
+    mock.listenerCount(P("teams/t2/drills")) === 0,
+    "y lo mismo para el catálogo de ejercicios -- sigue siendo por equipo, bajo demanda"
   );
 
   // Un entrenador en OTRO dispositivo pasa asistencia de "t2" (el equipo
@@ -163,12 +185,43 @@ async function run() {
   report.assert(/Equipo Dos[\s\S]*?Pasada/.test(hoyHtmlDespues), "en cuanto llega la asistencia de t2, la tarjeta de Equipo Dos cambia sola a \"✓ Pasada\" -- sin tocar nada ni entrar en ese equipo");
   report.assert(hoyHtmlDespues !== hoyHtmlAntes, "el HTML de la pantalla Hoy realmente cambia solo (no hace falta pulsar \"pasar lista\" para refrescarlo)");
 
+  // ── v3.0.0-dev.75 · B-SYNC2: el mismo escenario "parado en Hoy sin tocar
+  // nada", pero para el cumpleaños de un jugador de t2 (equipo NO abierto en
+  // este dispositivo) editado desde OTRO dispositivo. Antes de este fix,
+  // S.players.t2 solo se actualizaba al entrar en t2 -- el aviso de
+  // cumpleaños de "Hoy" (que mira TODOS los equipos) se quedaba con el dato
+  // viejo hasta entonces. ──
+  mock.fire(P("teams/t2/players"), docsSnap([
+    { id: "px", name: "Jugadora Test", number: 9, birthDate: "2000-01-01" }
+  ]));
+  const hoyHtmlSinCumple = win.document.getElementById("root").innerHTML;
+  report.assert(!hoyHtmlSinCumple.includes("¡Hoy cumple"), "todavía no es su cumpleaños (fecha de prueba lejana) -- no debería salir ningún aviso");
+
+  const hoyMMDD = win.td().slice(5); // "MM-DD" de hoy, para que el test valga cualquier día del año
+  mock.fire(P("teams/t2/players"), docsSnap([
+    { id: "px", name: "Jugadora Test", number: 9, birthDate: "2000-" + hoyMMDD }
+  ]));
+  const hoyHtmlConCumple = win.document.getElementById("root").innerHTML;
+  report.assert(hoyHtmlConCumple.includes("Jugadora Test"), "B-SYNC2: en cuanto llega por el listener el cumpleaños de una jugadora de t2 (equipo NO abierto), aparece en el aviso de \"Hoy\" -- sin entrar en t2 ni tocar nada");
+  report.assert(/¡Hoy cumple|Hoy es su cumpleaños/.test(hoyHtmlConCumple), "el aviso de cumpleaños de \"Hoy\" se muestra");
+
+  // ── Lo mismo para un partido: un partido de t2 programado para HOY debe
+  // aparecer en la sección de "PARTIDOS" de Hoy sin entrar en t2. ──
+  mock.fire(P("teams/t2/matches"), docsSnap([
+    { id: "m1", rival: "Rival Test", date: hoyFecha, quarters: 4, qMins: 10, convocados: [] }
+  ]));
+  const hoyHtmlConPartido = win.document.getElementById("root").innerHTML;
+  report.assert(hoyHtmlConPartido.includes("🏀 PARTIDOS"), "B-SYNC2: la sección de partidos de hoy aparece en cuanto llega un partido de t2 (equipo NO abierto) por el listener");
+  report.assert(/Rival Test/.test(hoyHtmlConPartido), "el rival del partido de t2 se muestra en la tarjeta, sin haber entrado nunca en t2");
+
   // Si t2 se da de baja del club, su listener de asistencia se debe cortar
   // (no debe quedar escuchando para siempre a un equipo borrado).
   mock.fire(P("teams"), docsSnap([
     { id: "t1", name: "Equipo Uno", order: 0 }
   ]));
   report.assert(mock.listenerCount(P("teams/t2/sessions")) === 0, "al borrarse t2 del club, se desconecta su listener de asistencia");
+  report.assert(mock.listenerCount(P("teams/t2/players")) === 0, "y también su listener de jugadoras (B-SYNC2, mismo bucket de listeners \"siempre activos\")");
+  report.assert(mock.listenerCount(P("teams/t2/matches")) === 0, "y también su listener de partidos (B-SYNC2)");
   report.assert(mock.listenerCount(P("teams/t1/sessions")) === 1, "el listener de t1 sigue activo sin duplicarse");
 
   // Entrar en t2 (aunque ya no exista, por si el flujo de navegación se
