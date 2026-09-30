@@ -3,7 +3,97 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
-## [Sin publicar] · kortline-v3 · Revisión de fiabilidad de la sincronización entre dispositivos (B-SYNC2/B-SYNC3/B-SYNC4, 2026-09-24)
+## [Publicado] · kortline-v3 · Histórico agregado por ejercicio, con borrado (B-DLS10, dev.80, 2026-09-30)
+
+Tercera y última de las tres funciones pedidas por Mario el mismo día (ver B-DLS9 y B-PLNOTE1 justo abajo para las otras dos): *"las estadisticas se tendran que poder buscar todas juntas en el equipo en catalogo de ejrcicios especificamente en contraataque de 11 haciendfo una suma de todos los dias que se ha hecho el contraataque de 11. Lo que se que se podria borrar alguno si hace falta"*. Confirmado con `AskUserQuestion`: el agregado cubre Contraataque de 11 Y Final de partido, y el borrado tiene que poder hacerse en los dos sitios (desde el propio histórico y desde la vista de resultado de una sesión).
+
+Esto es una **reversión deliberada y confirmada** de la decisión B-DLS8 (dev.72) de quitar este agregado -- pero arrancar/continuar/ver el resultado de HOY se queda exactamente donde B-DLS8 lo puso (el propio día del entrenamiento, pase de lista): esta pantalla nueva es solo consulta del histórico completo (todas las fechas) más borrar, no vuelve a traer ningún control de arrancar/continuar al catálogo.
+
+### Añadido
+- Nuevo botón 📊 en cada fila de Contraataque de 11 / Final de partido del Catálogo de ejercicios (`openDlsHistoryModal`) -- un ejercicio normal (sin estadísticas en vivo) no lo tiene, no tendría sentido.
+- Arriba del todo, un agregado por jugador de TODAS las sesiones terminadas (de cualquier día): para Contraataque de 11, sesiones jugadas, tiros de 2/3, rebotes, asistencias y la valoración MEDIA por sesión (no la suma, para no premiar solo a quien más veces ha jugado); para Final de partido, partidos jugados, ganados-perdidos-empatados y puntos a favor/en contra -- agregado por JUGADOR, no por "equipo A/B" (un mismo jugador puede jugar en equipos distintos de un mini-partido a otro).
+- Debajo, la lista de todas las sesiones guardadas (más reciente primero), cada una tocable para abrir su resumen exacto -- igual que ya podía hacerse desde el resultado del día, pero ahora sin límite a "hoy".
+- Borrar una sesión: disponible tanto desde esta lista del histórico como desde dentro del propio resumen de una sesión (se abra desde el día o desde el histórico) -- con confirmación antes de borrar de verdad. Nunca se ofrece para una sesión todavía en curso.
+
+### Probado (jsdom)
+- `tests/dls_history.test.js` (nuevo, 35 aserciones): aviso de vacío sin datos, el botón de histórico solo en ejercicios con tipo, el agregado suma bien (verificado a mano cifra a cifra) para los dos tipos, que una sesión en curso nunca se cuela en el agregado ni en la lista ni ofrece borrado, que tocar una sesión del histórico abre su resumen exacto, y el borrado completo (con confirmación) desde los dos sitios pedidos, con el histórico y el recuento repintándose solos tras borrar.
+- `tests/dls.test.js` actualizado (1 aserción invertida a propósito, con comentario explicando el motivo): el catálogo ya no puede seguir afirmando que NUNCA ofrece `openDlsHistoryModal` -- ahora sí lo ofrece, a propósito; se conserva la comprobación de que sigue sin ofrecer los controles de arrancar/continuar.
+
+## [Publicado] · kortline-v3 · Reordenar arrastrando a los jugadores en Contraataque de 11 (B-DLS9, dev.79, 2026-09-30)
+
+Segunda de las tres funciones pedidas por Mario el mismo día (ver B-PLNOTE1 justo abajo para la primera): *"dentro del contraataque de 11 poder editar personalizado donde esta cada jugador arrastandolo manteniendolo presionado y que se puedan mover... se guarda la personalizacion para el siguiente"*, con el dorsal visible y confirmado con `AskUserQuestion` que el reordenado se aplica en los dos sitios: la pantalla de configuración y la rejilla en vivo durante el ejercicio.
+
+### Añadido
+- Cada jugador, tanto en la pantalla de configuración (antes de arrancar) como en la rejilla de tarjetas en vivo durante el ejercicio, lleva ahora un pequeño tirador (⠿) para arrastrarlo y cambiarlo de sitio -- el resto de cada fila/tarjeta conserva su gesto normal (seleccionar, ver estadísticas), así que no hay ningún choque.
+- El orden elegido se guarda **por equipo** (`team.dlsOrder`), así que la próxima vez que se arranque Contraataque de 11 en ese equipo ya sale con el mismo orden -- no hay que rehacerlo cada sesión. Un jugador nuevo que todavía no se haya arrastrado nunca aparece siempre al final, nunca desaparece.
+- El selector rápido de "¿quién ha hecho X?" durante el ejercicio hereda el nuevo orden automáticamente sin tocar nada ahí, porque ya usa la misma lista de jugadores de la sesión tal cual (patrón ya existente desde B-DLS5).
+- Confirmado (sin necesitar ningún cambio) que el dorsal de cada jugador ya se mostraba, y se sigue mostrando, tanto en la configuración como en la rejilla en vivo.
+- De paso, confirmado revisando el código que terminar un Contraataque de 11 ya era una acción totalmente distinta de pausarlo -- una vez terminado, solo se puede arrancar una sesión NUEVA o ver el resultado, nunca reanudar la ya terminada. No hizo falta ningún cambio para este punto del pedido de Mario.
+
+### Probado (jsdom)
+- `tests/dls_drag_reorder.test.js` (nuevo, 29 aserciones) -- la lógica de ordenar/aplicar/persistir el orden, que el tirador existe en los dos sitios con los datos correctos, que reordenar en vivo actualiza de verdad la sesión en curso Y lo guarda para la próxima vez, que el selector rápido hereda el nuevo orden sin tocar nada ahí, y una comprobación de seguridad (un orden que no cuadra con los jugadores reales de la sesión no se aplica). El propio gesto de arrastre (posición real en pantalla) no tiene test, igual que el long-press ya existente del teamScore -- un entorno sin layout real (jsdom) no puede reproducir eso de verdad.
+- De paso, arreglado un problema de la propia suite de tests (`tests/run-all.js`, sin tocar la app): al ejecutar TODOS los tests juntos, varios arrancan cronómetros reales de "Ejercicios en vivo" que nunca se paran solos dentro del mismo proceso -- la suite combinada se quedaba colgada minutos reales tras terminar e imprimir el resumen. Se añadió una salida explícita al final, igual que ya hacía cada test por su cuenta.
+
+## [Publicado] · kortline-v3 · Comentario privado por jugador en el pase de lista (B-PLNOTE1, dev.78, 2026-09-30)
+
+Primera de las tres funciones que Mario pidió el mismo día: *"en el pase de lista quiero poder poner si mantengo pulsado un comentario indiviudual de ese día del jugador que incluso pueda ser con una nota del día si quiere"*, aclarando que debe ser *"Solo para mi pero se puede incluir en el resumen para entrenadores si es necesario"*.
+
+### Añadido
+- En el pase de lista (`att()`), mantener pulsado (≈0.8s) el nombre/información de un jugador abre un cuadro para escribir un comentario privado de ESE día concreto (`openPlayerNoteModal`), guardado como `sess[pid+"_note"]` -- un campo nuevo, sin relación con el motivo de justificación (`_jr`/`_jn`, que solo existe cuando el estado es "Justificado").
+- Cuando ya hay un comentario guardado ese día, aparece un pequeño badge 📝 junto al nombre del jugador (con el texto completo como tooltip) que también abre el mismo cuadro para editarlo o quitarlo.
+- El comentario es privado por defecto: nunca aparece en el resumen de WhatsApp para "Padres". Si se genera el resumen "Interno" (para entrenadores), sí se incluye, en una sección aparte ("📝 (Interno) Comentarios del día:"), siguiendo el mismo patrón ya existente para la nota general del entrenamiento (`sess._notes`).
+- No se incluye en el resumen semanal (`buildWeeklyText`) -- Mario no lo pidió ahí, y un histórico de comentarios diarios de cada jugador no encajaba en ese resumen agregado.
+
+### Probado (jsdom)
+- `tests/att_player_note.test.js` (nuevo, 19 aserciones): guardar/editar/quitar el comentario desde el modal, aparición/desaparición del badge, que el comentario de un jugador no afecta a otro, que sale en el resumen Interno con el texto exacto y NUNCA en el de Padres ni en el semanal, y que el resto del pase de lista (`cycleAtt`) sigue funcionando con normalidad.
+
+### Pendiente (mismo pedido de Mario, 2026-09-30) -- ya completado
+- Reordenar jugadores en Contraataque de 11 arrastrando: hecho, ver B-DLS9 (dev.79) justo arriba.
+- Histórico agregado por ejercicio con borrado: hecho, ver B-DLS10 (dev.80) más arriba -- las tres partes del pedido de Mario de este día ya están implementadas y probadas.
+
+## [Publicado] · kortline-v3 · Aviso al editar un entrenamiento que no es el de hoy (B-HISTWARN1, dev.77, 2026-09-30)
+
+Mario, justo antes de subir el hotfix de este mismo día, cayó en la cuenta de un caso que le preocupaba: entrar desde Historial a un entrenamiento de OTRO día (no hoy) y cambiar algo ahí sin darse cuenta de que no es el de hoy. Pidió explícitamente: *"yo pondria un mensaje de etas cambiando datos que no son de hoy, pero siempre que no sea un entrenamiento de hoy algo asi"*.
+
+### Añadido
+- En el pase de lista (`att()`), cuando la fecha que se está viendo/editando NO es la de hoy, aparece un aviso informativo justo debajo del selector de fecha ("📅 Estás viendo/editando el entrenamiento del [fecha] -- no es el de hoy"). Es solo un aviso -- no bloquea nada ni pide confirmación (no fue lo que pidió Mario), así que no cambia ningún comportamiento de guardado: el autoguardado, la sincronización y todo lo demás siguen exactamente igual.
+- El aviso desaparece en cuanto se vuelve al día de hoy (con las flechas del selector de fecha o con el botón "HOY").
+
+### Probado (jsdom)
+- `tests/att_not_today_banner.test.js` (nuevo, 6 aserciones): confirma que el aviso NO aparece en el entrenamiento de hoy, que SÍ aparece en cualquier otro día, que seguir editando (`cycleAtt`) no se ve afectado por el aviso, y que desaparece al volver a hoy.
+- Suite completa: **1132/1132 OK** (1126 + 6 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.77` / `kortline-v3.0.0-dev.77` (raíz, `CLUB_ID="cbjaca"`) y `kortline-v3-test-dev.77` (`/test/`, `CLUB_ID="cbjaca-test"`). Se sube junto con el hotfix de abajo, en el mismo lote a producción y test.
+
+## [Publicado] · kortline-v3 · Hotfix urgente: el arreglo de los puntuales había desaparecido de producción (2026-09-30)
+
+Mario reportó de nuevo "los puntuales en asistencia ahora no aparecen, se pierden en el vacío" — el mismo síntoma que B-GUEST7 (más abajo) ya había arreglado. Investigado a fondo antes de tocar nada: **no era una regresión de código nueva**. Al resolver el incidente del CLUB_ID (producción apuntaba por error al club de pruebas), la reparación consistió en devolver la raíz a la última versión seguramente correcta que teníamos, dev.73 — pero dev.73 es **anterior** a B-GUEST7 (dev.74). Al arreglar el CLUB_ID sin querer se revirtió también el arreglo de los puntuales, que nunca había llegado a subirse a producción como cambio propio. Confirmado leyendo el código realmente publicado (usaba todavía `p.addedAt===fecha` en vez de `_attOnlyActiveOn`) y con la suite de 35 comprobaciones de `guest_att_only.test.js`, que pasa entera contra la versión corregida.
+
+Mario, avisado del motivo exacto, pidió subir todo junto a producción de una vez — dev.74 (B-GUEST7) + dev.75 (B-SYNC2/B-SYNC3/B-SYNC4) + dev.76 (B-TNMERGE1) — en vez de esperar a probar B-TNMERGE1 en el móvil primero, así que esta vez producción y `/test/` se actualizan a la vez con el mismo contenido (dev.76), salvo `CLUB_ID`/`CACHE_VERSION` propios de cada uno.
+
+### Verificado antes de publicar
+- Suite completa (1126 comprobaciones) contra la raíz: **1126/1126 OK**.
+- Suite completa contra `/test/index.html` (`KORTLINE_TEST_INDEX=test/index.html`): **1126/1126 OK**.
+- Diff línea a línea entre raíz y `/test/`: solo difieren `CLUB_ID` (`cbjaca` vs `cbjaca-test`) y `CACHE_VERSION`/nombre de caché — nada de lógica.
+- `APP_VERSION` / `CACHE_VERSION`: `3.0.0-dev.76` / `kortline-v3.0.0-dev.76` (raíz, `CLUB_ID="cbjaca"`) y `kortline-v3-test-dev.76` (`/test/`, `CLUB_ID="cbjaca-test"`).
+
+## [Publicado] · kortline-v3 · El botón "Notas de entrenamiento" se quita a favor de lo que ya vive en pase de lista (B-TNMERGE1, 2026-09-24)
+
+Mario, tras probar y aprobar dev.75: "el botón de preparar entrenamiento al lado del pase de lista que no lo usamos nunca, pero los ejercicios y todo dentro del pase de lista me gusta". Aclarado con 3 preguntas (`AskUserQuestion`): quedarse solo con lo que ya había en pase de lista (campo libre de ejercicios + catálogo), conservar de forma sencilla y de solo lectura las pocas notas antiguas ya guardadas, y quitar también el botón de vista semanal en Equipo.
+
+### Cambiado
+- Se quita el botón "📝" (notas de entrenamiento) de la tarjeta de cada equipo en "Hoy", junto a "Pasar lista".
+- Se quita el botón "NOTAS DE ENTRENAMIENTO" (vista semanal) de la pantalla de Equipo.
+- Nada de esto borra datos: `S.trainingNotes` y su sincronización con Firestore siguen exactamente igual que antes; solo desaparece la ENTRADA por botón a la pantalla de escritura, que Mario no usaba.
+
+### Añadido
+- Si un día concreto de un equipo ya tenía una nota de entrenamiento guardada de antes (objetivos, foco de la semana, hábitos, contenido técnico/táctico, foto, observaciones por jugador o notas para la próxima sesión), aparece ahora dentro del propio pase de lista de ese día, en una caja de solo lectura ("📝 Nota de entrenamiento guardada de este día") -- para no perder de vista ese puñado de notas ya escritas, sin reabrir la pantalla separada que ya no tiene botón de entrada.
+
+### Probado (jsdom)
+- `tests/tnmerge_att_legacy.test.js` (nuevo, 22 aserciones): confirma que "Hoy" y "Equipo" ya no enlazan a la pantalla de notas de entrenamiento, que el resto de botones de Equipo siguen intactos, que la caja de solo lectura no aparece si no hay nota antigua para ese día exacto, que aparece con todos sus campos cuando sí la hay (incluida la foto, tocable para verla en grande), que una nota de otro día no se cuela, que los datos de `S.trainingNotes` no se tocan ni se pierden, y que las funciones de la pantalla antigua (`trainingNoteScreen`, `trainingNotesWeekScreen`, `tn()`) siguen definidas por si hicieran falta más adelante.
+- Suite completa: **1126/1126 OK** (1104 + 22 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.76` / `kortline-v3.0.0-dev.76` (root) y `kortline-v3-test-dev.76` (`/test/`).
+
+## [Publicado] · kortline-v3 · Revisión de fiabilidad de la sincronización entre dispositivos (B-SYNC2/B-SYNC3/B-SYNC4, 2026-09-24)
 
 Mario pidió una revisión general en profundidad ("hay bastantes fallos en las sincronizaciones de un dispositivo a otro"), citando dos síntomas: el cumpleaños de una jugadora no salía en "Hoy" si no se entraba al equipo, y la asistencia "a veces cuesta o no llega a otro móvil". Los tres hallazgos de abajo explican ambos síntomas.
 
@@ -22,7 +112,7 @@ Mario pidió una revisión general en profundidad ("hay bastantes fallos en las 
 - Suite completa: 1104/1104.
 - CACHE_VERSION → `kortline-v3.0.0-dev.75`. APP_VERSION sincronizada.
 
-## [Sin publicar] · kortline-v3 · Un jugador puntual reutilizado desde "Más frecuentes" desaparecía del pase de lista (B-GUEST7, 2026-09-22)
+## [Publicado] · kortline-v3 · Un jugador puntual reutilizado desde "Más frecuentes" desaparecía del pase de lista (B-GUEST7, 2026-09-22)
 
 ### Corregido
 
