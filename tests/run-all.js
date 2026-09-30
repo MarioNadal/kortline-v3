@@ -38,6 +38,22 @@ async function main() {
   if (totalFailed > 0 || crashed.length > 0) {
     process.exitCode = 1;
   }
+
+  // v3.0.0-dev.79: varios tests arrancan una sesión de "Ejercicios en vivo"
+  // (Contraataque de 11 / Final de partido), que usa un setInterval() real
+  // de 1 segundo para el cronómetro (startDlsTimer/_dlsCmpView) -- cada test
+  // individual se ejecuta con `if (require.main === module) run().then(...
+  // process.exit(...))`, así que ese process.exit() de cada archivo
+  // ignora esos temporizadores sin más. Pero esta suite combinada (run-all)
+  // nunca llamaba a process.exit() -- así que, con bastantes archivos
+  // arrancando cronómetros reales (y ninguno limpiándolos, porque no hace
+  // falta cuando el test se ejecuta solo), Node se queda esperando a que
+  // TODOS esos intervalos acaben de contar hacia atrás de verdad antes de
+  // salir -- puede tardar minutos reales aunque el resumen ya se haya
+  // impreso y todo haya ido bien. Salir explícitamente aquí, con el mismo
+  // código de salida que ya se había decidido arriba, es exactamente lo que
+  // ya hace cada test por su cuenta.
+  process.exit(process.exitCode || 0);
 }
 
 main();

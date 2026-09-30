@@ -353,8 +353,16 @@ async function run() {
   document.getElementById("m-dls-summary").remove();
 
   // ── B-DLS8: la fila del catálogo NO cambia según haya o no una sesión activa/terminada -- es pura referencia, no le afecta el estado en vivo ──
+  // v3.0.0-dev.80 · B-DLS10: openDlsHistoryModal SÍ vuelve a aparecer aquí a
+  // propósito -- es la reversión deliberada de quitar el agregado (ver
+  // tests/dls_history.test.js para la cobertura completa del histórico).
+  // Lo que sigue sin aparecer nunca en el catálogo son los controles de
+  // ARRANCAR/CONTINUAR
+  // (openDlsSetupModal/openDlsResumeOrLive/openDlsMatchSetupModal) -- eso
+  // sigue viviendo solo en el día (att()), tal y como Mario pidió en B-DLS8.
   const libHtmlAfterFinish = win._drillLibraryRowsHtml();
-  report.assert(!libHtmlAfterFinish.includes("openDlsSetupModal(") && !libHtmlAfterFinish.includes("openDlsResumeOrLive(") && !libHtmlAfterFinish.includes("openDlsHistoryModal("), "B-DLS8: terminar una sesión en vivo no hace aparecer ningún control en la fila del catálogo -- sigue sin ofrecer nada de eso");
+  report.assert(!libHtmlAfterFinish.includes("openDlsSetupModal(") && !libHtmlAfterFinish.includes("openDlsResumeOrLive("), "B-DLS8: terminar una sesión en vivo no hace aparecer ningún control de ARRANCAR/CONTINUAR en la fila del catálogo -- sigue sin ofrecer eso, sigue viviendo solo en el día");
+  report.assert(libHtmlAfterFinish.includes("openDlsHistoryModal('" + drill.id + "')"), "B-DLS10 (dev.80): la fila del catálogo SÍ ofrece ahora un botón de histórico agregado -- reversión deliberada de B-DLS8, confirmada con Mario");
 
   // ── Lanzar una nueva sesión el mismo día NO sobreescribe el historial anterior ──
   const sessCountBefore = win.S.drillLive.t1[drill.id].length;
