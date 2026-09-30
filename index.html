@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.73";
+const APP_VERSION = "3.0.0-dev.77";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2403,10 +2403,30 @@ function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
 // sessions, así que reutiliza esta misma función en vez de duplicarla
 // (mismo patrón de bug -- "misma lógica copiada dos veces" -- que ya ha
 // aparecido varias veces en este proyecto; aquí se evita desde el principio).
+// v3.0.0-dev.75 · B-SYNC4: bug real bastante serio, encontrado al escribir
+// los tests del reintento automático (B-SYNC3) -- `curSess`/`prevSess` solo
+// se defienden de venir undefined al construir `keys` (Object.keys(x||{})),
+// pero LUEGO se leen directamente como `curSess[key]`/`prevSess[key]`, SIN
+// el mismo `||{}`. `prevSess` es efectivamente `undefined` en la primera
+// sincronización de cada carga de la app (_lastSyncedSnapshot arranca a
+// null en cada recarga/reapertura, y no se persiste entre sesiones): si
+// esa PRIMERA sincronización de la sesión ya tiene alguna asistencia
+// existente que subir (el caso normal -- casi siempre hay historial),
+// `prevSess[key]` lanzaba un TypeError. Al estar dentro del try/catch de
+// _runCloudSync(), el fallo era silencioso (solo un aviso por consola) --
+// pero significaba que la primera sincronización de sesión de cada
+// entrenador, cada vez que abría la app, fallaba SIEMPRE que su caché local
+// ya coincidiera con Firestore (el caso normal, sin recibir todavía ningún
+// cambio remoto que fijara _lastSyncedSnapshot por otra vía) -- muy
+// probablemente la causa principal de "a veces cuesta o no llega a otro
+// móvil" que reportó Mario, ya que pasar lista es casi siempre lo primero
+// que se hace nada más abrir la app.
 function _diffSessions(batch, curSess, prevSess, colName){
   colName = colName || "sessions";
+  curSess = curSess || {};
+  prevSess = prevSess || {};
   let n=0;
-  const keys=new Set([...Object.keys(curSess||{}), ...Object.keys(prevSess||{})]);
+  const keys=new Set([...Object.keys(curSess), ...Object.keys(prevSess)]);
   for(const key of keys){
     if(JSON.stringify(curSess[key])!==JSON.stringify(prevSess[key])){
       const us=key.indexOf("_");const tid=key.slice(0,us),date=key.slice(us+1);
@@ -2444,16 +2464,48 @@ async function _runCloudSync(){
     n+=_diffSessions(batch, cur.trainingNotes, prev?.trainingNotes, "trainingNotes");
     if(n>0) await batch.commit();
     _lastSyncedSnapshot=cur;
-  }catch(e){ console.warn("⚠️ Sync con la nube falló, los datos siguen a salvo en este dispositivo", e); }
+  }catch(e){
+    console.warn("⚠️ Sync con la nube falló, los datos siguen a salvo en este dispositivo -- reintentando", e);
+    // v3.0.0-dev.75 · B-SYNC3: antes, si ESTE intento de sincronización
+    // fallaba (un corte de red justo al pulsar, error puntual del servidor...),
+    // el error solo se registraba en la consola y no pasaba nada más -- el
+    // cambio se quedaba a salvo en este dispositivo (localStorage), pero no
+    // volvía a intentarse subir a Firestore hasta que el entrenador tocara
+    // OTRA cosa en la app (lo que disparase un save() nuevo). Si cerraba la
+    // app justo después de ese fallo (típico: pasar lista y salir del
+    // pabellón con mala cobertura), ese cambio podía quedarse sin llegar a
+    // los demás dispositivos indefinidamente -- el síntoma que describió
+    // Mario ("a veces cuesta o no llega a otro móvil"). _lastSyncedSnapshot
+    // NO se actualiza aquí arriba (sigue apuntando al último envío que sí
+    // triunfó), así que el cambio fallido sigue "pendiente" y basta con
+    // volver a llamar a _scheduleCloudSync() para que el próximo intento lo
+    // recoja igual que si acabara de pasar -- sin necesidad de ningún cambio
+    // nuevo del usuario. El propio debounce de _scheduleCloudSync (mínimo
+    // ~3s entre intentos) evita que esto reintente en bucle sin freno.
+    _scheduleCloudSync();
+  }
 }
+// v3.0.0-dev.75 · B-SYNC3: además del reintento automático de arriba, dos
+// momentos en los que vale la pena comprobar activamente si hay algo
+// pendiente de subir: en cuanto el dispositivo recupera conexión (evento
+// "online" -- no hace falta esperar al siguiente cambio del usuario), y en
+// cuanto la app vuelve a primer plano (un móvil que estuvo con la pantalla
+// apagada/en segundo plano puede haber perdido cobertura y recuperado sin
+// que "online" llegase a dispararse). _scheduleCloudSync() ya es un no-op
+// seguro si no hay nada que sincronizar (o si la nube no está activa en
+// este dispositivo).
+window.addEventListener("online",()=>{try{_scheduleCloudSync();}catch(e){}});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible"){try{_scheduleCloudSync();}catch(e){}}
+});
 
 /* ── Entrada: Firestore → S en tiempo real ── */
 let _clubUnsubs=[],_teamUnsubs=[],_lastListenedTeamId=undefined;
-// v3 · B-SYNCATT1: listeners de asistencia (sessions) y notas de
-// entrenamiento (trainingNotes), uno por equipo, para TODOS los equipos
-// del club a la vez (ver _syncSessionListeners más abajo) — independiente
-// de qué equipo se esté viendo en pantalla.
-let _sessionUnsubsByTid={};
+// v3 · B-SYNCATT1 (asistencia/notas) + v3.0.0-dev.75 · B-SYNC2 (jugadoras y
+// partidos, ver más abajo): listeners "siempre activos", uno por equipo, para
+// TODOS los equipos del club a la vez (ver _syncGlobalTeamListeners más
+// abajo) — independiente de qué equipo se esté viendo en pantalla.
+let _globalUnsubsByTid={};
 function _teardown(list){ list.forEach(u=>{try{u();}catch(e){}}); list.length=0; }
 function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
@@ -2472,15 +2524,15 @@ function _persistLocalCacheOnly(){
 // eco y no hay nada que hacer.
 function _attachClubListeners(){
   _teardown(_clubUnsubs);
-  Object.keys(_sessionUnsubsByTid).forEach(tid=>_teardown(_sessionUnsubsByTid[tid]));
-  _sessionUnsubsByTid={};
+  Object.keys(_globalUnsubsByTid).forEach(tid=>_teardown(_globalUnsubsByTid[tid]));
+  _globalUnsubsByTid={};
   // v3 · B-SYNCATT1: conectar ya mismo con los equipos que tengamos en caché
   // local (S.teams se rellena en load() antes de llegar aquí) -- si
   // esperásemos solo al primer snapshot de "teams" de más abajo, un día
   // normal en el que la lista de equipos no ha cambiado respecto a la
   // caché haría que ese snapshot saliera "igual que ya teníamos" y nunca
-  // llegásemos a conectar los listeners de asistencia.
-  _syncSessionListeners();
+  // llegásemos a conectar los listeners siempre-activos.
+  _syncGlobalTeamListeners();
   _clubUnsubs.push(_clubDocRef().onSnapshot(snap=>{
     if(!snap.exists)return;
     const rd=_fsRestore(snap.data()||{});
@@ -2505,9 +2557,9 @@ function _attachClubListeners(){
     const needsBackfill=_sortTeams();
     _applyingRemote=false;
     // v3 · B-SYNCATT1: cada vez que cambia la lista de equipos (incluida la
-    // primera vez, al entrar), (re)conectamos los listeners de asistencia
+    // primera vez, al entrar), (re)conectamos los listeners siempre-activos
     // de TODOS los equipos -- no solo del que se esté viendo.
-    _syncSessionListeners();
+    _syncGlobalTeamListeners();
     if(needsBackfill){
       // Equipos antiguos sin campo "order": lo asignamos aquí y lo subimos a
       // Firestore para que todos los entrenadores converjan al mismo orden
@@ -2528,11 +2580,22 @@ function _attachClubListeners(){
 // pantalla "Hoy" no se actualizaba con lo que ponían los demás). Ahora se
 // escucha la asistencia (y las notas de entrenamiento, que comparten
 // exactamente el mismo mecanismo) de TODOS los equipos del club a la vez,
-// se esté viendo esa pantalla o no. El resto de colecciones por equipo
-// (jugadoras, partidos, eventos, ejercicios) se editan casi siempre estando
-// dentro de ese equipo, así que se quedan igual que antes: por equipo, bajo
-// demanda, en _attachTeamListeners.
-function _attachSessionListeners(tid){
+// se esté viendo esa pantalla o no.
+// v3.0.0-dev.75 · B-SYNC2: el mismo problema, encontrado por Mario para
+// "jugadoras" -- cambiar la fecha de nacimiento de un jugador (o cualquier
+// otro dato suyo) sin entrar a SU equipo no se reflejaba en la pantalla
+// "Hoy" (el aviso de cumpleaños de hoy, _todaysBirthdays(), recorre
+// S.players[] de TODOS los equipos). Mismo motivo exacto que B-SYNCATT1: la
+// razón original para dejar "jugadoras"/"partidos" como listeners por
+// equipo bajo demanda ("se editan casi siempre estando dentro de ese
+// equipo") ya no era del todo cierta -- "Hoy" también LEE jugadoras
+// (cumpleaños) y partidos (todayMatches) de TODOS los equipos aunque no se
+// esté dentro de ellos. Se mueven aquí, junto a sessions/trainingNotes,
+// bajo el mismo mecanismo "siempre activo para todos los equipos".
+// "events"/"drills"/"drillLive" sí se quedan en _attachTeamListeners: nada
+// fuera de la propia pantalla del equipo los lee, así que no hace falta
+// pagar el coste de escucharlos para equipos que ni se han abierto.
+function _attachGlobalTeamListeners(tid){
   const unsubs=[];
   const teamRef=_teamDocRef(tid);
   unsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
@@ -2564,35 +2627,36 @@ function _attachSessionListeners(tid){
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
+  // v3.0.0-dev.75 · B-SYNC2 (ver comentario de arriba).
+  unsubs.push(teamRef.collection("players").onSnapshot(snap=>{
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
+    _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
+  unsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
+    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
+    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
+    _persistLocalCacheOnly();render();
+  }));
   return unsubs;
 }
-function _syncSessionListeners(){
+function _syncGlobalTeamListeners(){
   const currentIds=new Set(S.teams.map(t=>t.id));
   // Baja: equipos que ya no existen (borrados) -- cortar sus listeners.
-  Object.keys(_sessionUnsubsByTid).forEach(tid=>{
-    if(!currentIds.has(tid)){ _teardown(_sessionUnsubsByTid[tid]); delete _sessionUnsubsByTid[tid]; }
+  Object.keys(_globalUnsubsByTid).forEach(tid=>{
+    if(!currentIds.has(tid)){ _teardown(_globalUnsubsByTid[tid]); delete _globalUnsubsByTid[tid]; }
   });
   // Alta: equipos nuevos (o la primera carga) que aún no tienen listener.
   currentIds.forEach(tid=>{
-    if(!_sessionUnsubsByTid[tid]) _sessionUnsubsByTid[tid]=_attachSessionListeners(tid);
+    if(!_globalUnsubsByTid[tid]) _globalUnsubsByTid[tid]=_attachGlobalTeamListeners(tid);
   });
 }
 function _attachTeamListeners(tid){
   _teardown(_teamUnsubs);
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
-  _teamUnsubs.push(teamRef.collection("players").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
-    if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
-    _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
-    _persistLocalCacheOnly();render();
-  }));
-  _teamUnsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
-    if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
-    _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
-    _persistLocalCacheOnly();render();
-  }));
   _teamUnsubs.push(teamRef.collection("events").onSnapshot(snap=>{
     const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
     if(JSON.stringify(fresh)===JSON.stringify(S.events[tid]||[]))return;
@@ -2616,10 +2680,11 @@ function _attachTeamListeners(tid){
     _applyingRemote=true;if(!S.drillLive)S.drillLive={};S.drillLive[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
-  // v3 · B-SYNCATT1: "sessions" (asistencia) y "trainingNotes" ya NO se
+  // v3 · B-SYNCATT1 + v3.0.0-dev.75 · B-SYNC2: "sessions" (asistencia),
+  // "trainingNotes", "players" (jugadoras) y "matches" (partidos) ya NO se
   // escuchan aquí -- se escuchan para TODOS los equipos a la vez desde
-  // _attachSessionListeners/_syncSessionListeners (ver más arriba), no solo
-  // para el equipo que se está viendo. Ver ese comentario para el porqué.
+  // _attachGlobalTeamListeners/_syncGlobalTeamListeners (ver más arriba), no
+  // solo para el equipo que se está viendo. Ver ese comentario para el porqué.
 }
 
 /* ═══════════════════════════════════════
@@ -2913,6 +2978,23 @@ function _playerStartDate(p,sessList){
   }
   return first;
 }
+// v3.0.0-dev.74 · B-GUEST7: helper único para "¿este puntual de ENTRENO
+// cuenta el día `date`?". v3.0.0-dev.58 · B-GUEST4 introdujo la reutilización
+// en varios días (picker "Más frecuentes"/"Categoría inferior" -> p.attDates
+// guarda TODOS los días para los que ha contado), pero tres sitios que
+// decidían si un puntual attOnly se ve ese día (att(), la tarjeta "Hoy" y el
+// texto de WhatsApp) seguían comparando solo p.addedAt===date -- la fecha de
+// ALTA, que nunca cambia al reutilizarlo. Resultado (reportado por Mario,
+// cadete masculino, 21/09): al añadir un puntual ya existente desde "Más
+// frecuentes" en un día distinto al de su alta, su asistencia SÍ se guardaba
+// (S.sessions[...][id]="present"), pero el jugador desaparecía por completo
+// del pase de lista, de la tarjeta "Hoy" y del resumen de WhatsApp de ese
+// día -- "se pierde en el vacío". Retrocompatible: si un puntual antiguo no
+// tiene attDates (datos de antes de B-GUEST4), se sigue comparando contra su
+// addedAt de siempre.
+function _attOnlyActiveOn(p,date){
+  return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
+}
 // v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
 // en el entrenamiento de una fecha dada. Antes esta misma comprobación (¿ya
 // estaba de alta ese día?) estaba reimplementada suelta en media docena de
@@ -2933,7 +3015,7 @@ function _isPlayerActiveOn(p,date,sessList){
   // días para los que ha contado. Retrocompatible: si un puntual antiguo no
   // tiene attDates (datos de antes de este cambio), seguimos comparando
   // contra su addedAt de siempre.
-  if(p.attOnly)return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
+  if(p.attOnly)return _attOnlyActiveOn(p,date);
   const start=_playerStartDate(p,sessList);
   return !start||date>=start;
 }
@@ -4127,15 +4209,23 @@ function hoy(){
       </div>
     </div>`;
   }).join("");
+// v3.0.0-dev.76 · B-TNMERGE1: el botón "📝 Notas de entrenamiento" (pantalla
+// aparte con objetivos/foco de semana/hábitos/observaciones/foto/notas para
+// la próxima sesión) desaparece de aquí -- Mario pidió explícitamente
+// quitarlo por no usarse nunca, y quedarse solo con lo que YA vive dentro
+// del propio pase de lista (campo libre de ejercicios + catálogo, ver
+// att()). Los datos de notas antiguas NO se borran (siguen en
+// S.trainingNotes/Firestore) y, si un día concreto ya tenía una, se sigue
+// pudiendo consultar de forma sencilla y de solo lectura desde el propio
+// pase de lista de ese día (ver _legacyTrainingNoteHtml en att()).
 // ── Training cards ──
   const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
     const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija
     const sess=so(t.id,today);
-    const _hasTN=!!tn(t.id,today); // v3 · B-TNOTES1: ¿ya hay notas de entrenamiento para hoy?
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
     // partido (no entrenan) del resumen "Hoy" para no contarlos como
     // presentes por defecto en un entrenamiento al que no van.
-    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===today));
+    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today))); // B-GUEST7
     const marked=players.filter(p=>sess[p.id]).length;
     const done=players.length>0&&marked>0;
     const effSt=players.map(p=>_effAttState(p,today,sess[p.id]));
@@ -4166,7 +4256,6 @@ function hoy(){
         </div>`:""}
         <div style="display:flex;gap:8px">
           <button onclick="navTo('att',{teamId:'${t.id}',date:td()})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
-          <button onclick="navTo('trainingNote',{teamId:'${t.id}',date:td()})" style="width:46px;height:46px;border-radius:9px;background:${_hasTN?"rgba(34,197,94,.12)":"var(--s2)"};border:1px solid ${_hasTN?"rgba(34,197,94,.35)":"var(--border)"};cursor:pointer;font-size:18px" title="Notas de entrenamiento (planificación previa, independiente de la asistencia)">${_hasTN?"✅":"📝"}</button>
           ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:td()})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
@@ -4245,7 +4334,7 @@ function att(){
   // v3.0.0-dev.37 · B-GUEST3: un puntual de ENTRENAMIENTO (attOnly) solo
   // aparece en el pase de lista del día exacto para el que se dio de alta
   // -- antes se quedaba para siempre como si fuera plantilla fija.
-  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===S.date));
+  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,S.date))); // B-GUEST7
   const sess=so(S.teamId,S.date);
   const f=S.cfg.features;
   // v3.0.0-dev.61 · B-INJ3: aviso de "vuelta estimada cumplida" para jugadores
@@ -4270,6 +4359,15 @@ function att(){
       </div>`;
     }).join("");
   })();
+  // v3.0.0-dev.77 · B-HISTWARN1: Mario, justo antes de subir el hotfix de
+  // hoy, cayó en la cuenta de un caso que le preocupaba: entrar desde
+  // Historial a un entrenamiento de OTRO día y tocar algo ahí sin darse
+  // cuenta de que no es el de hoy. Pidió explícitamente "un mensaje de estás
+  // cambiando datos que no son de hoy, pero siempre que no sea un
+  // entrenamiento de hoy" -- solo un aviso informativo, no un bloqueo ni una
+  // confirmación (no pidió eso), así que no cambia ningún flujo de guardado,
+  // solo dice claramente qué día se está viendo/editando cuando no es hoy.
+  const notTodayBannerHtml=(S.date!==td())?`<div style="display:flex;align-items:center;gap:8px;background:rgba(240,99,24,.08);border:1px solid rgba(240,99,24,.25);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:var(--orange);font-weight:600"><span style="font-size:16px">📅</span><span>Estás viendo/editando el entrenamiento del ${fd(S.date,true)} -- no es el de hoy</span></div>`:"";
   // v3.0.0-dev.62 · B-BDAY1: aviso de cumpleaños de HOY para jugadores de
   // este equipo (solo decorativo, sin botones -- no hay ninguna acción que
   // tomar, a diferencia del aviso de lesión de arriba).
@@ -4374,6 +4472,12 @@ function att(){
   // explicito "Ver tamaño completo" (antes solo se veia recortada a 180px
   // dentro de la caja, sin forma de ampliarla).
   const photoHtml=(f.photos||sess._photo)?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="${f.photos?"document.getElementById('att-photo-input').click()":`openPhotoPreview('${S.teamId}','${S.date}')`}">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">${f.photos?"Toca para cambiar":"Toca para ver"}</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div>${f.photos?`<input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>`:""}${sess._photo?`<div style="display:flex;gap:8px;margin-top:8px"><button onclick="openPhotoPreview('${S.teamId}','${S.date}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:8px 10px">🔍 Ver tamaño completo</button>${f.photos?`<button onclick="removePhoto()" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:8px 12px">✕ Quitar</button>`:""}</div>`:""}</div>`:"";
+  // v3.0.0-dev.76 · B-TNMERGE1: si este día concreto ya tenía una nota de
+  // entrenamiento antigua (de cuando existía el botón aparte), se muestra
+  // aquí, de solo lectura -- ver _legacyTrainingNoteHtml. Independiente del
+  // flag f.exercises: es un dato que ya existía, no una función nueva que
+  // activar.
+  const legacyTNHtml=_legacyTrainingNoteHtml(S.teamId,S.date,players);
   const exercisesHtml=f.exercises?`<div class="fg"><label class="fl">📋 Ejercicios del entrenamiento</label><textarea class="fi" id="att-exercises" rows="3" style="resize:none" oninput="_attAutoSave()">${esc(exVal)}</textarea></div>`:"";
   // v3.0.0-dev.34 · B-DRILL1: chips de ejercicios del catálogo adjuntados a
   // la sesión de hoy. Visible junto al campo libre de arriba (mismo flag
@@ -4456,6 +4560,7 @@ function att(){
       <button onclick="chgDate(1)" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:22px;padding:0 6px">›</button>
       <button onclick="_guardedExit(()=>{_attFlushDraft();S.date=td();S._attDraft=null;S._attNoCaptureOnRender=true;render();})" style="background:rgba(240,99,24,.15);color:var(--orange);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:700">HOY</button>
     </div>
+    ${notTodayBannerHtml}
     ${bdayReminderHtml}
     ${injReminderHtml}
     <div class="agrid">${agrid}</div>
@@ -4465,7 +4570,7 @@ function att(){
     <div style="text-align:center;margin:8px 0 12px">
       <button onclick="openGuestPlayerModal({mode:'att'})" style="background:none;border:1px dashed var(--border);color:var(--td);cursor:pointer;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;width:100%">🔄 + Invitado puntual (jugador de otra categoría / externo)</button>
     </div>
-    ${exercisesHtml}${drillsChipsHtml}${photoHtml}${teamScoreHtml}
+    ${legacyTNHtml}${exercisesHtml}${drillsChipsHtml}${photoHtml}${teamScoreHtml}
     <div class="fg"><label class="fl">📝 Notas del entrenador</label><input class="fi" id="att-notes" value="${esc(notesVal)}" placeholder="Solo visibles para el entrenador..." oninput="_attAutoSave()"/></div>
     <div style="display:flex;gap:8px;align-items:stretch">
       ${!sessionExists
@@ -5020,7 +5125,6 @@ function team(){
       <button class="qb" onclick="navTo('hist')"><div style="font-size:22px">📋</div><div style="font-size:10px;font-weight:700;margin-top:4px;color:var(--td)">HISTORIAL</div><div style="font-family:var(--font-d);font-size:14px;color:var(--tm);margin-top:2px">${ts}</div></button>
     </div>
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
-    <button class="qb" onclick="S.tnWeekStart=null;navTo('trainingNotesWeek')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📝</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">NOTAS DE ENTRENAMIENTO</div><div style="font-size:11px;color:var(--tm);margin-top:1px">Planificación semanal · objetivo, hábitos y contenido</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     ${_findDuplicateGuestGroups(S.teamId).length?`<button class="qb" onclick="openGuestDuplicatesModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35)"><div style="font-size:20px">🔍</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#f59e0b">PUNTUALES DUPLICADOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${_findDuplicateGuestGroups(S.teamId).length} grupo${_findDuplicateGuestGroups(S.teamId).length!==1?"s":""} para fusionar</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>`:""}
     ${mvpCard(t)}
@@ -5042,7 +5146,7 @@ function buildDailyText(tid,date,showMotivo,opts){
   // -- nunca están en sess[], así que sin este filtro "sess[p.id]||present"
   // los mostraba como PRESENTES por defecto en un entrenamiento al que
   // nunca fueron.
-  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||p.addedAt===date));const sess=so(tid,date);
+  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date)));const sess=so(tid,date); // B-GUEST7
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
@@ -8565,9 +8669,49 @@ function openPhotoPreview(tid,date){
    S.sessions (ver sk()), pero en su propia colección de Firestore
    ("trainingNotes") y su propio objeto en memoria (S.trainingNotes) -- así
    nunca se mezcla con el registro de asistencia ni depende de él.
+
+   v3.0.0-dev.76 · B-TNMERGE1: Mario pidió explícitamente quitar la entrada
+   a esta pantalla (botón "📝" en Hoy junto a "Pasar lista", y "NOTAS DE
+   ENTRENAMIENTO" en Equipo) -- no la usaba nunca, y lo que sí usa (ejercicios
+   de la sesión) ya vive dentro del propio pase de lista (ver att()). Todas
+   las funciones de aquí abajo (trainingNoteScreen, trainingNotesWeekScreen,
+   _tn*) se quedan tal cual, sin punto de entrada en la interfaz pero sin
+   tocar ni un dato -- S.trainingNotes/Firestore siguen intactos. Las pocas
+   notas que ya existían de antes se pueden seguir consultando, en modo
+   solo lectura, desde el propio pase de lista del día que les corresponde
+   (ver _legacyTrainingNoteHtml, justo debajo de tn()).
 ═══════════════════════════════════════ */
 // Devuelve la nota de esa sesión, o null si todavía no se ha rellenado nada.
 function tn(tid,d){return S.trainingNotes[sk(tid,d)]||null;}
+// v3.0.0-dev.76 · B-TNMERGE1: tarjeta de solo lectura para mostrar, dentro
+// del pase de lista de un día concreto, una nota de entrenamiento ANTIGUA
+// (de cuando la pantalla separada todavía tenía botón de entrada) si la
+// hubiera para ese equipo+fecha exactos. No permite editar nada -- es solo
+// para no perder de vista ese puñado de notas ya guardadas. Si no hay nada
+// que mostrar para ese día, devuelve "" (no aparece ninguna caja).
+function _legacyTrainingNoteHtml(tid,date,players){
+  const note=tn(tid,date);
+  if(!note)return"";
+  const objetivos=_tnObjetivos(note);
+  const habitos=Array.isArray(note.habitos)?note.habitos:[];
+  const observaciones=Array.isArray(note.observaciones)?note.observaciones:[];
+  const hasContent=objetivos.length||habitos.length||observaciones.length||(note.focoSemana&&note.focoSemana.trim())||(note.contenido&&note.contenido.trim())||(note.notasProximas&&note.notasProximas.trim())||note.foto;
+  if(!hasContent)return"";
+  const rows=[
+    note.focoSemana&&note.focoSemana.trim()?`<div><b>📌 Foco de la semana:</b> ${esc(note.focoSemana.trim())}</div>`:"",
+    objetivos.length?`<div><b>🎯 Objetivos:</b> ${objetivos.map(o=>esc(o.text)).join(" · ")}</div>`:"",
+    habitos.length?`<div><b>✅ Hábitos:</b> ${habitos.map(esc).join(" · ")}</div>`:"",
+    note.contenido&&note.contenido.trim()?`<div><b>🏀 Contenido:</b> ${esc(note.contenido.trim())}</div>`:"",
+    observaciones.length?`<div><b>👤 Observaciones:</b> ${observaciones.map(o=>{const p=players.find(x=>x.id===o.playerId);return`${esc(p?p.name:"Jugador/a eliminado")}: ${esc(o.note)}`;}).join(" · ")}</div>`:"",
+    note.notasProximas&&note.notasProximas.trim()?`<div><b>➡️ Para la próxima:</b> ${esc(note.notasProximas.trim())}</div>`:""
+  ].filter(Boolean).join("");
+  const photoRow=note.foto?`<div style="margin-top:8px"><img src="${note.foto}" onclick="_tnOpenPhotoPreview('${tid}','${date}')" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;border:1px solid var(--border)"/></div>`:"";
+  return`<div class="fg"><div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--tm);margin-bottom:6px">📝 Nota de entrenamiento guardada de este día (solo lectura)</div>
+    <div style="font-size:13px;color:var(--tx);line-height:1.6">${rows}</div>
+    ${photoRow}
+  </div></div>`;
+}
 // Hábitos trabajados: NO es una lista fija -- son términos de baloncesto
 // libres (rebote, bote, 1c1...) que cada club/entrenador define sobre la
 // marcha. Para no tener que reescribirlos cada día, se sugieren (más
