@@ -189,6 +189,18 @@ body{font-family:var(--font-b);background:var(--bg);color:var(--tx);min-height:1
 /* ── Player rows ── */
 .pr{display:flex;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border);gap:10px;}
 .pr:last-child{border-bottom:none;}
+/* v3.0.0-dev.78 · B-PLNOTE1: mantener pulsado el nombre/info del jugador en
+   pase de lista abre un comentario privado del día (ver openPlayerNoteModal).
+   .pl-info-pressing da feedback visual mientras se mantiene pulsado;
+   .pnote-badge marca cuando ese día ya tiene comentario guardado. */
+.pl-info-pressing{background:rgba(240,99,24,.1);border-radius:8px;}
+.pnote-badge{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;font-size:11px;background:rgba(240,99,24,.15);color:var(--orange);cursor:pointer;flex-shrink:0;}
+/* v3.0.0-dev.79 · B-DLS9: tirador para reordenar arrastrando en Contraataque
+   de 11 (pantalla de configuración y rejilla en vivo) -- ver comentario
+   junto a _dlsDragHandlePointerDown. */
+.dls-drag-handle{display:flex;align-items:center;justify-content:center;width:28px;height:28px;font-size:15px;line-height:1;color:var(--tm);cursor:grab;touch-action:none;border-radius:6px;flex-shrink:0;-webkit-user-select:none;user-select:none;}
+.dls-drag-handle:active{cursor:grabbing;background:rgba(240,99,24,.15);color:var(--orange);}
+.dls-dragging{opacity:.5;outline:2px dashed var(--orange);outline-offset:2px;}
 .pnum{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-weight:900;font-size:16px;flex-shrink:0;color:white;}
 /* ── Attendance ── */
 .agrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;}
@@ -2168,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.77";
+const APP_VERSION = "3.0.0-dev.80";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4438,11 +4450,12 @@ function att(){
       const isInj=isInjuredOn(p,S.date);
       const avatar=p.photo?`<img class="pavatar" src="${p.photo}" alt="" style="margin-right:2px"/>`:"";
       const autoHint=eff.auto?`<span style="display:inline-flex;align-items:center;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(107,114,128,.2);color:#9ca3af" title="Justificado automáticamente por lesión">AUTO</span>`:"";
+      const pnote=sess[p.id+"_note"]||"";
       return`<div class="pr">
         <div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t?.color||"#F06318"},${t?.color||"#F06318"}80)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>
         ${avatar}
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${esc(p.name)}${isInj?`<span class="injury-badge" title="Lesionado">🚑</span>`:""}${p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px">🔄 PUNTUAL</span>`:""}</div>
+        <div style="flex:1;min-width:0" onpointerdown="_plNoteLongPressStart(this,'${p.id}')" onpointerup="_plNoteLongPressEnd(this)" onpointerleave="_plNoteLongPressEnd(this)" onpointercancel="_plNoteLongPressEnd(this)">
+          <div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${esc(p.name)}${isInj?`<span class="injury-badge" title="Lesionado">🚑</span>`:""}${p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px">🔄 PUNTUAL</span>`:""}${pnote?`<span class="pnote-badge" title="${esc(pnote)}" onclick="event.stopPropagation();openPlayerNoteModal('${p.id}')">📝</span>`:""}</div>
           <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:2px">
             <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:12px;font-weight:700;background:${v.bg};color:${v.c}">${v.i} ${v.l}</span>
             ${autoHint}
@@ -5166,6 +5179,14 @@ function buildDailyText(tid,date,showMotivo,opts){
   if(showMotivo&&sess._exercises&&S.cfg.features.exercises)lines.push(`\n📋 Ejercicios: ${sess._exercises}`);
   if(showMotivo&&(sess.drills||[]).length&&S.cfg.features.exercises)lines.push(`🗂️ Del catálogo: ${sess.drills.map(d=>d.name).join(", ")}`);
   if(sess._notes&&showMotivo)lines.push(`📝 (Interno) ${sess._notes}`);
+  // v3.0.0-dev.78 · B-PLNOTE1: comentarios individuales del día (privados por
+  // defecto, ver openPlayerNoteModal) -- solo en el resumen "Interno"
+  // (showMotivo), igual que sess._notes justo arriba. Nunca en buildWeeklyText:
+  // Mario no pidió un resumen semanal de estos comentarios diarios.
+  if(showMotivo){
+    const pnoteLines=sorted.filter(p=>sess[p.id+"_note"]).map(p=>`  ${p.number?"#"+p.number+" ":""}${p.name}: ${sess[p.id+"_note"]}`);
+    if(pnoteLines.length)lines.push(`📝 (Interno) Comentarios del día:\n${pnoteLines.join("\n")}`);
+  }
   const realClub=S.clubName&&S.clubName!=="Kortline"?S.clubName:"";
   const footerName=realClub||t.name;
   lines.push(`\n_${footerName}_`);
@@ -5966,6 +5987,7 @@ function _drillLibraryRowsHtml(){
           <div style="font-weight:700;font-size:14px;color:var(--tx)">${esc(d.name)}${_dlsBadgeHtml(d)}</div>
           <div style="font-size:11px;color:var(--tm)">${esc(cat.label)}${d.minutes?` · ${d.minutes} min`:""}${notesPreview}</div>
         </div>
+        ${_dlsType(d)?`<button onclick="openDlsHistoryModal('${d.id}')" title="Histórico" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">📊</button>`:""}
         <button onclick="openDrillModal(${JSON.stringify(d).replace(/"/g,'&quot;')})" title="Editar" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:15px;padding:4px">✏️</button>
       </div>
     </div>`;
@@ -6128,11 +6150,49 @@ function _dlsValoracion(st,missPenalty){
   const fallados=missPenalty?((st.p2a||0)+(st.p3a||0)):0;
   return base-fallados;
 }
+// v3.0.0-dev.79 · B-DLS9: orden personalizado de jugadores para Contraataque
+// de 11, guardado POR EQUIPO (t.dlsOrder, array de ids) -- pedido explícito
+// de Mario: "poder editar personalizado donde esta cada jugador
+// arrastandolo manteniendolo presionado y que se puedan mover... se guarda
+// la personalizacion para el siguiente". Se aplica al listado de la
+// pantalla de configuración (antes de arrancar, _dlsRosterListHtml) y a la
+// rejilla en vivo durante el ejercicio (screenDlsLive) -- las dos comparten
+// el mismo orden de fondo, así que el selector rápido de "¿quién ha hecho
+// X?" (_dlsOpenPicker, que ya usa b.players tal cual desde B-DLS5) hereda el
+// mismo orden sin tocar nada ahí. Jugadores que aún no están en el orden
+// guardado (nuevos en el equipo, o antes de arrastrar nunca nada) se quedan
+// al final, en su orden de llegada (normalmente por dorsal) -- nunca se
+// pierde ni se oculta a nadie por no estar todavía en `dlsOrder`.
+function _dlsOrderedIds(ids,order){
+  if(!order||!order.length)return ids;
+  const rank=new Map(order.map((id,i)=>[id,i]));
+  return [...ids].sort((a,b)=>{
+    const ra=rank.has(a)?rank.get(a):Infinity;
+    const rb=rank.has(b)?rank.get(b):Infinity;
+    return ra-rb;
+  });
+}
+function _dlsApplyTeamOrder(players){
+  const t=S.teams.find(x=>x.id===S.teamId);
+  const order=t&&t.dlsOrder;
+  if(!order||!order.length)return players;
+  const byId=new Map(players.map(p=>[p.id,p]));
+  return _dlsOrderedIds(players.map(p=>p.id),order).map(id=>byId.get(id));
+}
+function _dlsSaveTeamOrder(ids){
+  const t=S.teams.find(x=>x.id===S.teamId);
+  if(!t)return;
+  // Los "+ jugador nuevo" sueltos de una sesión (id "tmp_...") no tienen
+  // sentido persistidos -- no existen fuera de esa sesión concreta.
+  t.dlsOrder=ids.filter(id=>!String(id).startsWith("tmp_"));
+  save();
+}
 function _dlsActiveRoster(){
   const tid=S.teamId;
   const prefix=tid+"_";
   const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>({date:k.slice(prefix.length),data:v}));
-  return pl(tid).filter(p=>_isPlayerActiveOn(p,td(),allSess)).sort((a,b)=>(a.number??999)-(b.number??999));
+  const roster=pl(tid).filter(p=>_isPlayerActiveOn(p,td(),allSess)).sort((a,b)=>(a.number??999)-(b.number??999));
+  return _dlsApplyTeamOrder(roster);
 }
 /* ── Configuración inicial ── */
 function openDlsSetupModal(drillId){
@@ -6184,12 +6244,13 @@ function _dlsRosterListHtml(roster){
     // -- más grande, más fácil de tocar y coherente con el resto de la app.
     // El dorsal se muestra pequeño y en segundo plano (en entrenamientos no
     // suele llevarse puesto): el protagonista es el nombre/apodo.
-    return `<div class="conv-row" onclick="_dlsTogglePlayer('${p.id}');this.querySelector('.conv-cb').classList.toggle('on')">
+    return `<div class="conv-row" data-pid="${p.id}" onclick="_dlsTogglePlayer('${p.id}');this.querySelector('.conv-cb').classList.toggle('on')">
       <div class="conv-cb ${on?"on":""}">${on?"✓":""}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:15px;color:var(--tx)">${esc(_dlsPlayerLabel(p))}${guestBadge}</div>
         ${p.number!=null?`<div style="font-size:11px;color:var(--tm)">#${p.number}</div>`:""}
       </div>
+      <div class="dls-drag-handle" title="Mantener pulsado y arrastrar para reordenar" onpointerdown="_dlsDragHandlePointerDown(event,'${p.id}','#dls-roster-list','setup')" onclick="event.stopPropagation()">⠿</div>
     </div>`;
   }).join("");
 }
@@ -6233,7 +6294,12 @@ function startDls(){
   // una COPIA de los jugadores (no una referencia viva a S.players), así
   // que si no se copia aquí, _dlsPlayerLabel nunca podría mostrar el apodo
   // en modo "Apodo" para sesiones ya empezadas.
-  const chosen=roster.filter(p=>setup.selected.has(p.id)).sort((a,b)=>(a.number??999)-(b.number??999)).map(p=>({id:p.id,name:p.name,nickname:p.nickname||"",number:p.number??null,guest:!!p.guest}));
+  // v3.0.0-dev.79 · B-DLS9: aplica el orden personalizado del equipo
+  // (_dlsApplyTeamOrder) por encima del orden por dorsal -- así la sesión
+  // que arranca ya nace con el mismo orden que se ve en la pantalla de
+  // configuración, sin tener que volver a arrastrar nada cada vez.
+  const chosenByNumber=roster.filter(p=>setup.selected.has(p.id)).sort((a,b)=>(a.number??999)-(b.number??999));
+  const chosen=_dlsApplyTeamOrder(chosenByNumber).map(p=>({id:p.id,name:p.name,nickname:p.nickname||"",number:p.number??null,guest:!!p.guest}));
   const temps=setup.temps.map(t=>({id:t.id,name:t.name,number:null,temp:true}));
   const players=[...chosen,...temps];
   if(!players.length){toast("⚠️ Elige al menos un jugador");return;}
@@ -6264,6 +6330,98 @@ function startDls(){
   document.getElementById("m-drill-picker")?.remove();
   navTo("dlsLive");
   startDlsTimer();
+}
+/* ── Reordenar arrastrando (B-DLS9, dev.79) ──
+   Cada fila/tarjeta lleva un "tirador" (.dls-drag-handle) dedicado -- el
+   resto de la fila conserva su gesto normal (tocar para
+   seleccionar/deseleccionar en el setup; los botones de estadística en la
+   rejilla en vivo), así que arrastrar nunca choca con esas acciones. Al
+   pulsar el tirador se empieza a arrastrar inmediatamente (no hace falta un
+   temporizador de mantener pulsado aparte: la propia idea de un tirador ya
+   es "mantenlo pulsado para moverlo"). Durante el arrastre se recalcula el
+   ORDEN (array de ids) en memoria y se repinta solo la lista/rejilla
+   afectada -- el guardado real (save()/_dlsSaveTeamOrder) se hace UNA vez al
+   soltar, no en cada movimiento, para no disparar guardados/sincronización
+   de más mientras se arrastra.
+   NOTA para quien vuelva a esto: la parte que aquí SÍ depende de posiciones
+   reales en pantalla (elementFromPoint) no tiene test propio -- igual que
+   el long-press ya existente de _tsLongPressStart/_tsLongPressEnd -- porque
+   un entorno de pruebas sin layout real (jsdom) no puede reproducir un
+   arrastre de verdad. Lo que SÍ está cubierto por tests es toda la lógica de
+   ordenar/persistir/aplicar el orden (_dlsOrderedIds/_dlsApplyTeamOrder/
+   _dlsSaveTeamOrder) y las funciones de "confirmar un nuevo orden ya
+   calculado" (_dlsSetupRerenderOrder/_dlsCommitLiveOrder), llamándolas
+   directamente con un array de ids ya reordenado a mano. */
+let _dlsDragCtx=null;
+function _dlsDragHandlePointerDown(e,pid,containerSelector,kind){
+  e.preventDefault();e.stopPropagation();
+  const container=document.querySelector(containerSelector);
+  if(!container)return;
+  const rows=[...container.querySelectorAll("[data-pid]")];
+  const order=rows.map(r=>r.dataset.pid);
+  _dlsDragCtx={pid,containerSelector,kind,order};
+  const row=container.querySelector(`[data-pid="${pid}"]`);
+  if(row)row.classList.add("dls-dragging");
+  document.addEventListener("pointermove",_dlsDragPointerMove);
+  document.addEventListener("pointerup",_dlsDragPointerUp,{once:true});
+  document.addEventListener("pointercancel",_dlsDragPointerUp,{once:true});
+}
+function _dlsDragPointerMove(e){
+  const ctx=_dlsDragCtx;if(!ctx)return;
+  const container=document.querySelector(ctx.containerSelector);
+  if(!container||!document.elementFromPoint)return;
+  const target=document.elementFromPoint(e.clientX,e.clientY);
+  const overRow=target&&target.closest?target.closest("[data-pid]"):null;
+  if(!overRow||!container.contains(overRow))return;
+  const overPid=overRow.dataset.pid;
+  if(overPid===ctx.pid)return;
+  const from=ctx.order.indexOf(ctx.pid),to=ctx.order.indexOf(overPid);
+  if(from<0||to<0)return;
+  ctx.order.splice(to,0,ctx.order.splice(from,1)[0]);
+  if(ctx.kind==="setup")_dlsSetupRerenderOrder(ctx.order);
+  else _dlsLiveRerenderOrder(ctx.order);
+}
+function _dlsDragPointerUp(){
+  const ctx=_dlsDragCtx;_dlsDragCtx=null;
+  document.removeEventListener("pointermove",_dlsDragPointerMove);
+  document.querySelectorAll(".dls-dragging").forEach(el=>el.classList.remove("dls-dragging"));
+  if(!ctx)return;
+  if(ctx.kind==="setup")_dlsSaveTeamOrder(ctx.order);
+  else _dlsCommitLiveOrder(ctx.order);
+}
+// Re-pinta la lista del setup (openDlsSetupModal) en el orden dado,
+// conservando la selección tal cual esté en ese momento -- llamable a mano
+// (con un array de ids ya reordenado) para probar la lógica sin simular un
+// arrastre real.
+function _dlsSetupRerenderOrder(order){
+  const roster=_dlsActiveRoster();
+  const byId=new Map(roster.map(p=>[p.id,p]));
+  const reordered=order.map(id=>byId.get(id)).filter(Boolean);
+  const list=document.getElementById("dls-roster-list");
+  if(list)list.innerHTML=_dlsRosterListHtml(reordered);
+}
+// Re-pinta la rejilla en vivo (screenDlsLive) en el orden dado, SIN guardar
+// todavía -- solo feedback visual mientras se arrastra.
+function _dlsLiveRerenderOrder(order){
+  const b=_dls();if(!b)return;
+  const byId=new Map(b.players.map(p=>[p.id,p]));
+  const reordered=order.map(id=>byId.get(id)).filter(Boolean);
+  const grid=document.getElementById("dls-live-grid");
+  if(grid)grid.innerHTML=_dlsLiveCardsHtml(b,reordered);
+}
+// Confirma el nuevo orden al soltar: reordena b.players DE VERDAD para esta
+// sesión (así el selector rápido _dlsOpenPicker, que lee b.players tal
+// cual, hereda el mismo orden sin tocar nada ahí) y lo persiste como orden
+// del equipo para la próxima vez (_dlsSaveTeamOrder).
+function _dlsCommitLiveOrder(order){
+  const b=_dls();if(!b)return;
+  const byId=new Map(b.players.map(p=>[p.id,p]));
+  const reordered=order.map(id=>byId.get(id)).filter(Boolean);
+  if(reordered.length!==b.players.length)return; // por seguridad, si algo no cuadra no se toca nada
+  b.players=reordered;
+  save();
+  _dlsSaveTeamOrder(b.players.map(p=>p.id));
+  render();
 }
 /* ── Cronómetro (cuenta atrás, pausable) ── */
 let _dlsTimer=null;
@@ -6673,6 +6831,29 @@ function confirmEndDls(){
   });
 }
 /* ── Pantalla en vivo ── */
+// v3.0.0-dev.79 · B-DLS9: extraído de screenDlsLive() para poder repintar
+// SOLO la rejilla de tarjetas (sin reconstruir toda la pantalla -- cronómetro
+// incluido) mientras se arrastra una tarjeta para reordenar. Incluye el
+// tirador (.dls-drag-handle) para arrastrar -- el resto de la tarjeta no
+// tiene ningún gesto propio (los botones de estadística viven aparte, más
+// abajo en la pantalla), así que no hay ningún choque de gestos aquí.
+function _dlsLiveCardsHtml(b,players){
+  const missPenalty=!!(b.checklist&&b.checklist.missPenalty);
+  return players.map(p=>{
+    const st=b.stats[p.id]||_dlsEmptyStats();
+    const val=_dlsValoracion(st,missPenalty);
+    // v3.0.0-dev.66 · B-DLS2: dorsal pequeño y en segundo plano bajo el
+    // nombre/apodo (_dlsPlayerLabel) -- ya no lleva el mismo peso visual
+    // que el nombre, coherente con que en los entrenamientos no suele
+    // llevarse puesto.
+    return `<div data-pid="${p.id}" style="position:relative;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
+      <div class="dls-drag-handle" style="position:absolute;top:1px;right:1px" title="Mantener pulsado y arrastrar para reordenar" onpointerdown="_dlsDragHandlePointerDown(event,'${p.id}','#dls-live-grid','live')" onclick="event.stopPropagation()">⠿</div>
+      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
+      ${p.number!=null?`<div style="font-size:9px;color:var(--tm)">#${p.number}</div>`:""}
+      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb · <span style="color:var(--orange);font-weight:700">${val} val</span></div>
+    </div>`;
+  }).join("");
+}
 function screenDlsLive(){
   const b=_dls();
   if(!b){S.screen="team";return team();}
@@ -6693,19 +6874,7 @@ function screenDlsLive(){
   const missPenalty=!!b.checklist.missPenalty;
   const totalMade=Object.values(b.stats).reduce((s,x)=>s+x.p2m+x.p3m,0);
   const totalMissed=Object.values(b.stats).reduce((s,x)=>s+x.p2a+x.p3a,0);
-  const cards=players.map(p=>{
-    const st=b.stats[p.id]||_dlsEmptyStats();
-    const val=_dlsValoracion(st,missPenalty);
-    // v3.0.0-dev.66 · B-DLS2: dorsal pequeño y en segundo plano bajo el
-    // nombre/apodo (_dlsPlayerLabel) -- ya no lleva el mismo peso visual
-    // que el nombre, coherente con que en los entrenamientos no suele
-    // llevarse puesto.
-    return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
-      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
-      ${p.number!=null?`<div style="font-size:9px;color:var(--tm)">#${p.number}</div>`:""}
-      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb · <span style="color:var(--orange);font-weight:700">${val} val</span></div>
-    </div>`;
-  }).join("");
+  const cards=_dlsLiveCardsHtml(b,players);
   // v3.0.0-dev.66 · B-DLS2: panel COMPLETO -- todos los tipos de
   // estadística tienen su propio botón siempre visible (rebote, robo y
   // asistencia sueltos, además de los ya encadenados tras un tiro fallado o
@@ -6730,7 +6899,7 @@ function screenDlsLive(){
       <button onclick="addDlsMinutes(2)" title="+2 min" style="width:40px;height:46px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:800">+2'</button>
     </div>
     <div style="font-size:12px;color:var(--tm);text-align:center;margin-bottom:10px">✅ ${totalMade} anotadas${missTrack?` · ❌ ${totalMissed} falladas`:""}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px">${cards}</div>
+    <div id="dls-live-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px">${cards}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow2}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow3}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
@@ -6884,6 +7053,7 @@ function _dlsRenderSessionSummary(b,targetId){
     </tr></thead><tbody>${rows}</tbody></table></div>
     ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-dls-summary').remove();S._dlsDrillId='${targetId}';navTo('dlsLive');startDlsTimer();" style="margin-top:12px">▶ Volver al ejercicio</button>`:""}
     <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
+    ${b.status==="finished"?`<button class="btn-d" onclick="_dlsConfirmDeleteSession('${targetId}','${b.id}','summary')" style="margin-top:8px">🗑 Borrar esta sesión</button>`:""}
   </div>`;
   document.body.appendChild(el);
 }
@@ -6927,6 +7097,7 @@ function _openDlsMatchSummaryModal(b,targetId){
     ${rowsHtml}
     ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-dls-summary').remove();S._dlsDrillId='${targetId}';navTo('dlsLive');startDlsTimer();" style="margin-top:12px">▶ Volver al mini-partido</button>`:""}
     <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
+    ${b.status==="finished"?`<button class="btn-d" onclick="_dlsConfirmDeleteSession('${targetId}','${b.id}','summary')" style="margin-top:8px">🗑 Borrar esta sesión</button>`:""}
   </div>`;
   document.body.appendChild(el);
 }
@@ -6939,6 +7110,154 @@ function _dlsOpenHistorySession(drillId,sessionId){
   if(!s)return;
   document.getElementById("m-dls-day-sessions")?.remove();
   _dlsRenderSessionSummary(s,drillId);
+}
+/* ═══════════════════════════════════════
+   HISTÓRICO AGREGADO POR EJERCICIO (v3.0.0-dev.80 · B-DLS10)
+   Mario pidió recuperar esto -- es una REVERSIÓN DELIBERADA Y CONFIRMADA
+   (AskUserQuestion) de la decisión B-DLS8 (dev.72) de quitar el agregado por
+   ejercicio del catálogo. La diferencia clave con el B-DLS7 original
+   (dev.71, sustituido): esta pantalla es SOLO consulta del histórico
+   completo (todas las fechas) + borrar una sesión -- arrancar/continuar/ver
+   el resultado de HOY se queda exactamente donde B-DLS8 lo puso (el propio
+   día del entrenamiento, att()/_dlsDayCardHtml), sin tocar nada de eso.
+   Cubre los dos tipos con estadísticas en vivo (Contraataque de 11 y Final
+   de partido), cada uno con su propio agregado -- pedido explícito de
+   Mario ("Para Contraataque de 11 Y Final de partido").
+═══════════════════════════════════════ */
+function openDlsHistoryModal(drillId){
+  const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
+  if(!drill)return;
+  const type=_dlsType(drill);
+  if(!type)return;
+  document.getElementById("m-dls-history")?.remove();
+  const el=document.createElement("div");el.id="m-dls-history";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div>
+    <div class="mtitle">📊 ${esc(drill.name)} · Histórico</div>
+    <div id="dls-history-body">${_dlsHistoryBodyHtml(drillId)}</div>
+    <button class="btn-s" onclick="document.getElementById('m-dls-history').remove()" style="margin-top:6px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _dlsHistoryBodyHtml(drillId){
+  const drill=_teamDrills(S.teamId).find(d=>d.id===drillId);
+  if(!drill)return"";
+  const type=_dlsType(drill);
+  const sessions=[..._dlsList(S.teamId,drillId)].filter(s=>s.status==="finished").sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.startedAt||0)-(a.startedAt||0));
+  const aggHtml=type==="endgame"?_dlsAggregateEndgameHtml(sessions):_dlsAggregateB11Html(sessions);
+  return `<div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">${sessions.length} sesión(es) terminada(s), de cualquier día.</div>
+    ${aggHtml}
+    <label class="fl" style="margin-top:2px">Sesiones (más reciente primero)</label>
+    <div id="dls-history-list">${_dlsHistoryRowsHtml(drillId,sessions)}</div>`;
+}
+function _refreshDlsHistoryBody(drillId){
+  const body=document.getElementById("dls-history-body");
+  if(body)body.innerHTML=_dlsHistoryBodyHtml(drillId);
+}
+// Agregado de "Contraataque de 11": por jugador, suma de TODAS las sesiones
+// terminadas de cualquier día -- nº de sesiones jugadas, totales de
+// tiro/rebote/pérdida/robo/asistencia/tapón, y valoración MEDIA por sesión
+// (no la suma -- una suma premiaría solo a quien más veces ha jugado, la
+// media deja comparar a quien ha jugado 2 sesiones con quien ha jugado 10).
+function _dlsAggregateB11Html(sessions){
+  if(!sessions.length)return `<div style="font-size:12px;color:var(--tm);padding:8px 0">Todavía no hay ninguna sesión terminada de este ejercicio.</div>`;
+  const byPlayer=new Map();
+  sessions.forEach(s=>{
+    const missPenalty=!!(s.checklist&&s.checklist.missPenalty);
+    (s.players||[]).forEach(p=>{
+      const st=(s.stats&&s.stats[p.id])||_dlsEmptyStats();
+      const val=_dlsValoracion(st,missPenalty);
+      let e=byPlayer.get(p.id);
+      if(!e){e={label:_dlsPlayerLabel(p),number:p.number,ses:0,p2m:0,p2a:0,p3m:0,p3a:0,reb:0,ast:0,valSum:0};byPlayer.set(p.id,e);}
+      e.ses++;e.p2m+=st.p2m||0;e.p2a+=st.p2a||0;e.p3m+=st.p3m||0;e.p3a+=st.p3a||0;e.reb+=st.reb||0;e.ast+=st.ast||0;e.valSum+=val;
+    });
+  });
+  const rows=[...byPlayer.values()].sort((a,b)=>(b.valSum/b.ses)-(a.valSum/a.ses)).map(e=>{
+    const avg=(e.valSum/e.ses).toFixed(1);
+    return `<tr><td style="padding:5px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(e.label)}${e.number!=null?` <span style="color:var(--tm);font-size:10px">#${e.number}</span>`:""}</td>
+    <td style="text-align:center;font-size:12px">${e.ses}</td>
+    <td style="text-align:center;font-size:12px">${e.p2m}/${e.p2m+e.p2a}</td>
+    <td style="text-align:center;font-size:12px">${e.p3m}/${e.p3m+e.p3a}</td>
+    <td style="text-align:center;font-size:12px">${e.reb}</td>
+    <td style="text-align:center;font-size:12px">${e.ast}</td>
+    <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${avg}</td>
+    </tr>`;
+  }).join("");
+  return `<div style="overflow-x:auto;margin-bottom:6px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+    <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+    <th style="font-size:10px;color:var(--tm)">Ses.</th>
+    <th style="font-size:10px;color:var(--tm)">2pt</th><th style="font-size:10px;color:var(--tm)">3pt</th>
+    <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Ast</th>
+    <th style="font-size:10px;color:var(--orange)">Val. media</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+// Agregado de "Final de partido": un mini-partido no tiene Equipo A/Equipo B
+// fijos de sesión a sesión (el entrenador los arma a mano cada vez), así que
+// se agrega por JUGADOR -- partidos jugados, ganados/perdidos/empatados
+// (según el resultado real de SU equipo ese día) y puntos a favor/en contra
+// sumados de todos los mini-partidos en los que ha participado.
+function _dlsAggregateEndgameHtml(sessions){
+  if(!sessions.length)return `<div style="font-size:12px;color:var(--tm);padding:8px 0">Todavía no hay ningún mini-partido terminado.</div>`;
+  const byPlayer=new Map();
+  sessions.forEach(s=>{
+    const scoreA=_dlsMatchTeamScore(s,"A"),scoreB=_dlsMatchTeamScore(s,"B");
+    (s.players||[]).forEach(p=>{
+      const own=p.team==="A"?scoreA:scoreB,opp=p.team==="A"?scoreB:scoreA;
+      let e=byPlayer.get(p.id);
+      if(!e){e={label:_dlsPlayerLabel(p),number:p.number,ses:0,w:0,l:0,d:0,pf:0,pc:0};byPlayer.set(p.id,e);}
+      e.ses++;e.pf+=own;e.pc+=opp;
+      if(own>opp)e.w++;else if(own<opp)e.l++;else e.d++;
+    });
+  });
+  const rows=[...byPlayer.values()].sort((a,b)=>b.ses-a.ses).map(e=>`<tr><td style="padding:5px 4px;font-size:12px;color:var(--tx);white-space:nowrap">${esc(e.label)}${e.number!=null?` <span style="color:var(--tm);font-size:10px">#${e.number}</span>`:""}</td>
+    <td style="text-align:center;font-size:12px">${e.ses}</td>
+    <td style="text-align:center;font-size:12px">${e.w}-${e.l}-${e.d}</td>
+    <td style="text-align:center;font-size:12px">${e.pf}</td>
+    <td style="text-align:center;font-size:12px">${e.pc}</td>
+    </tr>`).join("");
+  return `<div style="overflow-x:auto;margin-bottom:6px"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)">
+    <th style="text-align:left;font-size:10px;color:var(--tm);padding:4px">Jugador</th>
+    <th style="font-size:10px;color:var(--tm)">P.J.</th>
+    <th style="font-size:10px;color:var(--tm)">G-P-E</th>
+    <th style="font-size:10px;color:var(--tm)">A favor</th><th style="font-size:10px;color:var(--tm)">En contra</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function _dlsHistoryRowsHtml(drillId,sessions){
+  if(!sessions.length)return "";
+  return sessions.map(s=>{
+    const type=_dlsSessType(s);
+    const recap=type==="endgame"?`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`:`${(s.players||[]).length} jugadores`;
+    return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <button data-dls-hist-session="${s.id}" onclick="_dlsOpenHistorySession('${drillId}','${s.id}')" style="flex:1;display:flex;justify-content:space-between;align-items:center;text-align:left;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;font-family:inherit">
+        <span style="font-size:12.5px">${cap(fd(s.date||td(),true))}</span><span style="font-size:12px;color:var(--tm)">${recap}</span>
+      </button>
+      <button onclick="_dlsConfirmDeleteSession('${drillId}','${s.id}','history')" title="Borrar esta sesión" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;padding:6px;flex-shrink:0">🗑</button>
+    </div>`;
+  }).join("");
+}
+// v3.0.0-dev.80 · B-DLS10: borrar una sesión -- disponible desde el propio
+// histórico (arriba, _dlsHistoryRowsHtml) Y desde el resumen de una sesión
+// concreta (_dlsRenderSessionSummary/_openDlsMatchSummaryModal, tanto si se
+// abrió desde el día como desde el histórico) -- pedido explícito de Mario:
+// "se podria borrar alguno si hace falta", confirmado con AskUserQuestion
+// que tiene que poder hacerse "en los dos sitios". Nunca se ofrece para una
+// sesión todavía en curso (solo status:"finished") -- borrar algo a medias
+// no tiene sentido y ya se puede simplemente no terminarlo.
+function _dlsConfirmDeleteSession(drillId,sessionId,from){
+  _confirm("¿Borrar esta sesión? Sus estadísticas desaparecerán del histórico y no se puede deshacer.","🗑 Borrar sesión",()=>_dlsDeleteSession(drillId,sessionId,from));
+}
+function _dlsDeleteSession(drillId,sessionId,from){
+  const list=_dlsList(S.teamId,drillId);
+  const idx=list.findIndex(s=>s.id===sessionId);
+  if(idx<0)return;
+  list.splice(idx,1);
+  save();
+  toast("🗑 Sesión borrada");
+  document.getElementById("m-dls-summary")?.remove();
+  if(document.getElementById("m-dls-history"))_refreshDlsHistoryBody(drillId);
+  render();
 }
 function dayScheduleRows(mid,initSched){
   const sc=initSched||{};
@@ -8421,6 +8740,55 @@ function _tsLongPressStart(el){
 function _tsLongPressEnd(el){
   if(_lpTimer){clearTimeout(_lpTimer);_lpTimer=null;}
   if(_lpStarted){el.classList.remove("pressing");_lpStarted=false;}
+}
+/* v3.0.0-dev.78 · B-PLNOTE1: mantener pulsado el nombre/info de un jugador en
+   pase de lista abre un comentario privado de ESE día concreto (independiente
+   del motivo de justificación _jr/_jn, que solo existe si está "Justificado").
+   Mismo patrón de temporizador que _tsLongPressStart/_tsLongPressEnd de
+   arriba, pero con su propio timer/estado para no interferir con el
+   long-press del teamScore. */
+let _plnTimer=null,_plnStarted=false;
+function _plNoteLongPressStart(el,pid){
+  _plnStarted=true;el.classList.add("pl-info-pressing");
+  _plnTimer=setTimeout(()=>{
+    el.classList.remove("pl-info-pressing");_plnStarted=false;
+    openPlayerNoteModal(pid);
+  },800);
+}
+function _plNoteLongPressEnd(el){
+  if(_plnTimer){clearTimeout(_plnTimer);_plnTimer=null;}
+  if(_plnStarted){el.classList.remove("pl-info-pressing");_plnStarted=false;}
+}
+let _plNotePid="";
+function openPlayerNoteModal(pid){
+  _plNotePid=pid;
+  const sess=so(S.teamId,S.date);
+  const p=pl(S.teamId).find(pp=>pp.id===pid);
+  if(!p)return;
+  const note=sess[pid+"_note"]||"";
+  document.getElementById("m-plnote")?.remove();
+  const el=document.createElement("div");el.id="m-plnote";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div><div class="mtitle">📝 Comentario del día</div>
+    <div class="msub">👤 ${esc(p.name)} — ${cap(fd(S.date,true))} · privado, solo para ti (se puede incluir en el resumen para entrenadores)</div>
+    <div class="fg"><textarea class="fi" id="plnote-text" rows="3" style="resize:none" placeholder="Comentario de hoy sobre este jugador...">${esc(note)}</textarea></div>
+    <button class="btn-p" onclick="savePlayerNote()">Guardar</button>
+    <button class="btn-s" onclick="document.getElementById('m-plnote').remove()">Cancelar</button>
+    ${note?`<button class="btn-d" onclick="clearPlayerNote()">✕ Quitar comentario</button>`:""}
+  </div>`;
+  document.body.appendChild(el);
+}
+function savePlayerNote(){
+  const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};
+  const v=document.getElementById("plnote-text")?.value.trim()||"";
+  if(v)sess[_plNotePid+"_note"]=v;else delete sess[_plNotePid+"_note"];
+  S.sessions[k]=sess;save();document.getElementById("m-plnote")?.remove();render();
+}
+function clearPlayerNote(){
+  const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};
+  delete sess[_plNotePid+"_note"];
+  S.sessions[k]=sess;save();document.getElementById("m-plnote")?.remove();render();
 }
 function _flushSess(){
   const k=sk(S.teamId,S.date);
