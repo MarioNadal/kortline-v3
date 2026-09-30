@@ -2168,7 +2168,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.75";
+const APP_VERSION = "3.0.0-dev.77";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4209,11 +4209,19 @@ function hoy(){
       </div>
     </div>`;
   }).join("");
+// v3.0.0-dev.76 · B-TNMERGE1: el botón "📝 Notas de entrenamiento" (pantalla
+// aparte con objetivos/foco de semana/hábitos/observaciones/foto/notas para
+// la próxima sesión) desaparece de aquí -- Mario pidió explícitamente
+// quitarlo por no usarse nunca, y quedarse solo con lo que YA vive dentro
+// del propio pase de lista (campo libre de ejercicios + catálogo, ver
+// att()). Los datos de notas antiguas NO se borran (siguen en
+// S.trainingNotes/Firestore) y, si un día concreto ya tenía una, se sigue
+// pudiendo consultar de forma sencilla y de solo lectura desde el propio
+// pase de lista de ese día (ver _legacyTrainingNoteHtml en att()).
 // ── Training cards ──
   const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
     const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija
     const sess=so(t.id,today);
-    const _hasTN=!!tn(t.id,today); // v3 · B-TNOTES1: ¿ya hay notas de entrenamiento para hoy?
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
     // partido (no entrenan) del resumen "Hoy" para no contarlos como
     // presentes por defecto en un entrenamiento al que no van.
@@ -4248,7 +4256,6 @@ function hoy(){
         </div>`:""}
         <div style="display:flex;gap:8px">
           <button onclick="navTo('att',{teamId:'${t.id}',date:td()})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
-          <button onclick="navTo('trainingNote',{teamId:'${t.id}',date:td()})" style="width:46px;height:46px;border-radius:9px;background:${_hasTN?"rgba(34,197,94,.12)":"var(--s2)"};border:1px solid ${_hasTN?"rgba(34,197,94,.35)":"var(--border)"};cursor:pointer;font-size:18px" title="Notas de entrenamiento (planificación previa, independiente de la asistencia)">${_hasTN?"✅":"📝"}</button>
           ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:td()})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
@@ -4352,6 +4359,15 @@ function att(){
       </div>`;
     }).join("");
   })();
+  // v3.0.0-dev.77 · B-HISTWARN1: Mario, justo antes de subir el hotfix de
+  // hoy, cayó en la cuenta de un caso que le preocupaba: entrar desde
+  // Historial a un entrenamiento de OTRO día y tocar algo ahí sin darse
+  // cuenta de que no es el de hoy. Pidió explícitamente "un mensaje de estás
+  // cambiando datos que no son de hoy, pero siempre que no sea un
+  // entrenamiento de hoy" -- solo un aviso informativo, no un bloqueo ni una
+  // confirmación (no pidió eso), así que no cambia ningún flujo de guardado,
+  // solo dice claramente qué día se está viendo/editando cuando no es hoy.
+  const notTodayBannerHtml=(S.date!==td())?`<div style="display:flex;align-items:center;gap:8px;background:rgba(240,99,24,.08);border:1px solid rgba(240,99,24,.25);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:var(--orange);font-weight:600"><span style="font-size:16px">📅</span><span>Estás viendo/editando el entrenamiento del ${fd(S.date,true)} -- no es el de hoy</span></div>`:"";
   // v3.0.0-dev.62 · B-BDAY1: aviso de cumpleaños de HOY para jugadores de
   // este equipo (solo decorativo, sin botones -- no hay ninguna acción que
   // tomar, a diferencia del aviso de lesión de arriba).
@@ -4456,6 +4472,12 @@ function att(){
   // explicito "Ver tamaño completo" (antes solo se veia recortada a 180px
   // dentro de la caja, sin forma de ampliarla).
   const photoHtml=(f.photos||sess._photo)?`<div class="fg"><label class="fl">📷 Foto del entrenamiento</label><div class="photo-box" onclick="${f.photos?"document.getElementById('att-photo-input').click()":`openPhotoPreview('${S.teamId}','${S.date}')`}">${sess._photo?`<img src="${sess._photo}"/><div style="font-size:11px;color:var(--td);margin-top:6px">${f.photos?"Toca para cambiar":"Toca para ver"}</div>`:`<div style="font-size:32px;margin-bottom:6px">📷</div><div style="font-size:13px;color:var(--tm)">Añadir foto</div>`}</div>${f.photos?`<input type="file" id="att-photo-input" accept="image/*" style="display:none" onchange="handlePhoto(this)"/>`:""}${sess._photo?`<div style="display:flex;gap:8px;margin-top:8px"><button onclick="openPhotoPreview('${S.teamId}','${S.date}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--orange);background:rgba(240,99,24,.1);border:1px solid rgba(240,99,24,.3);border-radius:8px;cursor:pointer;padding:8px 10px">🔍 Ver tamaño completo</button>${f.photos?`<button onclick="removePhoto()" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;cursor:pointer;padding:8px 12px">✕ Quitar</button>`:""}</div>`:""}</div>`:"";
+  // v3.0.0-dev.76 · B-TNMERGE1: si este día concreto ya tenía una nota de
+  // entrenamiento antigua (de cuando existía el botón aparte), se muestra
+  // aquí, de solo lectura -- ver _legacyTrainingNoteHtml. Independiente del
+  // flag f.exercises: es un dato que ya existía, no una función nueva que
+  // activar.
+  const legacyTNHtml=_legacyTrainingNoteHtml(S.teamId,S.date,players);
   const exercisesHtml=f.exercises?`<div class="fg"><label class="fl">📋 Ejercicios del entrenamiento</label><textarea class="fi" id="att-exercises" rows="3" style="resize:none" oninput="_attAutoSave()">${esc(exVal)}</textarea></div>`:"";
   // v3.0.0-dev.34 · B-DRILL1: chips de ejercicios del catálogo adjuntados a
   // la sesión de hoy. Visible junto al campo libre de arriba (mismo flag
@@ -4538,6 +4560,7 @@ function att(){
       <button onclick="chgDate(1)" style="background:none;border:none;color:var(--td);cursor:pointer;font-size:22px;padding:0 6px">›</button>
       <button onclick="_guardedExit(()=>{_attFlushDraft();S.date=td();S._attDraft=null;S._attNoCaptureOnRender=true;render();})" style="background:rgba(240,99,24,.15);color:var(--orange);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:700">HOY</button>
     </div>
+    ${notTodayBannerHtml}
     ${bdayReminderHtml}
     ${injReminderHtml}
     <div class="agrid">${agrid}</div>
@@ -4547,7 +4570,7 @@ function att(){
     <div style="text-align:center;margin:8px 0 12px">
       <button onclick="openGuestPlayerModal({mode:'att'})" style="background:none;border:1px dashed var(--border);color:var(--td);cursor:pointer;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;width:100%">🔄 + Invitado puntual (jugador de otra categoría / externo)</button>
     </div>
-    ${exercisesHtml}${drillsChipsHtml}${photoHtml}${teamScoreHtml}
+    ${legacyTNHtml}${exercisesHtml}${drillsChipsHtml}${photoHtml}${teamScoreHtml}
     <div class="fg"><label class="fl">📝 Notas del entrenador</label><input class="fi" id="att-notes" value="${esc(notesVal)}" placeholder="Solo visibles para el entrenador..." oninput="_attAutoSave()"/></div>
     <div style="display:flex;gap:8px;align-items:stretch">
       ${!sessionExists
@@ -5102,7 +5125,6 @@ function team(){
       <button class="qb" onclick="navTo('hist')"><div style="font-size:22px">📋</div><div style="font-size:10px;font-weight:700;margin-top:4px;color:var(--td)">HISTORIAL</div><div style="font-family:var(--font-d);font-size:14px;color:var(--tm);margin-top:2px">${ts}</div></button>
     </div>
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
-    <button class="qb" onclick="S.tnWeekStart=null;navTo('trainingNotesWeek')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📝</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">NOTAS DE ENTRENAMIENTO</div><div style="font-size:11px;color:var(--tm);margin-top:1px">Planificación semanal · objetivo, hábitos y contenido</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     ${_findDuplicateGuestGroups(S.teamId).length?`<button class="qb" onclick="openGuestDuplicatesModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35)"><div style="font-size:20px">🔍</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#f59e0b">PUNTUALES DUPLICADOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${_findDuplicateGuestGroups(S.teamId).length} grupo${_findDuplicateGuestGroups(S.teamId).length!==1?"s":""} para fusionar</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>`:""}
     ${mvpCard(t)}
@@ -8647,9 +8669,49 @@ function openPhotoPreview(tid,date){
    S.sessions (ver sk()), pero en su propia colección de Firestore
    ("trainingNotes") y su propio objeto en memoria (S.trainingNotes) -- así
    nunca se mezcla con el registro de asistencia ni depende de él.
+
+   v3.0.0-dev.76 · B-TNMERGE1: Mario pidió explícitamente quitar la entrada
+   a esta pantalla (botón "📝" en Hoy junto a "Pasar lista", y "NOTAS DE
+   ENTRENAMIENTO" en Equipo) -- no la usaba nunca, y lo que sí usa (ejercicios
+   de la sesión) ya vive dentro del propio pase de lista (ver att()). Todas
+   las funciones de aquí abajo (trainingNoteScreen, trainingNotesWeekScreen,
+   _tn*) se quedan tal cual, sin punto de entrada en la interfaz pero sin
+   tocar ni un dato -- S.trainingNotes/Firestore siguen intactos. Las pocas
+   notas que ya existían de antes se pueden seguir consultando, en modo
+   solo lectura, desde el propio pase de lista del día que les corresponde
+   (ver _legacyTrainingNoteHtml, justo debajo de tn()).
 ═══════════════════════════════════════ */
 // Devuelve la nota de esa sesión, o null si todavía no se ha rellenado nada.
 function tn(tid,d){return S.trainingNotes[sk(tid,d)]||null;}
+// v3.0.0-dev.76 · B-TNMERGE1: tarjeta de solo lectura para mostrar, dentro
+// del pase de lista de un día concreto, una nota de entrenamiento ANTIGUA
+// (de cuando la pantalla separada todavía tenía botón de entrada) si la
+// hubiera para ese equipo+fecha exactos. No permite editar nada -- es solo
+// para no perder de vista ese puñado de notas ya guardadas. Si no hay nada
+// que mostrar para ese día, devuelve "" (no aparece ninguna caja).
+function _legacyTrainingNoteHtml(tid,date,players){
+  const note=tn(tid,date);
+  if(!note)return"";
+  const objetivos=_tnObjetivos(note);
+  const habitos=Array.isArray(note.habitos)?note.habitos:[];
+  const observaciones=Array.isArray(note.observaciones)?note.observaciones:[];
+  const hasContent=objetivos.length||habitos.length||observaciones.length||(note.focoSemana&&note.focoSemana.trim())||(note.contenido&&note.contenido.trim())||(note.notasProximas&&note.notasProximas.trim())||note.foto;
+  if(!hasContent)return"";
+  const rows=[
+    note.focoSemana&&note.focoSemana.trim()?`<div><b>📌 Foco de la semana:</b> ${esc(note.focoSemana.trim())}</div>`:"",
+    objetivos.length?`<div><b>🎯 Objetivos:</b> ${objetivos.map(o=>esc(o.text)).join(" · ")}</div>`:"",
+    habitos.length?`<div><b>✅ Hábitos:</b> ${habitos.map(esc).join(" · ")}</div>`:"",
+    note.contenido&&note.contenido.trim()?`<div><b>🏀 Contenido:</b> ${esc(note.contenido.trim())}</div>`:"",
+    observaciones.length?`<div><b>👤 Observaciones:</b> ${observaciones.map(o=>{const p=players.find(x=>x.id===o.playerId);return`${esc(p?p.name:"Jugador/a eliminado")}: ${esc(o.note)}`;}).join(" · ")}</div>`:"",
+    note.notasProximas&&note.notasProximas.trim()?`<div><b>➡️ Para la próxima:</b> ${esc(note.notasProximas.trim())}</div>`:""
+  ].filter(Boolean).join("");
+  const photoRow=note.foto?`<div style="margin-top:8px"><img src="${note.foto}" onclick="_tnOpenPhotoPreview('${tid}','${date}')" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;border:1px solid var(--border)"/></div>`:"";
+  return`<div class="fg"><div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+    <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--tm);margin-bottom:6px">📝 Nota de entrenamiento guardada de este día (solo lectura)</div>
+    <div style="font-size:13px;color:var(--tx);line-height:1.6">${rows}</div>
+    ${photoRow}
+  </div></div>`;
+}
 // Hábitos trabajados: NO es una lista fija -- son términos de baloncesto
 // libres (rebote, bote, 1c1...) que cada club/entrenador define sobre la
 // marcha. Para no tener que reescribirlos cada día, se sugieren (más
