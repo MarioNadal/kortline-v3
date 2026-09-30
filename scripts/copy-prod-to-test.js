@@ -20,7 +20,11 @@ const FIREBASE_CONFIG = {
 const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 const SRC_CLUB = "cbjaca";
 const DST_CLUB = "cbjaca-test";
-const TEAM_SUBCOLLECTIONS = ["players", "matches", "events", "drills", "sessions", "trainingNotes"];
+// v3.0.0-dev.77: "drillLive" (estadísticas en vivo de Contraataque de
+// 11/Final de partido, B-DLS4/dev.69) se añade a la lista -- no existía
+// todavía cuando se escribió este script (2026-09-17), así que una copia
+// hecha con la versión anterior se dejaba ese historial sin copiar a test.
+const TEAM_SUBCOLLECTIONS = ["players", "matches", "events", "drills", "sessions", "trainingNotes", "drillLive"];
 
 async function main() {
   const pin = process.env.CLUB_PIN;
