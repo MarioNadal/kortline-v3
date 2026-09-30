@@ -5,6 +5,25 @@
 // nada que ya hubiera en test con un id distinto.
 //
 // Uso: CLUB_PIN=xxxx node copy-prod-to-test.js
+//
+// v3.0.0-dev.78 · INCIDENTE (2026-09-30): "sessions" y "trainingNotes" se
+// quitan de la lista de abajo. Ambas colecciones guardan un documento POR
+// FECHA (el id del documento es literalmente el día, "YYYY-MM-DD" -- ver
+// _diffSessions()/sk() en index.html), y esa fecha es la MISMA en
+// producción y en test. La primera vez que se usó este script, Mario tenía
+// en test un entrenamiento de HOY con un ejercicio del catálogo recién
+// adjuntado -- y como producción también tenía una sesión guardada para
+// ese mismo día (sin ese ejercicio, claro, porque era una prueba solo de
+// test), el script trajo la versión de producción y SE LA COMIÓ. Nada de
+// esto tocó producción (aquí solo se lee) ni ningún dato real del club --
+// pero sí se perdió esa planificación de un día en test. "players" /
+// "matches" / "events" / "drills" / "drillLive" no tienen este problema:
+// cada documento tiene un id propio generado al crearlo, nunca coincide
+// entre los dos clubes por casualidad. La asistencia/planificación
+// día-a-día es, por diseño, algo que TIENE que poder ser distinto entre
+// producción y test (cada uno se usa en fechas reales de forma
+// independiente) -- así que a partir de ahora este script directamente no
+// las toca, en vez de intentar copiarlas "bien".
 const firebase = require("firebase/compat/app");
 require("firebase/compat/auth");
 require("firebase/compat/firestore");
@@ -24,7 +43,10 @@ const DST_CLUB = "cbjaca-test";
 // 11/Final de partido, B-DLS4/dev.69) se añade a la lista -- no existía
 // todavía cuando se escribió este script (2026-09-17), así que una copia
 // hecha con la versión anterior se dejaba ese historial sin copiar a test.
-const TEAM_SUBCOLLECTIONS = ["players", "matches", "events", "drills", "sessions", "trainingNotes", "drillLive"];
+// v3.0.0-dev.78: "sessions"/"trainingNotes" QUITADAS -- ver el incidente
+// documentado arriba. Solo se copian colecciones con id propio por
+// documento (nunca chocan entre producción y test por casualidad).
+const TEAM_SUBCOLLECTIONS = ["players", "matches", "events", "drills", "drillLive"];
 
 async function main() {
   const pin = process.env.CLUB_PIN;
