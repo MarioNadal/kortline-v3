@@ -1,0 +1,53 @@
+name: Copia de seguridad de un club
+
+# Ejecuta scripts/backup-club.js manualmente desde la pestaña Actions de
+# GitHub (botón "Run workflow"), sin tocar nada en un ordenador. Vuelca TODO
+# el club elegido (por defecto producción, "cbjaca") a un JSON con fecha, y
+# lo deja descargable como "artifact" de esta ejecución -- solo lectura,
+# nunca escribe nada en Firestore.
+#
+# El PIN del club se guarda como secreto del repositorio (Settings →
+# Secrets and variables → Actions → New repository secret, nombre
+# "CLUB_PIN") -- nunca se escribe aquí ni queda visible en ningún sitio.
+# GitHub oculta automáticamente el valor de los secretos en los logs.
+#
+# El archivo resultante tiene datos reales de menores (nombres, cumpleaños,
+# fotos...) -- descárgalo, guárdalo en un sitio tuyo privado y bórralo de
+# GitHub cuando ya no lo necesites (Actions → esta ejecución → 🗑).
+
+on:
+  workflow_dispatch:
+    inputs:
+      club_id:
+        description: 'Qué club volcar (normalmente déjalo en "cbjaca" = producción)'
+        required: true
+        default: "cbjaca"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Volcar club a JSON
+        env:
+          CLUB_PIN: ${{ secrets.CLUB_PIN }}
+          BACKUP_CLUB_ID: ${{ inputs.club_id }}
+        run: node backup-club.js
+
+      - name: Subir copia de seguridad como descarga de esta ejecución
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ inputs.club_id }}
+          path: scripts/backups/*.json
+          retention-days: 90

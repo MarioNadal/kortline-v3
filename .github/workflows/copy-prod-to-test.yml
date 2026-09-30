@@ -1,0 +1,37 @@
+name: Copiar producción → test
+
+# Ejecuta scripts/copy-prod-to-test.js manualmente desde la pestaña Actions
+# de GitHub (botón "Run workflow"), sin necesidad de tocar nada en un
+# ordenador. Copia TODOS los datos reales de producción (clubs/cbjaca) a la
+# copia de pruebas (clubs/cbjaca-test): equipos, jugadores (cumpleaños,
+# apodos...), asistencias, partidos, notas de entreno, ejercicios en vivo.
+# Solo lectura en producción -- en test solo crea/actualiza, nunca borra.
+#
+# El PIN del club se guarda como secreto del repositorio (Settings →
+# Secrets and variables → Actions → New repository secret, nombre
+# "CLUB_PIN") -- nunca se escribe aquí ni queda visible en ningún sitio.
+# GitHub oculta automáticamente el valor de los secretos en los logs.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Copiar producción → test
+        env:
+          CLUB_PIN: ${{ secrets.CLUB_PIN }}
+        run: node copy-prod-to-test.js
