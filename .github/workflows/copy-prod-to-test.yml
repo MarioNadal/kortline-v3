@@ -2,10 +2,16 @@ name: Copiar producción → test
 
 # Ejecuta scripts/copy-prod-to-test.js manualmente desde la pestaña Actions
 # de GitHub (botón "Run workflow"), sin necesidad de tocar nada en un
-# ordenador. Copia TODOS los datos reales de producción (clubs/cbjaca) a la
-# copia de pruebas (clubs/cbjaca-test): equipos, jugadores (cumpleaños,
-# apodos...), asistencias, partidos, notas de entreno, ejercicios en vivo.
-# Solo lectura en producción -- en test solo crea/actualiza, nunca borra.
+# ordenador. Copia datos reales de producción (clubs/cbjaca) a la copia de
+# pruebas (clubs/cbjaca-test): equipos, jugadores (cumpleaños, apodos...),
+# partidos, eventos, catálogo de ejercicios y ejercicios en vivo. Solo
+# lectura en producción -- en test solo crea/actualiza, nunca borra.
+#
+# v3.0.0-dev.78: la asistencia/planificación día a día (y las notas de
+# entrenamiento) YA NO se copian -- se guardan con la fecha como id, así que
+# un mismo día en producción y en test se pisaban entre sí (ver el
+# comentario de incidente al principio de copy-prod-to-test.js). Esas dos
+# colecciones se dejan siempre tal cual estén en cada club, nunca se tocan.
 #
 # El PIN del club se guarda como secreto del repositorio (Settings →
 # Secrets and variables → Actions → New repository secret, nombre
