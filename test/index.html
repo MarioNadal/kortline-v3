@@ -4453,14 +4453,26 @@ function att(){
       const avatar=p.photo?`<img class="pavatar" src="${p.photo}" alt="" style="margin-right:2px"/>`:"";
       const autoHint=eff.auto?`<span style="display:inline-flex;align-items:center;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(107,114,128,.2);color:#9ca3af" title="Justificado automáticamente por lesión">AUTO</span>`:"";
       const pnote=sess[p.id+"_note"]||"";
-      // v3.0.0-dev.81 · B-INJ5: Mario pidió poder hacer "lo mismo que en la
-      // Plantilla" sin salir del pase de lista -- antes el 🚑 de aquí era solo
-      // informativo (ni siquiera aparecía si el jugador no estaba lesionado
-      // ese día). Ahora es SIEMPRE un icono pulsable (gris si no está
-      // lesionado, rojo si sí) que abre el mismo openInjuryModal() que ya usa
-      // la Plantilla -- marca una lesión nueva o edita/da de alta la ya
-      // activa, sin ningún modal ni lógica nuevos.
-      const injBadge=`<span class="injury-badge" style="cursor:pointer;${isInj?"":"background:var(--s2);color:var(--td);border-color:var(--border)"}" title="${isInj?"Lesionado -- toca para editar o dar de alta":"Marcar lesión"}" onclick="event.stopPropagation();openInjuryModal('${p.id}')">🚑</span>`;
+      // v3.0.0-dev.81 · B-INJ5, corregido tras feedback de Mario: el primer
+      // intento hacía el 🚑 SIEMPRE visible (gris/rojo) -- Mario pidió en su
+      // lugar que "lo de la ambulancia solo salga cuando se pone justificado
+      // y lesionado" -- es decir, solo el día en que el estado efectivo es
+      // "Justificado" con motivo "Lesionado/a", ya sea automático (lesión
+      // activa, sin marca manual ese día -- mismo `eff.auto` que ya decide
+      // jLabel arriba) o elegido a mano en "+ Motivo" (_jr==="injury"). El
+      // resto de días (presente/ausente/tarde, o justificado con OTRO
+      // motivo) no muestra nada, exactamente como antes de este bloque.
+      const jInjury=st==="excused"&&(sess[p.id+"_jr"]==="injury"||(eff.auto&&!sess[p.id+"_jr"]));
+      // Al tocarla: "se actualiza la lesión del jugador en general, para
+      // todo" -- sigue abriendo el mismo openInjuryModal() que ya usa la
+      // Plantilla (marca una lesión nueva o edita/da de alta la ya activa),
+      // así que el cambio queda en p.injury y se ve en toda la app (Plantilla,
+      // Riesgo FEB, exports...), no solo en el día de hoy. Si todavía no hay
+      // ninguna lesión registrada para este jugador, se le pasa la fecha que
+      // se está viendo en el pase de lista como fecha de inicio sugerida
+      // (segundo argumento) -- es el día que el propio entrenador acaba de
+      // marcar como lesionado, más lógico que la fecha de hoy real.
+      const injBadge=jInjury?`<span class="injury-badge" style="cursor:pointer" title="${isInjured(p)?"Lesión activa -- toca para editar o dar de alta":"Registrar esta lesión en la ficha del jugador"}" onclick="event.stopPropagation();openInjuryModal('${p.id}','${S.date}')">🚑</span>`:"";
       return`<div class="pr">
         <div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t?.color||"#F06318"},${t?.color||"#F06318"}80)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>
         ${avatar}
@@ -7586,23 +7598,29 @@ function clearPlayerPhoto(mid){
 // Se abre desde el botón 🚑 de la fila del jugador. Gestiona activar/desactivar
 // la lesión y todos los detalles (fecha, origen, explicación). Independiente
 // del modal de editar datos básicos.
-function openInjuryModal(pid){
+// v3.0.0-dev.81 · B-INJ5: dateHint (opcional) es la fecha que se estaba
+// viendo en el pase de lista cuando se tocó la ambulancia -- se usa SOLO para
+// precargar la fecha de inicio de una lesión NUEVA (más lógico que el día de
+// hoy real si se está marcando con retraso o editando un día anterior). La
+// llamada desde la Plantilla (sin segundo argumento) sigue usando hoy real,
+// como siempre.
+function openInjuryModal(pid,dateHint){
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return;
   if(isInjured(p)){openInjuryRecoveryModal(pid);return;}
-  openInjuryNewModal(pid);
+  openInjuryNewModal(pid,dateHint);
 }
 // Modal de NUEVA lesión: startDate, origen, TIPO de lesión (con vuelta
 // estimada sugerida automáticamente según el tipo -- v3.0.0-dev.60 · B-INJ1)
 // y explicación libre. La vuelta estimada es orientativa y siempre editable
 // a mano; el tipo "Otra/sin estimar" no sugiere ninguna fecha.
-function openInjuryNewModal(pid){
+function openInjuryNewModal(pid,dateHint){
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return;
   const id="m-inj-"+pid;
   document.getElementById(id)?.remove();
   const el=document.createElement("div");el.id=id;
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)_closeModal(id);};
-  const injDate=td();
+  const injDate=dateHint||td();
   const injOrigin="unknown";
   const injType="other";
   const lastInjury=(Array.isArray(p.injuryHistory)&&p.injuryHistory.length)?p.injuryHistory[p.injuryHistory.length-1]:null;
