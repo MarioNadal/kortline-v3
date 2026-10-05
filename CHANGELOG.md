@@ -3,6 +3,22 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · La convocatoria solo se abre sola al crear un partido "En directo" (B-CONVONLYLIVE1, dev.86, 2026-10-05)
+
+Mario, tras probar B-LIVECONVGUARD1: *"vale, entonces si se anota el partido normal no hay que poner la convocatoira anbtes, se hará directamente en el aprtiod. solo se pone la convocatoira para poner antes de ver el detalle del partido si se va a hacer seugimiento en vivo"*.
+
+Antes de este cambio, `saveMatchMeta()` abría SIEMPRE la convocatoria (`openConvSetup()`) justo al crear un partido nuevo, fuera cual fuera el modo elegido (por cuartos, resultado final o en directo) -- contradecía justo esta idea de Mario. Confirmado con `AskUserQuestion`: el wizard automático al crear solo tiene sentido para el modo "En directo" (y ahí, con B-LIVECONVGUARD1 ya en marcha, completarlo con 5+ convocados continúa directo a vivo); en "por cuartos"/"resultado final" se va directo al detalle del partido recién creado, sin convocatoria obligatoria -- se rellena cuando se quiera desde el botón "✏️ Editar" que ya existía ahí.
+
+### Añadido
+- **`saveMatchMeta()` (rama de creación):** solo llama a `openConvSetup()` si `matchMode==="live"`. En cualquier otro modo, muestra un toast "✅ Partido creado" (antes no había ningún aviso -- era el propio wizard el que hacía de confirmación visual) y navega directo a `matchDetail()` del partido recién creado.
+- Sin cambios en la rama de EDICIÓN de `saveMatchMeta()` (nunca abría la convocatoria automáticamente, siga el modo que siga) ni en ninguna validación de `_convFinish()`/`liveGame()` -- este cambio es solo sobre qué pasa justo al crear un partido nuevo.
+
+### Probado (jsdom)
+- `tests/match_create_conv_only_live.test.js` (nuevo, 16 aserciones): crear en modo "por cuartos" y "resultado final" no abre la convocatoria, deja `convocados` vacío, muestra el toast y navega a `matchDetail()`; crear en modo "En directo" sigue abriendo la convocatoria automáticamente como siempre (y sin marcar el pendiente de B-LIVECONVGUARD1, que es cosa solo del guard de `liveGame()`); editar un partido existente -- incluso cambiando su modo a "En directo" -- nunca abre la convocatoria automáticamente, sin cambios respecto a antes.
+- Revert-sanity-check: la rama de creación devuelta a llamar siempre a `openConvSetup()` sin condición → fallan exactamente las 5 aserciones esperadas (ausencia del wizard/toast/navegación en los dos modos normales); restaurado y reconfirmado 16/16.
+- Suite completa: **1349/1349 OK** (1333 ya existentes + 16 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.86` / `kortline-v3.0.0-dev.86` (raíz) y `kortline-v3-test-dev.86` (`/test/`, lo único entregado por ahora) -- mismo lote de `/test/` que B-MATCHMODE1/B-MATCHATT1/B-LIVECONFIRM1/B-LIVEBTNMOVE1/B-LIVECONVGUARD1, pendiente de que Mario lo pruebe en el móvil.
+
 ## [Sin publicar] · kortline-v3 · Al intentar pasar a seguimiento en vivo sin convocatoria, se abre la convocatoria ahí mismo en vez de un aviso sin salida (B-LIVECONVGUARD1, dev.85, 2026-10-05)
 
 Mario, tras probar B-LIVEBTNMOVE1: *"si le das a cambiar en vivo y no tiene convocados que va a ser llon normal porque se pone el aprtido y luego ya se convocará entonces peta la aplicacion. Deberíamos pasar la convocatoria que se quede sin seleccionar a nadie y se pasa lista desde fuera o se convoca ya cuando entras al directo, algo asi"*.
