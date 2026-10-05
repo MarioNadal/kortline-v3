@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Aviso de confirmación antes de empezar el seguimiento en vivo (B-LIVECONFIRM1, dev.83, 2026-10-05)
+
+Mario, tras probar el selector de modo de partido (B-MATCHMODE1, justo abajo): *"pero si le doy a seguimiento en vivo sin querer ya no pudeo hacerlo por cuartos, borro y creo otro o como?"*. Pregunta legítima sobre un hueco real: pulsar "🔴 Seguimiento en vivo" entraba DIRECTAMENTE a la pantalla de directo, que inicializa `m.live` sin ningún aviso -- y en cuanto `m.live` existe, el marcador por cuartos queda bloqueado en solo lectura PARA SIEMPRE en ese partido (sin ningún camino de vuelta atrás ya existente en el código). Un toque accidental en ese botón no tenía ninguna red de seguridad; la única salida real era borrar el partido entero y crear uno nuevo, perdiendo rival/fecha/hora/convocatoria/titulares/capitán ya metidos.
+
+Confirmado con `AskUserQuestion` (ofrecidas 2 opciones no excluyentes: un aviso previo, o además un botón de "cancelar directo" si no se ha anotado nada todavía): Mario eligió explícitamente **solo el aviso previo**.
+
+### Añadido
+- Nueva función `startLiveGameConfirm()`: el botón "🔴 Seguimiento en vivo" de `matchDetail()` ya no llama a `navTo('liveGame')` directamente la PRIMERA vez (`!m.live`) -- antes pasa por un diálogo de confirmación (mismo componente `_confirm()` ya usado en el resto de la app, p.ej. al borrar un equipo) que explica que, una vez empezado, el marcador por cuartos quedará bloqueado. Solo al confirmar se navega de verdad y se inicializa `m.live` -- cancelar deja el partido exactamente como estaba, sin tocar nada.
+- **Sin cambios para "Continuar en vivo":** si el partido YA tiene `m.live` (se está retomando un directo ya empezado), el botón sigue yendo directo a la pantalla sin preguntar nada de más -- ahí ya no hay nada que se pueda evitar, y seguir preguntando cada vez sería solo ruido.
+- Cero cambios en `liveGame()` ni en ninguna otra función del motor de directo -- este fix es puramente "preguntar antes de llamar a lo que ya existía", no una reescritura de la inicialización.
+
+### Probado (jsdom)
+- `tests/live_game_start_confirm.test.js` (nuevo, 18 aserciones): sin `m.live`, el diálogo aparece y ni navega ni inicializa nada hasta que se actúa; cancelar no cambia nada; confirmar sí navega a `liveGame` y sí inicializa `m.live` (mismo comportamiento de siempre, solo que ahora pasa por el aviso); con `m.live` ya existente, ni aparece el diálogo ni se pregunta de más; y el HTML real de `matchDetail()` llama a la función correcta según el estado del partido.
+- Revert-sanity-check: `startLiveGameConfirm()` forzado de vuelta a saltar directo a `navTo('liveGame')` sin preguntar → la aserción que comprueba que aparece el diálogo falla (y arrastra el resto del mismo bloque al no encontrar el diálogo esperado, como se esperaba de una regresión real); restaurado y reconfirmado 1282/1282.
+- Suite completa: **1282/1282 OK** (1264 ya existentes + 18 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.83` / `kortline-v3.0.0-dev.83` (raíz) y `kortline-v3-test-dev.83` (`/test/`, lo único entregado por ahora) -- pendiente de que Mario lo pruebe en el móvil antes de promocionarlo a producción, igual que B-MATCHMODE1/B-MATCHATT1 justo abajo (mismo lote de `/test/`, todavía nada de esto en producción).
+
 ## [Sin publicar] · kortline-v3 · Modo de partido (por cuartos / resultado final / en directo) + los partidos cuentan como asistencia (B-MATCHMODE1 + B-MATCHATT1, dev.82, 2026-10-05)
 
 Mario, en el apartado de Partidos: *"Hay que poner en la app en el apartado de partidos, poder poner los partido solo normal y si se hacen en directo no se pueden hacer normal solo poniendolo por cuartos o resultado final. No se si hacer un desplegable que de las opciones o como hacerlo de la manera mas profesional porque quiero que cuente como asistencia para los jugadores en la general y en asistencias para los partidos"*. Dos peticiones en una: (1) elegir cómo se anota un partido, con el directo bloqueando la vuelta a "normal" una vez iniciado, y (2) que los partidos cuenten para la asistencia, tanto en la general como en la de partidos. Confirmado con `AskUserQuestion` (4 preguntas) el diseño completo antes de escribir nada de código.
