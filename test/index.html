@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.85";
+const APP_VERSION = "3.0.0-dev.86";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -10559,8 +10559,24 @@ function saveMatchMeta(mid,eid){
     clearDirty();
     save();
     document.getElementById(mid)?.remove();
-    // Open convocatoria setup wizard immediately
-    openConvSetup();
+    // v3.0.0-dev.86 · B-CONVONLYLIVE1: Mario, tras probar B-LIVECONVGUARD1:
+    // *"vale, entonces si se anota el partido normal no hay que poner la
+    // convocatoira anbtes, se hará directamente en el aprtiod. solo se pone
+    // la convocatoira para poner antes de ver el detalle del partido si se
+    // va a hacer seugimiento en vivo"*. Antes de este cambio, CUALQUIER
+    // partido nuevo (sea el modo que sea) abría la convocatoria de golpe al
+    // crearlo -- contradecía justo esta idea. Confirmado con AskUserQuestion:
+    // el wizard automático solo tiene sentido para el modo "En directo"
+    // (donde además, gracias a B-LIVECONVGUARD1, completarlo con 5+
+    // convocados ya continúa directo a vivo); en "por cuartos"/"resultado
+    // final" se va directo al detalle del partido -- la convocatoria se
+    // rellena cuando se quiera, desde el botón "✏️ Editar" que ya hay ahí.
+    if(matchMode==="live"){
+      openConvSetup();
+    } else {
+      toast("✅ Partido creado");
+      S.screen="matchDetail";render();
+    }
   }
   return true;
 }
