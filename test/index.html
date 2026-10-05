@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.82";
+const APP_VERSION = "3.0.0-dev.83";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -9954,7 +9954,7 @@ function matchDetail(){
   <div class="content">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       ${resultBadge}
-      ${FEATURE_LIVE_GAME?`<button onclick="navTo('liveGame')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:8px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:13px;cursor:pointer">🔴 ${hasLive?"Continuar en vivo":"Seguimiento en vivo"}</button>`:""}
+      ${FEATURE_LIVE_GAME?`<button onclick="${hasLive?"navTo('liveGame')":"startLiveGameConfirm()"}" style="display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:8px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:13px;cursor:pointer">🔴 ${hasLive?"Continuar en vivo":"Seguimiento en vivo"}</button>`:""}
     </div>
     ${scoreboardHtml}
     <div style="margin-bottom:8px">
@@ -10878,6 +10878,28 @@ function _checkLivePresence(m){
   }
   live.trackedBy=myId;live.trackedAt=Date.now();live.trackedByName=_getCoachName()||null;
   save();
+}
+// v3.0.0-dev.83 · B-LIVECONFIRM1: Mario, tras el selector de modo de partido
+// (B-MATCHMODE1): "pero si le doy a seguimiento en vivo sin querer ya no
+// puedo hacerlo por cuartos, borro y creo otro o como?" -- confirmado: antes
+// de esto, pulsar "🔴 Seguimiento en vivo" entraba DIRECTAMENTE a liveGame(),
+// que inicializa m.live sin ningún aviso -- y en cuanto m.live existe, el
+// marcador por cuartos queda bloqueado en solo lectura PARA SIEMPRE en ese
+// partido (ver matchDetail()/_syncQFromLive, sin ningún camino de vuelta
+// atrás). Un toque accidental en ese botón no tenía ninguna red de
+// seguridad. Mario eligió explícitamente solo este aviso previo (no un
+// "cancelar directo" después de empezar) -- confirmado con AskUserQuestion.
+// Solo se pregunta la PRIMERA vez (hasLive===false) -- continuar un directo
+// ya empezado (botón "Continuar en vivo") sigue yendo directo, sin aviso de
+// más, porque ahí ya no hay nada que se pueda evitar.
+function startLiveGameConfirm(){
+  const m=mById(S.teamId,S.matchId);
+  if(!m||m.live){navTo("liveGame");return;}
+  _confirm(
+    "¿Seguro que quieres empezar el <b>seguimiento en vivo</b> de este partido?<br/><br/>Una vez empieces, el marcador por cuartos quedará <b>bloqueado</b> y ya no podrás volver a anotarlo a mano -- si solo quieres anotar por cuartos o el resultado final, usa esa opción en el modo de partido en vez de esta.",
+    "🔴 Sí, empezar en directo",
+    ()=>navTo("liveGame")
+  );
 }
 function liveGame(){
   const t=S.teams.find(x=>x.id===S.teamId);
