@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.84";
+const APP_VERSION = "3.0.0-dev.85";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -10166,11 +10166,22 @@ function setMatchModeBtn(mid,mode){
 /* ═══════════════════════════════════════
    CONVOCATORIA SETUP WIZARD
 ═══════════════════════════════════════ */
-function openConvSetup(){
+function openConvSetup(pendingLiveMid){
   const m=mById(S.teamId,S.matchId);
   const t=S.teams.find(x=>x.id===S.teamId);
   if(!m||!t)return;
   document.getElementById("m-conv-setup")?.remove();
+  // v3.0.0-dev.85 · B-LIVECONVGUARD1: si nos llaman desde el guard de
+  // seguimiento en vivo (liveGame(), más abajo) con menos de 5 convocados,
+  // pendingLiveMid es el id de ESE partido -- lo recordamos para que
+  // _convFinishDeferred() continúe directo a vivo al terminar la
+  // convocatoria, en vez de dejar al entrenador de vuelta en matchDetail
+  // teniendo que volver a pulsar "Cambiar a seguimiento en vivo". Cualquier
+  // otra llamada a openConvSetup() (editar convocatoria desde matchDetail,
+  // o el wizard automático de un partido recién creado) no pasa este
+  // argumento, así que de paso limpiamos cualquier pendiente de una llamada
+  // anterior que no tenga que ver con esta.
+  S._pendingLiveAfterConv=pendingLiveMid||null;
   const rivalEnabled=m.rivalStatsEnabled||false;
   const el=document.createElement("div");
   el.id="m-conv-setup";
@@ -10273,7 +10284,7 @@ function _convSetupHtml(m,t,step){
     ${tabs}
     ${step===0?ourStep:rivalStep}
     ${footerBtn}
-    <button class="btn-s" onclick="document.getElementById('m-conv-setup')?.remove();S.screen='matchDetail';render()">Saltar — configurar después</button>
+    <button class="btn-s" onclick="document.getElementById('m-conv-setup')?.remove();S._pendingLiveAfterConv=null;S.screen='matchDetail';render()">Saltar — configurar después</button>
   </div>`;
 }
 function _convGoStep(step){
@@ -10475,6 +10486,18 @@ function _convFinishDeferred(){
   save();
   document.getElementById("m-conv-validation")?.remove();
   document.getElementById("m-conv-setup")?.remove();
+  // v3.0.0-dev.85 · B-LIVECONVGUARD1: si la convocatoria se abrió
+  // automáticamente porque el entrenador intentaba pasar a seguimiento en
+  // vivo sin (suficientes) convocados, continuamos directo a vivo en vez de
+  // quedarnos en matchDetail -- para entonces _convFinish() ya ha
+  // garantizado que hay 5+ convocados (o que el partido es de solo stats de
+  // equipo), así que liveGame() no va a volver a bloquear.
+  const pendingLiveMid=S._pendingLiveAfterConv;
+  S._pendingLiveAfterConv=null;
+  if(pendingLiveMid&&pendingLiveMid===S.matchId){
+    navTo("liveGame",{matchId:pendingLiveMid});
+    return;
+  }
   S.screen="matchDetail";render();
 }
 function _convValidationModal({icon,title,msg,primaryLabel,onContinue}){
@@ -10964,14 +10987,17 @@ function liveGame(){
   // convocados de la plantilla fija para poder empezar no tiene sentido, y
   // menos si el partido se apoya en jugadores puntuales/invitados.
   if(!m.live&&!m.teamOnlyStats&&convP.length<5){
+    // v3.0.0-dev.85 · B-LIVECONVGUARD1: Mario reportó que, al crear un
+    // partido y saltar la convocatoria ("configurar después"), intentar
+    // luego "Cambiar a seguimiento en vivo" dejaba al entrenador en un
+    // callejón sin salida: el aviso bloqueante que había aquí antes tenía un
+    // botón "Ir a la convocatoria" que en realidad solo se cerraba a sí
+    // mismo, sin llevar a ningún sitio. Confirmado con AskUserQuestion: en
+    // vez de ese aviso, abrimos la convocatoria ahí mismo para completarla
+    // al momento -- si queda con 5+ convocados, _convFinishDeferred()
+    // continúa directo a vivo sin tener que volver a pulsar nada.
     S.screen="matchDetail";render();
-    _convValidationModal({
-      icon:"⚠️",
-      title:convP.length===0?"Sin convocados":`Solo ${convP.length} convocado${convP.length===1?"":"s"}`,
-      msg:"FIBA exige <b>5 jugadores en pista</b>. Completa la convocatoria con al menos 5 convocados antes de empezar el seguimiento en vivo.",
-      primaryLabel:"Ir a la convocatoria",
-      onContinue:null
-    });
+    openConvSetup(m.id);
     return"";
   }
   // Init live
