@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.88";
+const APP_VERSION = "3.0.0-dev.89";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -10003,16 +10003,7 @@ function matchDetail(){
     const isTit=titIds.includes(p.id)&&inConv;
     const isCap=m.capitan===p.id&&inConv;
     const redInfo=inConv?reducedMinutesInfo(p,S.teamId,m):null;
-    return`<div class="conv-player" data-conv-pid="${p.id}" onclick="toggleConvocado('${p.id}')">
-      <div class="conv-check ${inConv?"on":""}">${inConv?"✓":""}</div>
-      <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
-      <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${redInfo?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="${redInfo.label}">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
-      ${inConv?`<div style="display:flex;gap:6px">
-        <button onclick="event.stopPropagation();toggleTitular('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
-        <button onclick="event.stopPropagation();setCapitan('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
-        ${redInfo?`<button onclick="event.stopPropagation();toggleReducedMinutesDismiss('${p.id}')" title="${redInfo.label}" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(107,114,128,.5);background:rgba(107,114,128,.2);color:#9ca3af;cursor:pointer;font-size:12px;font-weight:700">🪑</button>`:""}
-      </div>`:""}
-    </div>`;
+    return`<div class="conv-player" data-conv-pid="${p.id}" onclick="toggleConvocado('${p.id}')">${_mdConvRowHtml(p,t,m,inConv,isTit,isCap,redInfo)}</div>`;
   }).join("");
   const convCount=convIds.length;
   const titCount=titIds.length;
@@ -10357,14 +10348,22 @@ const CONV_ATT_BADGE={
   late:{l:"Tarde",c:"#f59e0b",bg:"rgba(245,158,11,.15)"},
   excused:{l:"Justif.",c:"#6b7280",bg:"rgba(107,114,128,.15)"}
 };
+// v3.0.0-dev.89 · B-MATCHATT4: botón de asistencia compartido entre el
+// wizard (_convRowInner → _convCycleAtt) y la lista de Convocatoria del
+// propio detalle del partido (_mdConvRowHtml → _mdCycleAtt) -- mismo look,
+// solo cambia qué función se llama al tocarlo (cada una refresca su propia
+// fila en su propio sitio). `fnName` es el nombre de esa función de ciclo.
+function _attControlBtnHtml(m,pid,fnName){
+  const attSt=_matchAttState(m,pid);
+  const attOv=CONV_ATT_BADGE[attSt]; // undefined para "present"/"not_called" (caso normal, sin nada que destacar)
+  return attOv
+    ?`<button onclick="event.stopPropagation();${fnName}('${pid}')" title="Toca para cambiar o quitar" style="padding:4px 7px;border-radius:7px;border:1px solid ${attOv.c}55;background:${attOv.bg};color:${attOv.c};font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">${attOv.l}</button>`
+    :`<button onclick="event.stopPropagation();${fnName}('${pid}')" title="Marcar ausente/tarde/justificado" style="width:24px;height:24px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--tm);font-size:12px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1">⋯</button>`;
+}
 // v1.7.6: render in-place de una fila (sin tocar el DOM completo, mantiene scroll)
 function _convRowInner(p,t,m,inConv,isTit,isCap){
   const guestBadge=p.guest?'<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">🔄 PUNTUAL</span>':"";
-  const attSt=_matchAttState(m,p.id);
-  const attOv=CONV_ATT_BADGE[attSt]; // undefined para "present"/"not_called" (caso normal, sin nada que destacar)
-  const attControlHtml=attOv
-    ?`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Toca para cambiar o quitar" style="padding:4px 7px;border-radius:7px;border:1px solid ${attOv.c}55;background:${attOv.bg};color:${attOv.c};font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">${attOv.l}</button>`
-    :`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Marcar ausente/tarde/justificado" style="width:24px;height:24px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--tm);font-size:12px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1">⋯</button>`;
+  const attControlHtml=_attControlBtnHtml(m,p.id,"_convCycleAtt");
   return`<div class="conv-cb ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
     <div style="flex:1;min-width:0">
@@ -10643,7 +10642,15 @@ function saveMatchMeta(mid,eid){
     // partidos de dev.82-86 (countsForAttendance pero sin rollCallAtt) no se
     // tocan, para no inflar de golpe una asistencia ya registrada con el
     // modelo anterior (solo convocados).
-    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,matchMode,countsForAttendance:true,rollCallAtt:true,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
+    //
+    // v3.0.0-dev.89 · B-MATCHATT4: Mario pidió que, al crear el partido,
+    // "en un principio estarán todos convocados" -- así que convocados ya
+    // NO nace vacío, nace con toda la plantilla (mismo criterio que el
+    // botón "Todos" del wizard, _convSelectAll: sin los puntuales de solo
+    // entrenamiento -- attOnly -- y con el mismo tope de 12 de FIBA). Se
+    // desmarca a quien no vaya, en vez de ir marcando a cada uno.
+    const _convDefault=pl(S.teamId).filter(p=>!p.attOnly).map(p=>p.id).slice(0,12);
+    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,matchMode,countsForAttendance:true,rollCallAtt:true,q:[null,null,null,null,null,null,null,null,null,null],convocados:_convDefault,titulares:[],capitan:null,rivalPlayers:[],notes:""};
     S.matches[S.teamId].push(nm);
     S.matchId=nm.id;
     clearDirty();
@@ -10848,11 +10855,33 @@ function toggleReducedMinutesDismiss(pid){
   save();
   _mdConvRefreshRow(pid);
 }
-function _mdConvRowHtml(p,t,inConv,isTit,isCap,redInfo){
+// v3.0.0-dev.89 · B-MATCHATT4: Mario, tras ver dev.88 en marcha -- *"lo
+// primero es saber si estan convocados o no al partido que en un principio
+// estaran todos, y luego saber de los que estan convocados al partido que
+// son los que les debe contar la asistencia (si no estan convocados no se
+// les puede poner que no han ido) [...] Y se pone en el detalle del
+// partido ya. La lista con checklists ya no existe"*. Dos cambios,
+// confirmados con AskUserQuestion:
+//  1) Los partidos nuevos nacen YA con toda la plantilla convocada (ver
+//     saveMatchMeta) -- se desmarca a quien no vaya, en vez de ir marcando
+//     a cada uno.
+//  2) La asistencia (Ausente/Tarde/Justificado) se marca AQUÍ, en la propia
+//     lista de Convocatoria de matchDetail -- ya no hace falta abrir el
+//     wizard/editor aparte (openConvSetup) solo para esto. El control de
+//     asistencia solo aparece para quien SÍ está convocado: si no está
+//     convocado no tiene sentido poder marcarlo ausente/tarde/justificado
+//     (el check sin marcar ya dice que no va). El wizard (_convRowInner)
+//     se mantiene tal cual para titulares/capitán/jugadores del rival y
+//     el paso previo a seguimiento en vivo -- sigue permitiendo marcar
+//     asistencia aunque no esté convocado (caso distinto: "vino pero no
+//     fue convocado", ver _convCycleAtt), pero eso ya no es el camino
+//     principal para el día a día de un partido normal.
+function _mdConvRowHtml(p,t,m,inConv,isTit,isCap,redInfo){
   return`<div class="conv-check ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
     <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${redInfo?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="${redInfo.label}">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
-    ${inConv?`<div style="display:flex;gap:6px" onclick="event.stopPropagation()">
+    ${inConv?`<div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+      ${_attControlBtnHtml(m,p.id,"_mdCycleAtt")}
       <button onclick="event.stopPropagation();toggleTitular('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
       <button onclick="event.stopPropagation();setCapitan('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
       ${redInfo?`<button onclick="event.stopPropagation();toggleReducedMinutesDismiss('${p.id}')" title="${redInfo.label}" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(107,114,128,.5);background:rgba(107,114,128,.2);color:#9ca3af;cursor:pointer;font-size:12px;font-weight:700">🪑</button>`:""}
@@ -10866,7 +10895,21 @@ function _mdConvRefreshRow(pid){
   const convIds=m.convocados||[];const titIds=m.titulares||[];
   const inConv=convIds.includes(pid);const isTit=titIds.includes(pid)&&inConv;const isCap=m.capitan===pid&&inConv;
   const redInfo=inConv?reducedMinutesInfo(p,S.teamId,m):null;
-  row.innerHTML=_mdConvRowHtml(p,t,inConv,isTit,isCap,redInfo);
+  row.innerHTML=_mdConvRowHtml(p,t,m,inConv,isTit,isCap,redInfo);
+}
+// v3.0.0-dev.89 · B-MATCHATT4: cicla el override de asistencia (mismo dato
+// m.attOverride que usa el wizard, ver _convCycleAtt) pero refrescando la
+// fila de la lista de Convocatoria de matchDetail, no la del wizard.
+function _mdCycleAtt(pid){
+  const m=mById(S.teamId,S.matchId);if(!m)return;
+  if(!m.attOverride)m.attOverride={};
+  const order=[null,"absent","late","excused"];
+  const cur=m.attOverride[pid]||null;
+  const next=order[(order.indexOf(cur)+1)%order.length];
+  if(next)m.attOverride[pid]=next;
+  else delete m.attOverride[pid];
+  save();
+  _mdConvRefreshRow(pid);
 }
 function _mdConvRefreshSubtitle(){
   const m=mById(S.teamId,S.matchId);if(!m)return;
