@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.90";
+const APP_VERSION = "3.0.0-dev.91";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5319,7 +5319,38 @@ function buildWeeklyText(tid,showMotivo,opts){
   lines.push(`\n_${realClub||t.name}_`);
   return lines.join("\n");
 }
-function shareText(text){if(navigator.share){navigator.share({text}).catch(()=>{});}else{navigator.clipboard?.writeText(text).then(()=>toast("📋 Copiado")).catch(()=>toast("⚠️ No se pudo copiar"));}}
+// v3.0.0-dev.91 · B-COPYFIX1: Mario reportó que "copiar stats" seguía sin
+// funcionar tras el fix de dev.90 (que solo arregló el ReferenceError de
+// scope) -- la causa real es distinta: navigator.clipboard puede no existir
+// en el navegador/PWA de su móvil, o navigator.clipboard.writeText() puede
+// rechazar la promesa (permiso denegado) -- en los dos casos, con solo
+// `navigator.clipboard?.writeText(...).then(...)` y sin `.catch()`, no pasa
+// NADA visible (el optional chaining corta toda la cadena en silencio si
+// falta la API, y una promesa rechazada sin .catch() tampoco avisa) -- desde
+// fuera es indistinguible de "no funciona". Mismo patrón roto en los otros
+// 3 botones "📋 Copiar" de la app (asistencia diaria/semanal, convocatoria).
+// Fix: helper único con fallback real a document.execCommand("copy") (más
+// compatible, no depende de la Clipboard API) para cuando falta la API o la
+// promesa se rechaza -- y solo si eso también falla, avisa de verdad.
+function _copyToClipboard(text,okMsg){
+  okMsg=okMsg||"📋 Copiado";
+  const fallback=()=>{
+    try{
+      const ta=document.createElement("textarea");
+      ta.value=text;ta.style.position="fixed";ta.style.left="-9999px";ta.style.top="0";
+      document.body.appendChild(ta);ta.focus();ta.select();
+      const ok=document.execCommand("copy");
+      document.body.removeChild(ta);
+      ok?toast(okMsg):toast("⚠️ No se pudo copiar");
+    }catch(e){toast("⚠️ No se pudo copiar");}
+  };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>toast(okMsg)).catch(fallback);
+  }else{
+    fallback();
+  }
+}
+function shareText(text){if(navigator.share){navigator.share({text}).catch(()=>{});}else{_copyToClipboard(text);}}
 function toggleSharePanel(id){const b=document.getElementById(id);if(!b)return;b.classList.toggle("open");const ic=document.getElementById(id+"-icon");if(ic)ic.textContent=b.classList.contains("open")?"▲":"▼";}
 function _refreshSharePrevs(){
   const t=S.teams.find(x=>x.id===S.teamId);
@@ -5351,8 +5382,8 @@ function shareScreen(){
         <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:6px">📅 Asistencia del día</div>
         <div class="share-preview" id="${id}-dp" style="white-space:pre-wrap">${esc(dayTxt)}</div>
         <button class="btn-wa" onclick="shareText(document.getElementById('${id}-dp').innerText)">💬 Compartir</button>
-        <button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('${id}-dp').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar</button>
-        ${wkTxt?`<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin:14px 0 6px">📊 Resumen semanal</div><div class="share-preview" id="${id}-wp" style="white-space:pre-wrap">${esc(wkTxt)}</div><button class="btn-wa" onclick="shareText(document.getElementById('${id}-wp').innerText)">💬 Compartir resumen</button><button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('${id}-wp').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar</button>`:`<div style="font-size:13px;color:var(--tm);padding:10px 0">Sin sesiones para el resumen.</div>`}
+        <button class="btn-copy" onclick="_copyToClipboard(document.getElementById('${id}-dp').innerText)">📋 Copiar</button>
+        ${wkTxt?`<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin:14px 0 6px">📊 Resumen semanal</div><div class="share-preview" id="${id}-wp" style="white-space:pre-wrap">${esc(wkTxt)}</div><button class="btn-wa" onclick="shareText(document.getElementById('${id}-wp').innerText)">💬 Compartir resumen</button><button class="btn-copy" onclick="_copyToClipboard(document.getElementById('${id}-wp').innerText)">📋 Copiar</button>`:`<div style="font-size:13px;color:var(--tm);padding:10px 0">Sin sesiones para el resumen.</div>`}
       </div>
     </div>`;
   }
@@ -10962,7 +10993,7 @@ function shareMatchConv(){
     <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--td);margin-bottom:6px">Para padres / grupo</div>
     <div class="share-preview" style="max-height:160px;white-space:pre-wrap">${esc(textP)}</div>
     <button class="btn-wa" onclick="shareText(document.getElementById('m-share-match').querySelector('.share-preview').innerText)">💬 Compartir</button>
-    <button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('m-share-match').querySelector('.share-preview').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar</button>
+    <button class="btn-copy" onclick="_copyToClipboard(document.getElementById('m-share-match').querySelector('.share-preview').innerText)">📋 Copiar</button>
     <button class="btn-s" onclick="document.getElementById('m-share-match').remove()">Cerrar</button>
   </div>`;
   document.body.appendChild(el);
@@ -12862,7 +12893,7 @@ function _copyMatchStats(){
   const lines=[`📊 ${t.name} vs ${m.rival||"Rival"}`,...rows.map(r=>
     `#${r.number!=null?r.number:"?"} ${_shortName(r.name)}: ${r.pts}pts T2:${r.t2m}/${r.t2a} T3:${r.t3m}/${r.t3a} AST:${r.ast} REB:${r.ro+r.rd}`
   )];
-  navigator.clipboard?.writeText(lines.join("\n")).then(()=>toast("📋 Stats copiadas"));
+  _copyToClipboard(lines.join("\n"),"📋 Stats copiadas");
 }
 function exportMatchStatsPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
@@ -12877,7 +12908,7 @@ function exportMatchStatsPDF(){
   const isWin=ourT>rivT,isDraw=ourT===rivT&&ourT>0;
   const resLabel=isWin?"VICTORIA":isDraw?"EMPATE":"DERROTA";
   const resRGB=isWin?[34,197,94]:isDraw?[245,158,11]:[239,68,68];
-  const{rows,totals,hasRival,rivalRows,rivalTotals,topScorer,topPM,topEFF}=_matchStatsComputed(m);
+  const{rows,totals,hasRival,rivalRows,rivalTotals}=_matchStatsComputed(m);
   const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
   const PAGE_W=297;
   // ── Header band -- mismo lenguaje visual que el PDF de asistencia de
@@ -12919,28 +12950,21 @@ function exportMatchStatsPDF(){
       doc.text(`${pq.q[0]}–${pq.q[1]}`,x+qBoxW/2,60,{align:"center"});
     });
   }
-  // ── Destacados del partido (fila 2, y=74..104)
-  const highlights=[["⭐ Máximo anotador",topScorer,`${topScorer?topScorer.pts:0} pts`],
-    ["📈 Mejor +/-",topPM,topPM?((topPM.pm>0?"+":"")+(topPM.pm||0)):"—"],
-    ["🔥 Mejor valoración",topEFF,topEFF?String(topEFF.eff):"—"]];
-  const hGap=4,hBoxW=(USABLE_W-2*hGap)/3;
-  highlights.forEach(([label,pl_,val],i)=>{
-    const x=MARGIN+i*(hBoxW+hGap);
-    doc.setFillColor(17,31,52);doc.roundedRect(x,74,hBoxW,26,3,3,"F");
-    doc.setFontSize(7);doc.setTextColor(122,156,200);doc.text(label,x+hBoxW/2,81,{align:"center"});
-    doc.setFont("helvetica","bold");doc.setFontSize(12);doc.setTextColor(240,99,24);
-    doc.text(pl_?`#${pl_.number!=null?pl_.number:"?"} ${_shortName(pl_.name)}`:"—",x+hBoxW/2,90,{align:"center"});
-    doc.setFontSize(10);doc.setTextColor(240,244,255);doc.text(val,x+hBoxW/2,97,{align:"center"});
-  });
   // ── Tabla completa de estadísticas (todas las columnas -- "que salga todo")
+  // v3.0.0-dev.91 · B-MATCHPDF2: Mario pidió quitar "Destacados del partido"
+  // (máximo anotador/mejor +/-/mejor valoración) porque esos mismos datos ya
+  // se ven en la propia tabla (columnas PTS/+/-/EFF) -- repetirlos era ruido,
+  // no información nueva. Al quitar esa fila (y=74..104) la tabla sube justo
+  // debajo del marcador, dejando mucho más margen antes del pie de página
+  // para que el partido quepa en una sola página en el caso normal.
   const head=[["#","Jugador","MIN","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","FR","ROB","TAP","PER","+/-","EFF"]];
   const body=rows.map(r=>[r.number!=null?r.number:"—",r.name,_fmtMin(r.minSec||0),r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.frecv,r.stl,r.blk,r.to,(r.pm>0?"+":"")+(r.pm||0),r.eff]);
   body.push(["—","Totales","—",totals.pts,`${totals.t2m}/${totals.t2a}`,`${totals.t3m}/${totals.t3a}`,`${totals.t1m}/${totals.t1a}`,totals.efg+"%",totals.ro,totals.rd,totals.ast,totals.f,totals.frecv,totals.stl,totals.blk,totals.to,"—",totals.eff]);
   doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(240,99,24);
-  doc.text("ESTADÍSTICAS DEL PARTIDO",14,108);
+  doc.text("ESTADÍSTICAS DEL PARTIDO",14,80);
   doc.autoTable({
-    head,body,startY:112,
-    styles:{fontSize:8,cellPadding:2.6,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
+    head,body,startY:84,
+    styles:{fontSize:8,cellPadding:2.2,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
     headStyles:{fillColor:[13,34,68],textColor:[240,99,24],fontStyle:"bold",fontSize:8},
     alternateRowStyles:{fillColor:[17,31,52]},
     columnStyles:{0:{halign:"center",cellWidth:9},2:{halign:"center"},3:{halign:"center",fontStyle:"bold"},7:{halign:"center"},16:{halign:"center"},17:{halign:"center",fontStyle:"bold"}},
@@ -12953,10 +12977,14 @@ function exportMatchStatsPDF(){
       }
     }
   });
-  let afterY=doc.lastAutoTable.finalY+10;
+  let afterY=doc.lastAutoTable.finalY+8;
   // ── Estadísticas del rival individualizadas, si ese partido las registró
   if(hasRival){
-    if(afterY>160){doc.addPage("a4","landscape");afterY=14;}
+    // Estimación real del alto que va a ocupar (cabecera + filas + totales)
+    // en vez de un umbral fijo -- así se aprovecha todo el margen ganado al
+    // quitar los Destacados, y solo salta de página si de verdad no entra.
+    const estRivalH=10+(rivalRows.length+1)*7.5;
+    if(afterY+estRivalH>195){doc.addPage("a4","landscape");afterY=14;}
     doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(239,68,68);
     doc.text(`ESTADÍSTICAS — ${(m.rival||"RIVAL").toUpperCase()}`,14,afterY);
     const rHead=[["#","Jugador","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","ROB","TAP","PER","EFF"]];
