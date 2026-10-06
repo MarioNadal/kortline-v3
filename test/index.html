@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.89";
+const APP_VERSION = "3.0.0-dev.90";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5750,7 +5750,12 @@ function _finishAndShowSummary(teamId,matchId){
   // v1.8.12 · B-11: sincronizar live.qScores → m.q[] al finalizar
   _syncQFromLive(m);
   save();
-  navTo('matchSummary',{teamId,matchId});
+  // B-MATCHPDF1: _fromDetail:false explícito -- si venimos de reabrir un
+  // partido viejo desde el historial (navegación que SÍ lo pone a true),
+  // y justo después el entrenador acaba otro partido en vivo, S._fromDetail
+  // es una variable plana de S y se quedaría pegada en true sin este reset,
+  // haciendo que "←" aquí vuelva (mal) a matchDetail en vez de a Hoy.
+  navTo('matchSummary',{teamId,matchId,_fromDetail:false});
 }
 /* ═══════════════════════════════════════
    MODALS
@@ -10028,7 +10033,8 @@ function matchDetail(){
     </div>
     ${scoreEntryHtml}
     ${liveActionHtml}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
+      ${m.finished&&hasLive?`<button onclick="navTo('matchSummary',{teamId:S.teamId,matchId:S.matchId,_fromDetail:true})" style="width:48px;height:48px;border-radius:8px;background:rgba(240,99,24,.15);border:1px solid rgba(240,99,24,.4);color:var(--orange);cursor:pointer;font-size:20px" title="Estadísticas y PDF">📊</button>`:""}
       <button onclick="shareMatchResult()" style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px" title="Compartir resultado">📤</button>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -12786,6 +12792,201 @@ function shotMap(){
   </div>
   ${navBar()}`;
 }
+/* ═══════════════════════════════════════
+   RESUMEN DE PARTIDO -- datos compartidos para copiar/exportar
+   v3.0.0-dev.90 · B-MATCHPDF1: Mario pidió un PDF "muy chulo y profesional"
+   con las estadísticas del partido finalizado, accesible tanto desde el
+   resumen que sale al terminar como desde el detalle de un partido viejo ya
+   jugado (hoy no hay ningún otro sitio desde el que volver a verlo), y de
+   paso avisó de que el botón "📋 Copiar stats" de matchSummaryScreen no
+   funcionaba. Causa del bug de copiar: su onclick era un IIFE embebido como
+   texto que capturaba `convP`/`live`/`t`/`m`, variables LOCALES de
+   matchSummaryScreen() -- al ejecutarse más tarde (al pulsar el botón, fuera
+   de esa función) esas variables ya no existen en el ámbito global donde
+   corre un onclick, así que lanzaba un ReferenceError silencioso y no
+   copiaba nada. Fix: una función compartida de verdad (global) que
+   recalcula los datos desde S.teamId/S.matchId cada vez que se necesita,
+   igual que ya hace shareMatchResult() -- la usan _copyMatchStats() y
+   exportMatchStatsPDF(), así ambas muestran siempre los mismos números.
+   Deliberadamente NO se ha tocado el cálculo ya existente dentro de
+   matchSummaryScreen() (la tabla en pantalla, ya aprobada y en producción)
+   para no arriesgar ninguna regresión ahí -- esta es una segunda fuente de
+   los mismos datos, verificada con tests de que coincide con la pantalla.
+═══════════════════════════════════════ */
+function _matchStatsComputed(m){
+  const players=pl(S.teamId);
+  const live=m.live||{};
+  const rowFrom=(p,st,withMinPM)=>{
+    const pts=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3;
+    const t2a=(st.p2m||0)+(st.p2a||0),t3a=(st.p3m||0)+(st.p3a||0),t1a=(st.p1m||0)+(st.p1a||0);
+    const row={number:p.number,name:p.name,pts,t2m:st.p2m||0,t2a,t3m:st.p3m||0,t3a,t1m:st.p1m||0,t1a,
+      efg:_calcEFGPct(st),ro:st.ro||0,rd:st.rd||0,ast:st.ast||0,f:_totalFouls(st),frecv:st.frecv||0,
+      stl:st.stl||0,blk:st.blk||0,to:st.to||0,eff:_calcEFF(st)};
+    if(withMinPM){row.minSec=_getMinSec(m,p.id);row.pm=_getPlusMinus(m,p.id);}
+    return row;
+  };
+  const sumRows=(rows,fn)=>rows.reduce((s,r)=>s+fn(r),0);
+  const totalsOf=rows=>{
+    const tt={pts:sumRows(rows,r=>r.pts),t2m:sumRows(rows,r=>r.t2m),t2a:sumRows(rows,r=>r.t2a),
+      t3m:sumRows(rows,r=>r.t3m),t3a:sumRows(rows,r=>r.t3a),t1m:sumRows(rows,r=>r.t1m),t1a:sumRows(rows,r=>r.t1a),
+      ro:sumRows(rows,r=>r.ro),rd:sumRows(rows,r=>r.rd),ast:sumRows(rows,r=>r.ast),f:sumRows(rows,r=>r.f),
+      frecv:sumRows(rows,r=>r.frecv),stl:sumRows(rows,r=>r.stl),blk:sumRows(rows,r=>r.blk),to:sumRows(rows,r=>r.to),
+      eff:sumRows(rows,r=>r.eff)};
+    tt.efg=(tt.t2a+tt.t3a)>0?Math.round(100*(tt.t2m+1.5*tt.t3m)/(tt.t2a+tt.t3a)):0;
+    return tt;
+  };
+  const convP=players.filter(p=>live.stats?.[p.id]&&Object.values(live.stats[p.id]).some(v=>v>0));
+  const rows=convP.map(p=>rowFrom(p,live.stats[p.id]||{},true));
+  const totals=totalsOf(rows);
+  // Rival individualizado -- solo si el partido lo activó (m.rivalStatsEnabled)
+  // Y de verdad hay alguna estadística >0 registrada (si no, no tiene sentido
+  // sacar una tabla entera a cero).
+  const rivalPlayersArr=m.rivalStatsEnabled?(m.rivalPlayers||[]):[];
+  const rivalConvP=rivalPlayersArr.filter(p=>live.rivalStats?.[p.id]&&Object.values(live.rivalStats[p.id]).some(v=>v>0));
+  const hasRival=rivalConvP.length>0;
+  const rivalRows=hasRival?rivalConvP.map(p=>rowFrom(p,live.rivalStats[p.id]||{},false)):[];
+  const rivalTotals=hasRival?totalsOf(rivalRows):null;
+  // Destacados -- máximo anotador, mejor +/- y mejor valoración del equipo.
+  let topScorer=null,topPM=null,topEFF=null;
+  if(rows.length){
+    topScorer=rows.reduce((a,b)=>b.pts>a.pts?b:a);
+    topPM=rows.reduce((a,b)=>(b.pm||0)>(a.pm||0)?b:a);
+    topEFF=rows.reduce((a,b)=>b.eff>a.eff?b:a);
+  }
+  return{rows,totals,hasRival,rivalRows,rivalTotals,topScorer,topPM,topEFF};
+}
+function _copyMatchStats(){
+  const t=S.teams.find(x=>x.id===S.teamId);const m=mById(S.teamId,S.matchId);if(!t||!m)return;
+  const{rows}=_matchStatsComputed(m);
+  if(!rows.length){toast("Sin estadísticas que copiar");return;}
+  const lines=[`📊 ${t.name} vs ${m.rival||"Rival"}`,...rows.map(r=>
+    `#${r.number!=null?r.number:"?"} ${_shortName(r.name)}: ${r.pts}pts T2:${r.t2m}/${r.t2a} T3:${r.t3m}/${r.t3a} AST:${r.ast} REB:${r.ro+r.rd}`
+  )];
+  navigator.clipboard?.writeText(lines.join("\n")).then(()=>toast("📋 Stats copiadas"));
+}
+function exportMatchStatsPDF(){
+  if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
+  const{jsPDF}=window.jspdf;
+  const t=S.teams.find(x=>x.id===S.teamId);const m=mById(S.teamId,S.matchId);if(!t||!m)return;
+  const live=m.live||{};
+  const nQ=m.quarters||4;const pL=nQ===4?"Q":"P";const otC=live.otCount||0;
+  const otLabels=otC===1?["OT"]:Array.from({length:otC},(_,i)=>"OT"+(i+1));
+  const qlabels=[...[...Array(nQ).keys()].map(i=>pL+(i+1)),...otLabels];
+  const qs=(live.qScores||[]).map(s=>s||[0,0]);
+  const ourT=qs.reduce((s,q)=>s+(q[0]||0),0),rivT=qs.reduce((s,q)=>s+(q[1]||0),0);
+  const isWin=ourT>rivT,isDraw=ourT===rivT&&ourT>0;
+  const resLabel=isWin?"VICTORIA":isDraw?"EMPATE":"DERROTA";
+  const resRGB=isWin?[34,197,94]:isDraw?[245,158,11]:[239,68,68];
+  const{rows,totals,hasRival,rivalRows,rivalTotals,topScorer,topPM,topEFF}=_matchStatsComputed(m);
+  const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+  const PAGE_W=297;
+  // ── Header band -- mismo lenguaje visual que el PDF de asistencia de
+  // temporada (exportPDF): banda azul marino + filete naranja del club.
+  doc.setFillColor(13,34,68);doc.rect(0,0,PAGE_W,34,"F");
+  doc.setFillColor(240,99,24);doc.rect(0,30,PAGE_W,4,"F");
+  doc.setFont("helvetica","bold");doc.setFontSize(20);doc.setTextColor(240,99,24);
+  doc.text(S.clubName||"Kortline",14,14);
+  doc.setFontSize(13);doc.setTextColor(240,244,255);
+  doc.text(`${t.name} vs ${m.rival||"Rival"}`,14,23);
+  doc.setFontSize(8);doc.setTextColor(122,156,200);
+  const dateLine=`${m.date?fd(m.date,true):"Sin fecha"}${m.time?" · "+m.time+"h":""}${m.venue?" · "+m.venue:""} · ${m.location==="home"?"🏠 Casa":m.location==="away"?"✈️ Fuera":"⚖️ Neutral"}`;
+  doc.text(dateLine,14,29);
+  doc.setFontSize(7.5);doc.setTextColor(122,156,200);
+  doc.text(`Generado: ${new Date().toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric"})}`,PAGE_W-14,10,{align:"right"});
+  // ── Marcador grande + resultado por cuartos (fila 1, y=40..70)
+  const MARGIN=14,USABLE_W=PAGE_W-MARGIN*2;
+  const scoreBoxW=80;
+  doc.setFillColor(17,31,52);
+  doc.setDrawColor(resRGB[0],resRGB[1],resRGB[2]);doc.setLineWidth(0.8);
+  doc.roundedRect(MARGIN,40,scoreBoxW,30,3,3,"FD");
+  doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(resRGB[0],resRGB[1],resRGB[2]);
+  doc.text(resLabel,MARGIN+scoreBoxW/2,48,{align:"center"});
+  doc.setFontSize(22);doc.setTextColor(240,244,255);
+  doc.text(`${ourT} — ${rivT}`,MARGIN+scoreBoxW/2,61,{align:"center"});
+  // Los cuartos/prórrogas con dato se reparten en lo que queda de fila --
+  // ancho fijo de caja habría desbordado la página con varias prórrogas.
+  const qxStart=MARGIN+scoreBoxW+6;
+  const playedQ=qs.slice(0,qlabels.length).map((q,i)=>({q,label:qlabels[i]||"OT"})).filter(x=>x.q[0]>0||x.q[1]>0);
+  if(playedQ.length){
+    const qGap=2,qAvail=PAGE_W-MARGIN-qxStart;
+    const qBoxW=Math.max(14,Math.min(26,(qAvail-(playedQ.length-1)*qGap)/playedQ.length));
+    playedQ.forEach((pq,i)=>{
+      const x=qxStart+i*(qBoxW+qGap);
+      doc.setFillColor(17,31,52);doc.roundedRect(x,40,qBoxW,30,3,3,"F");
+      doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(122,156,200);
+      doc.text(pq.label,x+qBoxW/2,48,{align:"center"});
+      doc.setFontSize(11);doc.setTextColor(240,244,255);
+      doc.text(`${pq.q[0]}–${pq.q[1]}`,x+qBoxW/2,60,{align:"center"});
+    });
+  }
+  // ── Destacados del partido (fila 2, y=74..104)
+  const highlights=[["⭐ Máximo anotador",topScorer,`${topScorer?topScorer.pts:0} pts`],
+    ["📈 Mejor +/-",topPM,topPM?((topPM.pm>0?"+":"")+(topPM.pm||0)):"—"],
+    ["🔥 Mejor valoración",topEFF,topEFF?String(topEFF.eff):"—"]];
+  const hGap=4,hBoxW=(USABLE_W-2*hGap)/3;
+  highlights.forEach(([label,pl_,val],i)=>{
+    const x=MARGIN+i*(hBoxW+hGap);
+    doc.setFillColor(17,31,52);doc.roundedRect(x,74,hBoxW,26,3,3,"F");
+    doc.setFontSize(7);doc.setTextColor(122,156,200);doc.text(label,x+hBoxW/2,81,{align:"center"});
+    doc.setFont("helvetica","bold");doc.setFontSize(12);doc.setTextColor(240,99,24);
+    doc.text(pl_?`#${pl_.number!=null?pl_.number:"?"} ${_shortName(pl_.name)}`:"—",x+hBoxW/2,90,{align:"center"});
+    doc.setFontSize(10);doc.setTextColor(240,244,255);doc.text(val,x+hBoxW/2,97,{align:"center"});
+  });
+  // ── Tabla completa de estadísticas (todas las columnas -- "que salga todo")
+  const head=[["#","Jugador","MIN","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","FR","ROB","TAP","PER","+/-","EFF"]];
+  const body=rows.map(r=>[r.number!=null?r.number:"—",r.name,_fmtMin(r.minSec||0),r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.frecv,r.stl,r.blk,r.to,(r.pm>0?"+":"")+(r.pm||0),r.eff]);
+  body.push(["—","Totales","—",totals.pts,`${totals.t2m}/${totals.t2a}`,`${totals.t3m}/${totals.t3a}`,`${totals.t1m}/${totals.t1a}`,totals.efg+"%",totals.ro,totals.rd,totals.ast,totals.f,totals.frecv,totals.stl,totals.blk,totals.to,"—",totals.eff]);
+  doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(240,99,24);
+  doc.text("ESTADÍSTICAS DEL PARTIDO",14,108);
+  doc.autoTable({
+    head,body,startY:112,
+    styles:{fontSize:8,cellPadding:2.6,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
+    headStyles:{fillColor:[13,34,68],textColor:[240,99,24],fontStyle:"bold",fontSize:8},
+    alternateRowStyles:{fillColor:[17,31,52]},
+    columnStyles:{0:{halign:"center",cellWidth:9},2:{halign:"center"},3:{halign:"center",fontStyle:"bold"},7:{halign:"center"},16:{halign:"center"},17:{halign:"center",fontStyle:"bold"}},
+    didParseCell(data){
+      if(data.row.index===body.length-1)data.cell.styles.fontStyle="bold";
+      if(!rows.length)return;
+      if(data.column.index===16&&data.section==="body"&&data.row.index<rows.length){
+        const v=rows[data.row.index].pm||0;
+        data.cell.styles.textColor=v>0?[34,197,94]:v<0?[239,68,68]:[122,156,200];
+      }
+    }
+  });
+  let afterY=doc.lastAutoTable.finalY+10;
+  // ── Estadísticas del rival individualizadas, si ese partido las registró
+  if(hasRival){
+    if(afterY>160){doc.addPage("a4","landscape");afterY=14;}
+    doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(239,68,68);
+    doc.text(`ESTADÍSTICAS — ${(m.rival||"RIVAL").toUpperCase()}`,14,afterY);
+    const rHead=[["#","Jugador","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","ROB","TAP","PER","EFF"]];
+    const rBody=rivalRows.map(r=>[r.number!=null?r.number:"—",r.name,r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.stl,r.blk,r.to,r.eff]);
+    rBody.push(["—","Totales",rivalTotals.pts,`${rivalTotals.t2m}/${rivalTotals.t2a}`,`${rivalTotals.t3m}/${rivalTotals.t3a}`,`${rivalTotals.t1m}/${rivalTotals.t1a}`,rivalTotals.efg+"%",rivalTotals.ro,rivalTotals.rd,rivalTotals.ast,rivalTotals.f,rivalTotals.stl,rivalTotals.blk,rivalTotals.to,rivalTotals.eff]);
+    doc.autoTable({
+      head:rHead,body:rBody,startY:afterY+4,
+      styles:{fontSize:8,cellPadding:2.6,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
+      headStyles:{fillColor:[60,20,20],textColor:[239,68,68],fontStyle:"bold",fontSize:8},
+      alternateRowStyles:{fillColor:[17,31,52]},
+      columnStyles:{0:{halign:"center",cellWidth:9},2:{halign:"center",fontStyle:"bold"}},
+      didParseCell(data){if(data.row.index===rBody.length-1)data.cell.styles.fontStyle="bold";}
+    });
+  }
+  // ── Footer
+  const pagesCount=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pagesCount;i++){
+    doc.setPage(i);
+    doc.setFillColor(13,34,68);doc.rect(0,200,PAGE_W,10,"F");
+    doc.setFontSize(7);doc.setTextColor(122,156,200);
+    doc.text(`${S.clubName||"Kortline"} · Kortline App`,14,206);
+    doc.text(`${t.name} vs ${m.rival||"Rival"}${m.date?" · "+fd(m.date,true):""}`,PAGE_W/2,206,{align:"center"});
+    doc.text(`Pág. ${i}/${pagesCount}`,PAGE_W-14,206,{align:"right"});
+  }
+  const fnTeam=(t.name||"equipo").replace(/[^a-z0-9]/gi,"_").toLowerCase();
+  const fnRival=(m.rival||"rival").replace(/[^a-z0-9]/gi,"_").toLowerCase();
+  const fnDate=m.date||td();
+  doc.save(`${fnTeam}_vs_${fnRival}_${fnDate}.pdf`);
+  toast("📄 PDF del partido generado");
+}
 function matchSummaryScreen(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const m=mById(S.teamId,S.matchId);
@@ -12888,8 +13089,9 @@ function matchSummaryScreen(){
     </div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button onclick="shareMatchResult()" style="flex:1;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#25d366,#128c7e);color:white;font-weight:800;font-size:14px;cursor:pointer">💬 Compartir resultado</button>
-      <button onclick="(()=>{const lines=['📊 ${esc(t.name)} vs ${esc(m.rival||"Rival")}',...convP.map(p=>{const st=live.stats?.[p.id]||{};const pts=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3;const t2a=(st.p2m||0)+(st.p2a||0),t3a=(st.p3m||0)+(st.p3a||0);return '#'+(p.number||'?')+' '+_shortName(p.name)+': '+pts+'pts T2:'+((st.p2m||0)+'/'+t2a)+' T3:'+((st.p3m||0)+'/'+t3a)+' AST:'+(st.ast||0)+' REB:'+((st.ro||0)+(st.rd||0));})];navigator.clipboard?.writeText(lines.join('\\n')).then(()=>toast('📋 Stats copiadas'));})();" style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-weight:800;font-size:14px;cursor:pointer">📋 Copiar stats</button>
-    </div>`;
+      <button onclick="_copyMatchStats()" style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-weight:800;font-size:14px;cursor:pointer">📋 Copiar stats</button>
+    </div>
+    <button onclick="exportMatchStatsPDF()" style="width:100%;margin-top:8px;padding:12px;border-radius:10px;border:1px solid rgba(240,99,24,.4);background:rgba(240,99,24,.12);color:var(--orange);font-weight:800;font-size:14px;cursor:pointer">📄 Exportar PDF del partido</button>`;
   } else if(activeTab==="mins"){
     const hasMin=convP.filter(p=>_getMinSec(m,p.id)>0).sort((a,b)=>_getMinSec(m,b.id)-_getMinSec(m,a.id));
     const totalSec=(nQ+(otC||0))*(m.qMins||10)*60;
@@ -12922,7 +13124,7 @@ function matchSummaryScreen(){
     </div>`;
   }
   return`<header class="header"><div class="hrow">
-    <button class="bbtn" onclick="navRoot('hoy')">←</button>
+    <button class="bbtn" onclick="${S._fromDetail?"navBack()":"navRoot('hoy')"}">←</button>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">Resumen del partido</div></div>
   </div></header>
   <div class="content">
