@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.87";
+const APP_VERSION = "3.0.0-dev.88";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -10258,7 +10258,7 @@ function _convSetupHtml(m,t,step){
         <button onclick="_convClearAll()" style="padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:700">Ninguno</button>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán · toca la pastilla de la derecha para marcar ausente/tarde/justificado</div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán · ⋯ para marcar ausente/tarde/justificado</div>
     <div style="text-align:right;margin-bottom:8px">
       <button onclick="openGuestPlayerModal({mode:'match'})" style="background:none;border:none;color:var(--orange);cursor:pointer;font-size:12px;font-weight:700;padding:4px 0">🔄 + Jugador puntual (sube de categoría / externo)</button>
     </div>
@@ -10340,9 +10340,19 @@ function _convGoStep(step){
 // override explícito (ausente→tarde→justificado→auto). Mismos colores que
 // el pase de lista de entrenamientos (AV), más "No convocado" en gris para
 // el caso derivado automáticamente de no estar en m.convocados.
+//
+// v3.0.0-dev.88 · B-MATCHATT3: Mario, tras probar B-MATCHATT2: *"lo que hay
+// ahora de convocatoria que marcas ahora no sairve porque aparecen los no
+// convocados y enotnces no se entiende [...] Mas funcional y se vea mas
+// simple"*. El problema era que ANTES esto mostraba una pastilla de texto
+// ("Presente"/"No convocado") en TODAS las filas todo el rato, aunque no
+// hubiera nada especial que contar -- puro ruido, porque el check de
+// convocado ya dice lo mismo sin palabras. Confirmado con AskUserQuestion:
+// se quita la pastilla de texto en el caso normal (sin override) y se deja
+// solo un icono pequeño y discreto ("⋯") -- la pastilla de color SOLO
+// aparece cuando hay un override real (Ausente/Tarde/Justificado), que es
+// el único caso que de verdad merece destacarse.
 const CONV_ATT_BADGE={
-  present:{l:"Presente",c:"#22c55e",bg:"rgba(34,197,94,.13)"},
-  not_called:{l:"No convocado",c:"#6b7280",bg:"rgba(107,114,128,.12)"},
   absent:{l:"Ausente",c:"#ef4444",bg:"rgba(239,68,68,.15)"},
   late:{l:"Tarde",c:"#f59e0b",bg:"rgba(245,158,11,.15)"},
   excused:{l:"Justif.",c:"#6b7280",bg:"rgba(107,114,128,.15)"}
@@ -10351,15 +10361,17 @@ const CONV_ATT_BADGE={
 function _convRowInner(p,t,m,inConv,isTit,isCap){
   const guestBadge=p.guest?'<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">🔄 PUNTUAL</span>':"";
   const attSt=_matchAttState(m,p.id);
-  const ab=CONV_ATT_BADGE[attSt];
-  const attBadgeHtml=`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Toca para marcar ausente/tarde/justificado" style="padding:4px 7px;border-radius:7px;border:1px solid ${ab.c}55;background:${ab.bg};color:${ab.c};font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">${ab.l}</button>`;
+  const attOv=CONV_ATT_BADGE[attSt]; // undefined para "present"/"not_called" (caso normal, sin nada que destacar)
+  const attControlHtml=attOv
+    ?`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Toca para cambiar o quitar" style="padding:4px 7px;border-radius:7px;border:1px solid ${attOv.c}55;background:${attOv.bg};color:${attOv.c};font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">${attOv.l}</button>`
+    :`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Marcar ausente/tarde/justificado" style="width:24px;height:24px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--tm);font-size:12px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1">⋯</button>`;
   return`<div class="conv-cb ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
     <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?'<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>':""}${guestBadge}</div>
       <div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div>
     </div>
-    ${attBadgeHtml}
+    ${attControlHtml}
     ${inConv?`<div style="display:flex;gap:5px" onclick="event.stopPropagation()">
       <button onclick="_convTitular('${p.id}')" style="padding:5px 9px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
       <button onclick="_convCapitan('${p.id}')" style="padding:5px 9px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
