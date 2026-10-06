@@ -2196,7 +2196,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.92";
+const APP_VERSION = "3.0.0-dev.93";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -12568,16 +12568,21 @@ function openActionPicker(action,pts){
   // tener activado el seguimiento individual del rival). Confirmado con
   // AskUserQuestion: no hace falta que se vea como contador en el
   // marcador en vivo (de momento) -- solo poder anotarlo siempre desde
-  // estos mismos botones. Se añade una tarjeta "🔴 Rival" extra SOLO para
+  // estos mismos botones. Se añade una opción "rival" extra SOLO para
   // ro/rd y SOLO viendo nuestro propio equipo (en la pestaña Rival, estos
   // botones ya preguntan por un jugador rival concreto -- no hace falta
-  // esta tarjeta ahí).
+  // esta opción ahí). Ver más abajo (dev.93) cómo quedó su forma final.
   const showRivalCard=(action==="ro"||action==="rd")&&!isRivalSide;
-  const rivalCard=showRivalCard?`<button onclick="_pickReboundForRival('${action}')" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:14px 6px;border-radius:12px;border:2px dashed rgba(239,68,68,.55);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-family:inherit;width:100%">
-      <div style="font-size:22px;line-height:1">🔴</div>
-      <div style="font-weight:800;font-size:12px">Rival</div>
-    </button>`:"";
-  const totalCards=courtP.length+(showRivalCard?1:0);
+  // v3.0.0-dev.93 · B-RIVALREB2: Mario, tras probar la tarjeta "Rival" dentro
+  // de la rejilla de jugadores, pidió que en vez de eso fuera "una barra
+  // entera" encima del botón de abajo (Cancelar), con un estilo parecido
+  // pero que destacase un poco más -- el mismo patrón que ya existe en la
+  // cadena automática tras un fallo nuestro (_chainRebound → el botón
+  // "🔴 Rebote del rival", que ya es una barra completa justo encima de
+  // "Sin rebote · Saltar"). Se replica ese mismo patrón aquí para que las
+  // dos formas de anotar un rebote del rival se vean y se sientan igual.
+  const rivalBar=showRivalCard?`<button onclick="_pickReboundForRival('${action}')" style="width:100%;padding:12px;border-radius:9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-weight:800;margin-bottom:8px">🔴 Fue del rival</button>`:"";
+  const totalCards=courtP.length;
   const el=document.createElement("div");
   el.id="m-actpicker";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.96);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;";
@@ -12587,8 +12592,9 @@ function openActionPicker(action,pts){
       <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:${meta.color};margin-bottom:6px">${meta.emoji} ${meta.txt}</div>
       <div style="font-family:var(--font-d);font-weight:900;font-size:18px;color:var(--tx)">¿Quién?</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(${Math.min(totalCards||1,5)},1fr);gap:7px;margin-bottom:14px">${cards}${rivalCard}</div>
-    <button class="btn-s" onclick="document.getElementById('m-actpicker').remove()" style="width:100%">Cancelar</button>
+    <div style="display:grid;grid-template-columns:repeat(${Math.min(totalCards||1,5)},1fr);gap:7px;margin-bottom:14px">${cards}</div>
+    ${rivalBar}
+    <button class="btn-s" onclick="document.getElementById('m-actpicker').remove()" style="width:100%;margin-top:0">Cancelar</button>
   </div>`;
   document.body.appendChild(el);
 }
