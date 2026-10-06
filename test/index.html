@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.86";
+const APP_VERSION = "3.0.0-dev.87";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3069,27 +3069,66 @@ function _countAtt(p,sessList){
 // hacerlo así penalizaría (o beneficiaría) a jugadores no convocados que
 // no tienen nada que ver con ese partido. Por eso se cuenta aparte y se
 // mezcla numéricamente con _countAtt() en _countAttAll(), sin tocar nada
-// de la lógica de entrenamientos. Todo convocado cuenta como presente (sin
-// distinguir titular/suplente ni estado de "no-show") -- confirmado con
-// Mario vía AskUserQuestion. Solo cuentan los partidos con
+// de la lógica de entrenamientos. Solo cuentan los partidos con
 // countsForAttendance:true, que SOLO se estampa en partidos creados desde
 // dev.82 en adelante (Mario eligió explícitamente "Solo de aquí en
 // adelante", no retroactivo) -- ver saveMatchMeta().
-function _matchAttCount(p,tid){
-  if(!p||!tid||p.matchOnly)return{pr:0,tot:0};
+//
+// v3.0.0-dev.87 · B-MATCHATT2: Mario, tras usar B-MATCHATT1 un tiempo:
+// *"quiero que sea como en los entrenamientos, porque lo de convocados esta
+// bien pero en un principio estarán todos convocados si acaso podemos poner
+// una opcion de no convocado especial"* -- con razón: si la convocatoria
+// suele incluir a casi toda la plantilla (habitual en categorías base), la
+// asistencia derivada de "está convocado" nunca distingue nada real (no hay
+// manera de marcar ausencias/tardanzas, como sí se puede en entrenamientos).
+// Confirmado con AskUserQuestion: pase de lista COMPLETO para toda la
+// plantilla activa, con los mismos 4 estados que entrenamientos
+// (presente/ausente/tarde/justificado) + un 5º estado especial "no
+// convocado" (quien no entra en la convocatoria de ESE partido) que cuenta
+// como presente -- ver _matchAttState() más abajo. Igual que con
+// countsForAttendance en su momento, esto NO es retroactivo: solo los
+// partidos marcados con rollCallAtt:true (estampado únicamente al CREAR un
+// partido desde esta versión en adelante, ver saveMatchMeta()) usan el pase
+// de lista completo -- los partidos ya existentes (dev.82-86, sin
+// rollCallAtt) siguen funcionando EXACTAMENTE igual que hasta ahora: solo
+// cuentan los convocados, siempre como "presente", sin expandir al resto de
+// la plantilla (así no se infla de golpe la asistencia ya registrada).
+function _matchAttState(m,pid){
+  const ov=m&&m.attOverride&&m.attOverride[pid];
+  if(ov==="absent"||ov==="late"||ov==="excused")return ov;
+  return(m&&m.convocados||[]).includes(pid)?"present":"not_called";
+}
+function _matchAttCount(p,tid,sessList){
+  if(!p||!tid||p.matchOnly||p.attOnly)return{pr:0,ab:0,la:0,ex:0,tot:0};
   const ms=(S.matches[tid]||[]).filter(m=>m.countsForAttendance&&_isDateInSeason(m.date||""));
-  let tot=0;
-  ms.forEach(m=>{if((m.convocados||[]).includes(p.id))tot++;});
-  return{pr:tot,tot};
+  let pr=0,ab=0,la=0,ex=0,tot=0;
+  ms.forEach(m=>{
+    if(m.rollCallAtt){
+      // Pase de lista completo (B-MATCHATT2): solo cuenta si el jugador ya
+      // estaba activo ese día -- mismo criterio que entrenamientos.
+      if(!_isPlayerActiveOn(p,m.date||"",sessList||[]))return;
+      tot++;
+      const st=_matchAttState(m,p.id);
+      if(st==="absent")ab++;
+      else if(st==="late")la++;
+      else if(st==="excused")ex++;
+      else pr++; // "present" y "not_called" cuentan como presente
+    } else {
+      // Comportamiento legado (B-MATCHATT1, partidos sin rollCallAtt):
+      // solo cuenta si está en la convocatoria, siempre como "presente".
+      if((m.convocados||[]).includes(p.id)){tot++;pr++;}
+    }
+  });
+  return{pr,ab,la,ex,tot};
 }
 // Mezcla entrenamientos (_countAtt) + partidos que cuentan (_matchAttCount)
 // en un único % combinado -- confirmado con Mario ("un solo % mezclado"),
 // sin una vista separada de "% de partidos".
 function _countAttAll(p,sessList,tid){
   const c=_countAtt(p,sessList);
-  const mc=_matchAttCount(p,tid);
+  const mc=_matchAttCount(p,tid,sessList);
   if(!mc.tot)return c;
-  return{pr:c.pr+mc.pr,ab:c.ab,la:c.la,ex:c.ex,tot:c.tot+mc.tot};
+  return{pr:c.pr+mc.pr,ab:c.ab+mc.ab,la:c.la+mc.la,ex:c.ex+mc.ex,tot:c.tot+mc.tot};
 }
 /* ═══════════════════════════════════════
    INJURY HELPERS
@@ -10219,7 +10258,7 @@ function _convSetupHtml(m,t,step){
         <button onclick="_convClearAll()" style="padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:700">Ninguno</button>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán</div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán · toca la pastilla de la derecha para marcar ausente/tarde/justificado</div>
     <div style="text-align:right;margin-bottom:8px">
       <button onclick="openGuestPlayerModal({mode:'match'})" style="background:none;border:none;color:var(--orange);cursor:pointer;font-size:12px;font-weight:700;padding:4px 0">🔄 + Jugador puntual (sube de categoría / externo)</button>
     </div>
@@ -10232,7 +10271,7 @@ function _convSetupHtml(m,t,step){
           const isTit=titIds.includes(p.id)&&inConv;
           const isCap=m.capitan===p.id&&inConv;
           return`<div class="conv-row" data-pid="${p.id}" onclick="_convToggle('${p.id}')">
-            ${_convRowInner(p,t,inConv,isTit,isCap)}
+            ${_convRowInner(p,t,m,inConv,isTit,isCap)}
           </div>`;
         }).join("")}
     </div>`;
@@ -10295,15 +10334,32 @@ function _convGoStep(step){
   el.innerHTML=_convSetupHtml(m,t,step);
   el._step=step;
 }
+// v3.0.0-dev.87 · B-MATCHATT2: pastilla de asistencia por jugador, visible
+// SIEMPRE (convocado o no) -- muestra el estado efectivo (_matchAttState:
+// presente/no convocado/ausente/tarde/justificado) y, al tocarla, cicla el
+// override explícito (ausente→tarde→justificado→auto). Mismos colores que
+// el pase de lista de entrenamientos (AV), más "No convocado" en gris para
+// el caso derivado automáticamente de no estar en m.convocados.
+const CONV_ATT_BADGE={
+  present:{l:"Presente",c:"#22c55e",bg:"rgba(34,197,94,.13)"},
+  not_called:{l:"No convocado",c:"#6b7280",bg:"rgba(107,114,128,.12)"},
+  absent:{l:"Ausente",c:"#ef4444",bg:"rgba(239,68,68,.15)"},
+  late:{l:"Tarde",c:"#f59e0b",bg:"rgba(245,158,11,.15)"},
+  excused:{l:"Justif.",c:"#6b7280",bg:"rgba(107,114,128,.15)"}
+};
 // v1.7.6: render in-place de una fila (sin tocar el DOM completo, mantiene scroll)
-function _convRowInner(p,t,inConv,isTit,isCap){
+function _convRowInner(p,t,m,inConv,isTit,isCap){
   const guestBadge=p.guest?'<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">🔄 PUNTUAL</span>':"";
+  const attSt=_matchAttState(m,p.id);
+  const ab=CONV_ATT_BADGE[attSt];
+  const attBadgeHtml=`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Toca para marcar ausente/tarde/justificado" style="padding:4px 7px;border-radius:7px;border:1px solid ${ab.c}55;background:${ab.bg};color:${ab.c};font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">${ab.l}</button>`;
   return`<div class="conv-cb ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
-    <div style="flex:1">
+    <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?'<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>':""}${guestBadge}</div>
       <div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div>
     </div>
+    ${attBadgeHtml}
     ${inConv?`<div style="display:flex;gap:5px" onclick="event.stopPropagation()">
       <button onclick="_convTitular('${p.id}')" style="padding:5px 9px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
       <button onclick="_convCapitan('${p.id}')" style="padding:5px 9px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
@@ -10321,7 +10377,23 @@ function _convRefreshRow(pid){
   const inConv=convIds.includes(pid);
   const isTit=titIds.includes(pid)&&inConv;
   const isCap=m.capitan===pid&&inConv;
-  row.innerHTML=_convRowInner(p,t,inConv,isTit,isCap);
+  row.innerHTML=_convRowInner(p,t,m,inConv,isTit,isCap);
+}
+// v3.0.0-dev.87 · B-MATCHATT2: cicla el override explícito de asistencia de
+// un jugador para este partido -- auto(derivado de convocado) → ausente →
+// tarde → justificado → auto. Independiente de si está convocado o no (se
+// puede marcar "ausente" a alguien aunque no esté en la convocatoria, p.ej.
+// para distinguir "no vino" de "vino pero no fue convocado").
+function _convCycleAtt(pid){
+  const m=mById(S.teamId,S.matchId);if(!m)return;
+  if(!m.attOverride)m.attOverride={};
+  const order=[null,"absent","late","excused"];
+  const cur=m.attOverride[pid]||null;
+  const next=order[(order.indexOf(cur)+1)%order.length];
+  if(next)m.attOverride[pid]=next;
+  else delete m.attOverride[pid];
+  save();
+  _convRefreshRow(pid);
 }
 function _convRefreshHeader(){
   const m=mById(S.teamId,S.matchId);if(!m)return;
@@ -10552,8 +10624,14 @@ function saveMatchMeta(mid,eid){
         // existentes, al no tener este campo, nunca empiezan a contar (ni
     // siquiera si se editan después, porque la rama de arriba conserva los
     // campos no listados vía spread).
-
-    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,matchMode,countsForAttendance:true,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
+    //
+    // v3.0.0-dev.87 · B-MATCHATT2: mismo criterio "solo de aquí en adelante"
+    // para rollCallAtt:true -- activa el pase de lista completo (ver
+    // _matchAttCount()) SOLO en partidos creados desde esta versión; los
+    // partidos de dev.82-86 (countsForAttendance pero sin rollCallAtt) no se
+    // tocan, para no inflar de golpe una asistencia ya registrada con el
+    // modelo anterior (solo convocados).
+    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,matchMode,countsForAttendance:true,rollCallAtt:true,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
     S.matches[S.teamId].push(nm);
     S.matchId=nm.id;
     clearDirty();
