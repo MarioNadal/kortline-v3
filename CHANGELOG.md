@@ -3,6 +3,29 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Convocados por defecto + asistencia directamente en el detalle del partido (B-MATCHATT4, dev.89, 2026-10-06)
+
+Mario, tras probar B-MATCHATT3: *"lo primero es saber si estan convocados o no al partido que en un principio estaran todos, y luego saber de los que estan convocados al partido que son los que les debe contar la asistencia (si no estan convocados no se les puede poner que no han ido) los que estan convocados se les pone lo de ausente, presente justificado o tarde. Y se pone en el detalle del partido ya. La lista con checklists ya no existe"*.
+
+Confirmado con `AskUserQuestion` (2 preguntas, las 2 recomendadas):
+1. Los partidos **nuevos** ya nacen con **toda la plantilla convocada** (se desmarca a quien no vaya), en vez de nacer vacíos y tener que ir marcando a cada uno.
+2. La asistencia (Ausente/Tarde/Justificado) se marca **directamente en la propia lista de Convocatoria** que ya se ve en el detalle del partido -- ya no depende de abrir el botón "✏️ Editar" (wizard aparte) para nada de esto.
+
+### Añadido
+- **`saveMatchMeta()` (creación):** `convocados` ya no nace `[]` -- nace con toda la plantilla activa (excluyendo puntuales de solo entreno, `attOnly`, y con el mismo tope de 12 de FIBA), mismo criterio que el botón "Todos" del wizard (`_convSelectAll`).
+- **`_mdConvRowHtml()` / matchDetail():** cada fila de la lista de Convocatoria que ya se ve en el detalle del partido ahora incluye el mismo control de asistencia (icono discreto "⋯" / pastilla de color Ausente·Tarde·Justif.) que antes solo existía dentro del wizard -- pero **solo si el jugador está convocado**: si no está convocado, no tiene sentido poder marcarle que no ha ido a algo a lo que no fue llamado, así que no se le muestra ningún control de asistencia (solo el check, sin marcar).
+- **`_mdCycleAtt(pid)`:** cicla el override de asistencia (mismo dato `m.attOverride` que usa el wizard) refrescando solo la fila tocada en matchDetail, sin re-renderizar toda la pantalla.
+- **`_attControlBtnHtml(m,pid,fnName)`:** botón de asistencia extraído como helper compartido entre el wizard (`_convRowInner` → `_convCycleAtt`) y matchDetail (`_mdConvRowHtml` → `_mdCycleAtt`) -- mismo look en los dos sitios, solo cambia qué función se llama al tocarlo.
+- El wizard (`openConvSetup`/`_convRowInner`) se mantiene sin cambios de comportamiento -- sigue siendo necesario para titulares/capitán, jugadores del rival y el paso previo a seguimiento en vivo, y sigue permitiendo marcar asistencia aunque alguien no esté convocado (caso distinto: "vino pero no fue convocado"). Simplemente ya no es el único sitio donde se puede marcar la asistencia del día a día.
+
+### Probado (jsdom)
+- `tests/match_attendance_in_detail.test.js` (nuevo, 18 aserciones): convocados por defecto = toda la plantilla al crear un partido (excluyendo `attOnly`, tope 12 FIBA); el control de asistencia aparece en matchDetail solo para convocados; tocarlo cicla el override sin desconvocar (`event.stopPropagation`) y refresca solo esa fila; el wizard sigue funcionando exactamente igual que antes.
+- Revert-sanity-check (dos roturas independientes, cada una restaurada y reconfirmada):
+  - Forzado `convocados` por defecto a `[]` al crear un partido → fallan exactamente las 4 aserciones esperadas sobre el convocados por defecto (plantilla completa, exclusión de `attOnly`, tope de 12); el resto sigue en verde.
+  - Quitado el control de asistencia de la fila de matchDetail → falla exactamente la aserción esperada ("un convocado SÍ tiene el control de asistencia..."); el test siguiente lanza una excepción controlada al no encontrar el botón (comportamiento esperado, no un fallo silencioso).
+- Suite completa: **1396/1396 OK** (1378 ya existentes + 18 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.89` / `kortline-v3.0.0-dev.89` (raíz) y `kortline-v3-test-dev.89` (`/test/`, lo único entregado por ahora) -- pendiente de que Mario lo pruebe en el móvil antes de promocionarlo a producción.
+
 ## [Sin publicar] · kortline-v3 · Convocatoria más simple: sin texto cuando no hay nada que destacar (B-MATCHATT3, dev.88, 2026-10-06)
 
 Mario probó B-MATCHATT2 (recién promocionado a producción) y pidió simplificar: *"lo que hay ahora de convocatoria que marcas ahora no sairve porque aparecen los no convocados y enotnces no se entiende. O eso o que no haya ningun convocado y se convoquen al darle al boton de editar que no me aprece mal, lo que sea mejor. Mas funcional y se vea mas simple, mejor"*.
