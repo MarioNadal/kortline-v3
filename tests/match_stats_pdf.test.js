@@ -102,6 +102,51 @@ async function run() {
     assert(copied === null, "sin ninguna estadística registrada, no se copia nada (se avisa por toast en vez de copiar una lista vacía)");
   }
 
+  // ═══ 3b) B-COPYFIX1 (dev.91): el bug REAL que Mario seguía viendo tras el fix de dev.90 --
+  // _copyToClipboard() con fallback a execCommand cuando falta la Clipboard API o se rechaza ═══
+  {
+    // Caso A -- navigator.clipboard NO EXISTE en absoluto (el estado por defecto de jsdom sin
+    // mockear nada, que es justo lo que probablemente pasaba en el móvil de Mario): antes,
+    // `navigator.clipboard?.writeText(...).then(...)` cortaba toda la cadena en silencio (el
+    // optional chaining corta TODO lo que sigue) -- no pasaba nada, ni error ni copia ni aviso.
+    const win = await loadApp();
+    buildFixture(win, { finished: true, live: { qScores: [[10, 8]], stats: { p1: { p2m: 3, p2a: 1, ast: 2 } } } });
+    assert(win.navigator.clipboard === undefined, "precondición del test: en este jsdom, navigator.clipboard no existe por defecto (igual que en el bug real)");
+    let fallbackValue = null;
+    win.document.execCommand = () => { fallbackValue = win.document.activeElement && win.document.activeElement.value; return true; };
+    let threw = null;
+    try { win._copyMatchStats(); } catch (e) { threw = e; }
+    assert(!threw, "B-COPYFIX1: sin navigator.clipboard, _copyMatchStats() no lanza" + (threw ? " -- lanzó: " + threw.message : ""));
+    const toastA = win.document.querySelector(".toast");
+    assert(!!toastA && toastA.textContent.includes("Stats copiadas"), "B-COPYFIX1: sin navigator.clipboard, cae al fallback de execCommand y SÍ avisa de éxito -- antes no pasaba NADA, que es justo lo que Mario reportó");
+    assert(typeof fallbackValue === "string" && fallbackValue.includes(win._shortName("Ana García")), "el fallback copia el mismo texto (vía un textarea temporal) que hubiera copiado la Clipboard API");
+
+    // Caso B -- navigator.clipboard SÍ existe pero writeText() rechaza la promesa (permiso
+    // denegado, caso típico en algunos navegadores/PWA móviles) -- antes no había .catch(),
+    // así que la promesa rechazada tampoco avisaba de nada (fallo silencioso idéntico al caso A).
+    const win2 = await loadApp();
+    buildFixture(win2, { finished: true, live: { qScores: [[10, 8]], stats: { p1: { p2m: 3, p2a: 1, ast: 2 } } } });
+    win2.navigator.clipboard = { writeText: () => Promise.reject(new Error("permiso denegado")) };
+    let fallbackValue2 = null;
+    win2.document.execCommand = () => { fallbackValue2 = win2.document.activeElement && win2.document.activeElement.value; return true; };
+    win2._copyMatchStats();
+    await new Promise((r) => setTimeout(r, 0)); // deja correr el .catch() de la promesa rechazada
+    const toastB = win2.document.querySelector(".toast");
+    assert(!!toastB && toastB.textContent.includes("Stats copiadas"), "B-COPYFIX1: si la Clipboard API rechaza el permiso, también cae al fallback y avisa de éxito");
+    assert(typeof fallbackValue2 === "string" && fallbackValue2.length > 0, "el fallback se ejecuta de verdad tras el rechazo, con el texto a copiar");
+
+    // Caso C -- ni la Clipboard API ni execCommand funcionan: no debe quedar en silencio NI
+    // lanzar una excepción -- debe avisar claramente de que no se pudo copiar.
+    const win3 = await loadApp();
+    buildFixture(win3, { finished: true, live: { qScores: [[10, 8]], stats: { p1: { p2m: 3, p2a: 1 } } } });
+    win3.document.execCommand = () => { throw new Error("bloqueado por el navegador"); };
+    let threw3 = null;
+    try { win3._copyMatchStats(); } catch (e) { threw3 = e; }
+    assert(!threw3, "B-COPYFIX1: si también falla execCommand, no lanza una excepción" + (threw3 ? " -- lanzó: " + threw3.message : ""));
+    const toastC = win3.document.querySelector(".toast");
+    assert(!!toastC && toastC.textContent.includes("No se pudo copiar"), "B-COPYFIX1: si todo falla, avisa claramente de que no se pudo copiar en vez de quedarse en silencio");
+  }
+
   // ═══ 4) exportMatchStatsPDF(): no lanza, genera el PDF con el nombre esperado, e incluye al rival cuando procede ═══
   {
     const win = await loadApp();
