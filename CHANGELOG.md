@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Publicado] · kortline-v3 · Promoción a producción: lote dev.88→dev.89 (2026-10-06)
+
+Mario, tras probar en `/test/` y confirmar con `AskUserQuestion` el alcance exacto (las dos funciones juntas, ya que dev.89 incluye dev.88 en el mismo archivo): *"perfecto, subimos a real"*.
+
+**Funciones incluidas en este lote** (ambas ya documentadas en sus propias entradas más abajo):
+- **B-MATCHATT3** (dev.88): quita el texto "Presente"/"No convocado" de la convocatoria cuando no hay nada que destacar -- solo un icono discreto "⋯"; la pastilla de color con texto solo aparece con un override real (Ausente/Tarde/Justificado).
+- **B-MATCHATT4** (dev.89): los partidos nuevos nacen con toda la plantilla ya convocada (se desmarca a quien no vaya); la asistencia se marca directamente en la propia lista de Convocatoria del detalle del partido, sin depender de abrir "✏️ Editar".
+
+### Entregado para producción (2026-10-06)
+La raíz ya estaba en `dev.89`/`CLUB_ID="cbjaca"` con la suite completa en verde (**1396/1396**, verificado una última vez justo antes de esta entrega). Se entregan `index.html`/`sw.js` listos para subir a la **RAÍZ** del repo en GitHub (no a `/test/`) -- reemplazando los que usa de verdad el club (que estaban en dev.87). Pendiente de que Mario confirme haber subido esos dos archivos a la raíz vía la interfaz web de GitHub.
+- `APP_VERSION`/`CACHE_VERSION` en la entrega de producción: `3.0.0-dev.89` / `kortline-v3.0.0-dev.89`.
+- `/test/` se queda, de momento, en esta misma versión (`kortline-v3-test-dev.89`) -- quedará por delante de producción otra vez en cuanto se empiece a probar la siguiente función nueva ahí.
+
 ## [Sin publicar] · kortline-v3 · Convocados por defecto + asistencia directamente en el detalle del partido (B-MATCHATT4, dev.89, 2026-10-06)
 
 Mario, tras probar B-MATCHATT3: *"lo primero es saber si estan convocados o no al partido que en un principio estaran todos, y luego saber de los que estan convocados al partido que son los que les debe contar la asistencia (si no estan convocados no se les puede poner que no han ido) los que estan convocados se les pone lo de ausente, presente justificado o tarde. Y se pone en el detalle del partido ya. La lista con checklists ya no existe"*.
