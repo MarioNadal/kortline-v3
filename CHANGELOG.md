@@ -3,6 +3,49 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Publicado] · kortline-v3 · Promoción a producción: todo el lote dev.82→dev.87 (2026-10-06)
+
+Mario, tras probar en `/test/` toda la tanda acumulada desde la última promoción (dev.81, B-INJ5): *"Esto esta bien, hay que subirlo a produccion"*. Confirmado el alcance exacto con `AskUserQuestion` (todo el lote, no solo la última función) antes de tocar la raíz del repo, dado que esto pasa a afectar a los datos reales del club (incluidos menores).
+
+**Funciones incluidas en este lote** (todas ya documentadas en sus propias entradas más abajo, todas aditivas y retrocompatibles -- ninguna borra ni reinterpreta datos ya existentes):
+- **B-MATCHMODE1 + B-MATCHATT1** (dev.82): modo de partido (por cuartos / resultado final / en directo) + los partidos cuentan como asistencia.
+- **B-LIVECONFIRM1** (dev.83): aviso de confirmación antes de empezar el seguimiento en vivo por primera vez.
+- **B-LIVEBTNMOVE1** (dev.84): el botón de directo se mueve abajo en el partido + accesos rápidos en Partidos/Hoy según el modo.
+- **B-LIVECONVGUARD1** (dev.85): al intentar pasar a directo sin convocatoria, se abre la convocatoria ahí mismo en vez de un aviso sin salida.
+- **B-CONVONLYLIVE1** (dev.86): la convocatoria solo se abre sola al crear un partido en modo "En directo".
+- **B-MATCHATT2** (dev.87): pase de lista completo en la convocatoria (Presente/Ausente/Tarde/Justif. + "No convocado"), no retroactivo.
+
+### Entregado para producción (2026-10-06)
+La raíz ya estaba en `dev.87`/`CLUB_ID="cbjaca"` con la suite completa en verde (**1377/1377**, verificado una última vez justo antes de esta entrega). Se entregan `index.html`/`sw.js` listos para subir a la **RAÍZ** del repo en GitHub (no a `/test/`) -- reemplazando los que usa de verdad el club. Pendiente de que Mario confirme haber subido esos dos archivos a la raíz vía la interfaz web de GitHub.
+- `APP_VERSION`/`CACHE_VERSION` en la entrega de producción: `3.0.0-dev.87` / `kortline-v3.0.0-dev.87`.
+- `/test/` se queda, de momento, en esta misma versión (`kortline-v3-test-dev.87`) -- quedará por delante de producción otra vez en cuanto se empiece a probar la siguiente función nueva ahí.
+
+## [Sin publicar] · kortline-v3 · Pase de lista completo en la convocatoria, con un estado especial "No convocado" (B-MATCHATT2, dev.87, 2026-10-05)
+
+Mario, tras usar B-MATCHATT1 un tiempo: *"Lo de la asistencia a los partidos hay que darle una vuelta porque quiero que sea como en los entrenamientos, porque lo de convocados esta bien pero en un priucnipio estarán todos convocados si acaso podemos poner una opcion de no convocado especial"*.
+
+Diagnóstico: con el modelo de B-MATCHATT1 (dev.82), cualquier convocado contaba simplemente como "presente" y quien no estaba en la convocatoria quedaba fuera del cálculo por completo -- sin ausentes, sin tardanzas, sin justificados, como sí hay en entrenamientos. Y como en categorías base casi toda la plantilla suele acabar convocada, esa asistencia nunca distinguía nada real.
+
+Confirmado con `AskUserQuestion` (3 preguntas, las 3 recomendadas):
+1. Pase de lista **completo** para toda la plantilla activa, con los mismos 4 estados que entrenamientos (Presente/Ausente/Tarde/Justif.) + un 5º estado especial **"No convocado"** para quien no entra en la convocatoria de ese partido.
+2. "No convocado" **cuenta como asistencia positiva** (como si hubiera venido) -- no penaliza el %.
+3. Se marca **dentro de la propia convocatoria** (sin pantalla aparte): cada fila del wizard gana una pastilla de estado, tocable, junto al nombre.
+
+### Añadido
+- **`_matchAttState(m,pid)`:** estado efectivo de asistencia de un jugador para un partido -- si hay un override explícito (`m.attOverride[pid]`: "absent"/"late"/"excused") manda ese; si no, se deriva de `m.convocados` ("present" si está, "not_called" si no). `m.convocados` NO cambia de significado ni de lógica -- sigue siendo exactamente la misma lista que ya usan `liveGame()`/titulares/capitán/WhatsApp, sin tocar nada de eso.
+- **`_convCycleAtt(pid)`:** cicla el override de un jugador (cualquiera, convocado o no) -- automático → Ausente → Tarde → Justificado → automático. Se puede marcar "Ausente" incluso a alguien que no está en la convocatoria, para distinguir "no fue convocado" de "no vino de verdad".
+- **Wizard de convocatoria (`_convRowInner`):** cada fila añade una pastilla de estado (mismos colores que el pase de lista de entrenamientos, + gris para "No convocado"), tocable con `event.stopPropagation()` para no disparar el toggle de convocado al pulsarla.
+- **`_matchAttCount(p,tid,sessList)`** (antes `_matchAttCount(p,tid)`, nuevo parámetro `sessList`): si el partido tiene `rollCallAtt:true`, usa el pase de lista completo -- cuenta a TODOS los jugadores ya activos ese día (mismo filtro `_isPlayerActiveOn` que entrenamientos), repartiendo en presente/ausente/tarde/justificado según `_matchAttState()` ("not_called" suma a presente). Si el partido NO tiene `rollCallAtt` (partidos de dev.82-86), sigue el comportamiento legado EXACTO de B-MATCHATT1: solo cuenta quien está en `m.convocados`, siempre como presente, sin expandir al resto de la plantilla -- **no retroactivo**, mismo criterio que ya eligió Mario para `countsForAttendance` en su momento, para no inflar de golpe una asistencia ya registrada.
+- **`saveMatchMeta()`:** los partidos nuevos (creados desde esta versión) se estampan con `rollCallAtt:true` además de `countsForAttendance:true`.
+- **`_countAttAll()`:** ahora suma también ausentes/tardanzas/justificados de partidos al combinado con entrenamientos (antes solo sumaba presentes/total) -- necesario para que el pase de lista de partidos aporte el mismo detalle que el de entrenamientos.
+- Puntuales de entrenamiento (`attOnly`) quedan explícitamente excluidos de `_matchAttCount` (antes solo se excluía `matchOnly`) -- nunca aparecen en la convocatoria, así que no tiene sentido que un partido les compute "no convocado".
+
+### Probado (jsdom)
+- `tests/match_attendance_rollcall.test.js` (nuevo, 28 aserciones): un partido nuevo se estampa con `rollCallAtt:true`; `_matchAttState()` deriva correctamente de convocados y respeta el override; `_convCycleAtt()` cicla por los 4 estados y funciona incluso sin estar convocado; `_matchAttCount()` con `rollCallAtt:true` cuenta a toda la plantilla activa (incluyendo "no convocado" como presente) y respeta la fecha de alta del jugador; `_matchAttCount()` SIN `rollCallAtt` (partido legado) se comporta exactamente igual que en B-MATCHATT1; `matchOnly`/`attOnly` siguen excluidos; `_countAttAll()` ya suma ausentes/tardes/justificados de partidos; y la pastilla real del wizard aparece, cicla al tocarla y no interfiere con el toggle de convocado.
+- Revert-sanity-check: forzada la rama `rollCallAtt` de `_matchAttCount()` a no entrar nunca (`if(false&&m.rollCallAtt)`) → fallan exactamente las 3 aserciones esperadas sobre el pase de lista completo (no convocado contando como presente, tarde/ausente repartiéndose en sus cubos, y el combinado sumando ausencias); restaurado y reconfirmado 28/28.
+- Suite completa: **1377/1377 OK** (1349 ya existentes + 28 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.87` / `kortline-v3.0.0-dev.87` (raíz) y `kortline-v3-test-dev.87` (`/test/`, lo único entregado por ahora) -- mismo lote de `/test/` que el resto de esta tanda, pendiente de que Mario lo pruebe en el móvil.
+
 ## [Sin publicar] · kortline-v3 · La convocatoria solo se abre sola al crear un partido "En directo" (B-CONVONLYLIVE1, dev.86, 2026-10-05)
 
 Mario, tras probar B-LIVECONVGUARD1: *"vale, entonces si se anota el partido normal no hay que poner la convocatoira anbtes, se hará directamente en el aprtiod. solo se pone la convocatoira para poner antes de ver el detalle del partido si se va a hacer seugimiento en vivo"*.

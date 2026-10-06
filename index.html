@@ -2180,7 +2180,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.81";
+const APP_VERSION = "3.0.0-dev.87";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3060,6 +3060,76 @@ function _countAtt(p,sessList){
   });
   return{pr,ab,la,ex,tot:rel.length};
 }
+// v3.0.0-dev.82 · B-MATCHATT1: Mario pidió que los partidos cuenten como
+// asistencia, "en la general y en asistencias para los partidos" -- pero
+// NO metiendo los partidos como pseudo-sesiones en sessList, porque
+// _isPlayerActiveOn()/_sessForPlayer() tratan cada sesión como relevante
+// para TODA la plantilla activa ese día, mientras que un partido solo es
+// relevante para los jugadores realmente convocados (m.convocados) --
+// hacerlo así penalizaría (o beneficiaría) a jugadores no convocados que
+// no tienen nada que ver con ese partido. Por eso se cuenta aparte y se
+// mezcla numéricamente con _countAtt() en _countAttAll(), sin tocar nada
+// de la lógica de entrenamientos. Solo cuentan los partidos con
+// countsForAttendance:true, que SOLO se estampa en partidos creados desde
+// dev.82 en adelante (Mario eligió explícitamente "Solo de aquí en
+// adelante", no retroactivo) -- ver saveMatchMeta().
+//
+// v3.0.0-dev.87 · B-MATCHATT2: Mario, tras usar B-MATCHATT1 un tiempo:
+// *"quiero que sea como en los entrenamientos, porque lo de convocados esta
+// bien pero en un principio estarán todos convocados si acaso podemos poner
+// una opcion de no convocado especial"* -- con razón: si la convocatoria
+// suele incluir a casi toda la plantilla (habitual en categorías base), la
+// asistencia derivada de "está convocado" nunca distingue nada real (no hay
+// manera de marcar ausencias/tardanzas, como sí se puede en entrenamientos).
+// Confirmado con AskUserQuestion: pase de lista COMPLETO para toda la
+// plantilla activa, con los mismos 4 estados que entrenamientos
+// (presente/ausente/tarde/justificado) + un 5º estado especial "no
+// convocado" (quien no entra en la convocatoria de ESE partido) que cuenta
+// como presente -- ver _matchAttState() más abajo. Igual que con
+// countsForAttendance en su momento, esto NO es retroactivo: solo los
+// partidos marcados con rollCallAtt:true (estampado únicamente al CREAR un
+// partido desde esta versión en adelante, ver saveMatchMeta()) usan el pase
+// de lista completo -- los partidos ya existentes (dev.82-86, sin
+// rollCallAtt) siguen funcionando EXACTAMENTE igual que hasta ahora: solo
+// cuentan los convocados, siempre como "presente", sin expandir al resto de
+// la plantilla (así no se infla de golpe la asistencia ya registrada).
+function _matchAttState(m,pid){
+  const ov=m&&m.attOverride&&m.attOverride[pid];
+  if(ov==="absent"||ov==="late"||ov==="excused")return ov;
+  return(m&&m.convocados||[]).includes(pid)?"present":"not_called";
+}
+function _matchAttCount(p,tid,sessList){
+  if(!p||!tid||p.matchOnly||p.attOnly)return{pr:0,ab:0,la:0,ex:0,tot:0};
+  const ms=(S.matches[tid]||[]).filter(m=>m.countsForAttendance&&_isDateInSeason(m.date||""));
+  let pr=0,ab=0,la=0,ex=0,tot=0;
+  ms.forEach(m=>{
+    if(m.rollCallAtt){
+      // Pase de lista completo (B-MATCHATT2): solo cuenta si el jugador ya
+      // estaba activo ese día -- mismo criterio que entrenamientos.
+      if(!_isPlayerActiveOn(p,m.date||"",sessList||[]))return;
+      tot++;
+      const st=_matchAttState(m,p.id);
+      if(st==="absent")ab++;
+      else if(st==="late")la++;
+      else if(st==="excused")ex++;
+      else pr++; // "present" y "not_called" cuentan como presente
+    } else {
+      // Comportamiento legado (B-MATCHATT1, partidos sin rollCallAtt):
+      // solo cuenta si está en la convocatoria, siempre como "presente".
+      if((m.convocados||[]).includes(p.id)){tot++;pr++;}
+    }
+  });
+  return{pr,ab,la,ex,tot};
+}
+// Mezcla entrenamientos (_countAtt) + partidos que cuentan (_matchAttCount)
+// en un único % combinado -- confirmado con Mario ("un solo % mezclado"),
+// sin una vista separada de "% de partidos".
+function _countAttAll(p,sessList,tid){
+  const c=_countAtt(p,sessList);
+  const mc=_matchAttCount(p,tid,sessList);
+  if(!mc.tot)return c;
+  return{pr:c.pr+mc.pr,ab:c.ab+mc.ab,la:c.la+mc.la,ex:c.ex+mc.ex,tot:c.tot+mc.tot};
+}
 /* ═══════════════════════════════════════
    INJURY HELPERS
 ═══════════════════════════════════════ */
@@ -3416,7 +3486,7 @@ function _buildStatsCharts(){
   const playersEl=document.getElementById("ch-players");
   if(playersEl&&players.length){
     const pStats=players.map(p=>{
-      const c=_countAtt(p,allSess);
+      const c=_countAttAll(p,allSess,S.teamId);
       return{name:_shortName(p.name),num:p.number,pct:c.tot>0?pc(c.pr+c.la,c.tot):0,tot:c.tot};
     }).sort((a,b)=>b.pct-a.pct);
     _charts.players=new Chart(playersEl,{
@@ -3493,7 +3563,7 @@ function exportPDF(){
   const sf=S.sf||"all";
   // Pre-calcula stats por jugador respetando fecha de alta
   const pStats=players.map(p=>{
-    const c=_countAtt(p,allSess);
+    const c=_countAttAll(p,allSess,S.teamId);
     let streak=0;
     for(const s of [...allSess].reverse()){const v=s.data[p.id]||"present";if(v==="absent")streak++;else break;}
     let scoreSum=0,scoreCnt=0;
@@ -3625,7 +3695,7 @@ function exportExcel(){
   const wb=XLSX.utils.book_new();
   // Pre-calcula stats por jugador respetando fecha de alta y lesión
   const pStats=players.map(p=>{
-    const c=_countAtt(p,seasonSess);
+    const c=_countAttAll(p,seasonSess,S.teamId);
     let streak=0;
     for(const s of [...seasonSess].reverse()){const v=s.data[p.id]||"present";if(v==="absent")streak++;else break;}
     let scoreSum=0,scoreCnt=0;
@@ -4025,7 +4095,7 @@ function equiposScreen(){
       let avgPct=0;
       if(totalSess>0&&players.length>0){
         let sumPr=0,sumPs=0;
-        players.forEach(p=>{const c=_countAtt(p,sessions);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+        players.forEach(p=>{const c=_countAttAll(p,sessions,t.id);sumPr+=c.pr+c.la;sumPs+=c.tot;});
         avgPct=pc(sumPr,sumPs);
       }
       const lastDate=Object.keys(allSessions).filter(k=>k.startsWith(t.id+"_")).map(k=>k.replace(t.id+"_","")).sort().reverse()[0];
@@ -4105,7 +4175,7 @@ function statsHomeScreen(){
     let avgPct=0;
     if(totalSess>0&&players.length>0){
       let sumPr=0,sumPs=0;
-      players.forEach(p=>{const c=_countAtt(p,sessions);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+      players.forEach(p=>{const c=_countAttAll(p,sessions,t.id);sumPr+=c.pr+c.la;sumPs+=c.tot;});
       avgPct=pc(sumPr,sumPs);
     }
     const col=avgPct>=90?"#22c55e":avgPct>=75?"#f59e0b":"#ef4444";
@@ -4210,8 +4280,8 @@ function hoy(){
           </div>
         </div>`:""}
         <div style="display:flex;gap:8px">
-          ${FEATURE_LIVE_GAME?
-            `<button onclick="navTo('liveGame',{teamId:'${t.id}',matchId:'${m.id}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${started?"linear-gradient(135deg,#ef4444,#b91c1c)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:white">${started?"🔴 Continuar partido":"▶ Empezar partido"}</button>`
+          ${FEATURE_LIVE_GAME&&(started||(m.matchMode||"quarters")==="live")?
+            `<button onclick="S.teamId='${t.id}';startLiveGameConfirm('${m.id}')" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${started?"linear-gradient(135deg,#ef4444,#b91c1c)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:white">${started?"🔴 Continuar partido":"▶ Empezar partido"}</button>`
             :
             `<button onclick="S.teamId='${t.id}';navTo('matchDetail',{matchId:'${m.id}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:linear-gradient(135deg,var(--orange),var(--orange2));color:white">✏️ Anotar partido</button>`
           }
@@ -4659,7 +4729,7 @@ function stats(){
   const total=filteredSess.length;
   const sortedSess=[...filteredSess].sort((a,b)=>b.date.localeCompare(a.date));
   const pst=attPlayers.map(p=>{
-    const c=_countAtt(p,filteredSess);
+    const c=_countAttAll(p,filteredSess,S.teamId);
     let streak=0;
     for(const s of sortedSess){const v=s.data[p.id]||"present";if(v==="absent")streak++;else break;}
     let scoreSum=0,scoreCnt=0;
@@ -5129,7 +5199,7 @@ function team(){
   let avgPctTeam=0;
   if(totalSessTeam>0&&players.length>0){
     let sumPr=0,sumPs=0;
-    players.forEach(p=>{const c=_countAtt(p,allSessTeam);sumPr+=c.pr+c.la;sumPs+=c.tot;});
+    players.forEach(p=>{const c=_countAttAll(p,allSessTeam,S.teamId);sumPr+=c.pr+c.la;sumPs+=c.tot;});
     avgPctTeam=pc(sumPr,sumPs);
   }
   const pctCol=avgPctTeam>=90?"#22c55e":avgPctTeam>=75?"#f59e0b":"#ef4444";
@@ -9724,6 +9794,24 @@ function matchList(){
       const cls=r==="W"?"win":r==="L"?"loss":r==="D"?"draw":"pending";
       const locLabel=m.location==="home"?"🏠":m.location==="away"?"✈️":"⚖️";
       const convCnt=(m.convocados||[]).length;
+      // v3.0.0-dev.84 · B-LIVEBTNMOVE1: Mario pidió un acceso rápido por
+      // tarjeta, igual que ya existía en Hoy -- "▶ Empezar partido"/
+      // "🔴 Continuar en vivo" solo para partidos en modo "En directo"
+      // (confirmado con AskUserQuestion: en modo por cuartos/resultado
+      // final no se ofrece empezar en directo, para no tentar a saltarse
+      // el modo que el entrenador ya eligió a propósito -- en su lugar,
+      // "✏️ Anotar partido"). Solo se muestra mientras el partido no esté
+      // finalizado -- uno ya jugado no necesita ningún acceso rápido de
+      // este tipo. stopPropagation() porque la tarjeta entera ya navega a
+      // matchDetail al tocarla; el botón no debe disparar también eso.
+      const _mMode=m.matchMode||"quarters";
+      // Un partido YA en directo (m.live existe) se trata como "live" aquí
+      // aunque su matchMode no se haya guardado como tal (partidos viejos,
+      // de antes de B-MATCHMODE1/dev.82) -- si no, un directo ya empezado
+      // perdería su acceso rápido de "Continuar en vivo" en esta lista.
+      const quickActionHtml=m.finished?"":((_mMode==="live"||m.live)
+        ?`<button onclick="event.stopPropagation();startLiveGameConfirm('${m.id}')" style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:none;font-weight:800;font-size:13px;cursor:pointer;background:linear-gradient(135deg,${m.live?"#dc2626,#b91c1c":"var(--orange),var(--orange2)"});color:white">${m.live?"🔴 Continuar en vivo":"▶ Empezar partido"}</button>`
+        :`<button onclick="event.stopPropagation();navTo('matchDetail',{matchId:'${m.id}'})" style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-weight:700;font-size:13px;cursor:pointer">✏️ Anotar partido</button>`);
       return`<div class="match-card ${cls}" onclick="navTo('matchDetail',{matchId:'${m.id}'})">
         <div style="padding:12px 14px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -9737,6 +9825,7 @@ function matchList(){
             </div>
           </div>
           ${convCnt>0?`<div id="md-conv-subtitle" style="font-size:12px;color:var(--td)">👥 ${convCnt} convocados${(m.titulares||[]).length?` · ⭐ ${m.titulares.length} titulares`:""}</div>`:""}
+          ${quickActionHtml}
         </div>
       </div>`;
     }).join("")+"</div>";
@@ -9851,8 +9940,61 @@ function matchDetail(){
     }).join("")}
   </div>
   ${hasLive
-    ?`<div style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-size:11px;font-weight:600;margin-bottom:14px">🔒 Marcador de solo lectura mientras haya seguimiento en vivo — se edita desde 🔴 Seguimiento en vivo</div>`
+    ?`<div style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-size:11px;font-weight:600;margin-bottom:14px">🔒 Marcador de solo lectura mientras haya seguimiento en vivo</div>`
     :`<button onclick="addManualOT()" style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:14px">＋ Añadir ${_otCountD===0?"prórroga":_otCountD===1?"OT2":"OT"+(_otCountD+1)}</button>`}`;
+  // v3.0.0-dev.82 · B-MATCHMODE1: modo "resultado final" -- en vez del grid
+  // de cuartos, un único marcador final (Local/Visitante) que escribe
+  // directamente en m.q[0]/m.q[1], dejando el resto de m.q en null. Como
+  // mScore()/mResult()/mOurScore()/mTheirScore() suman TODOS los pares no
+  // nulos de m.q[], esto funciona sin tocar ninguna de esas funciones.
+  // Una vez iniciado el directo (hasLive), el modo queda fijo en "live" y
+  // este editor deja de usarse -- se vuelve a quartersHtml (de solo lectura,
+  // sincronizado desde live.qScores), igual que para cualquier otro partido.
+  const mode=m.matchMode||"quarters";
+  const hV0=q[0]!==null&&q[0]!==undefined?q[0]:"";
+  const aV0=q[1]!==null&&q[1]!==undefined?q[1]:"";
+  const finalScoreHtml=`<div style="display:flex;align-items:center;justify-content:center;gap:28px;padding:18px 10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;margin-bottom:14px">
+    <div style="text-align:center">
+      <div style="font-size:11px;font-weight:700;color:var(--td);margin-bottom:6px">Local</div>
+      <div class="q-stepper" title="Local">
+        <button class="q-stepper-btn" onclick="_qStep(0,-1)">−</button>
+        <span class="q-stepper-val" id="qv-0" onclick="_qInlineEdit(0)" title="Toca para editar" style="cursor:pointer;color:${homeColor};font-size:26px">${hV0!==""?hV0:"—"}</span>
+        <button class="q-stepper-btn" onclick="_qStep(0,1)">+</button>
+      </div>
+    </div>
+    <div style="font-size:20px;color:var(--tm);font-weight:700">:</div>
+    <div style="text-align:center">
+      <div style="font-size:11px;font-weight:700;color:var(--td);margin-bottom:6px">Visitante</div>
+      <div class="q-stepper" title="Visitante">
+        <button class="q-stepper-btn" onclick="_qStep(1,-1)">−</button>
+        <span class="q-stepper-val" id="qv-1" onclick="_qInlineEdit(1)" title="Toca para editar" style="cursor:pointer;color:${awayColor};font-size:26px">${aV0!==""?aV0:"—"}</span>
+        <button class="q-stepper-btn" onclick="_qStep(1,1)">+</button>
+      </div>
+    </div>
+  </div>`;
+  const liveNotStartedHtml=`<div style="display:flex;align-items:center;gap:6px;padding:12px 14px;border-radius:8px;border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.08);color:#fca5a5;font-size:12px;font-weight:600;margin-bottom:14px">🔴 Este partido está marcado como "En directo" -- empieza el seguimiento en vivo (botón de abajo) para anotar el resultado; no se puede escribir a mano mientras ese sea el modo elegido.</div>`;
+  // Decide qué editor de marcador mostrar: con directo ya iniciado, el live
+  // manda siempre (igual que antes); si no, depende del modo elegido.
+  const scoreEntryHtml=hasLive?quartersHtml:mode==="final"?finalScoreHtml:mode==="live"?liveNotStartedHtml:quartersHtml;
+  const scoreEntryTitle=(!hasLive&&mode==="final")?"Resultado final (Local / Visitante)":"Marcador por cuartos (Local / Visitante)";
+  // v3.0.0-dev.84 · B-LIVEBTNMOVE1: Mario pidió quitar el botón de
+  // "Seguimiento en vivo" de arriba (junto al badge de resultado) y dejarlo
+  // solo abajo, junto al marcador/modo de partido -- confirmado con
+  // AskUserQuestion. Unifica en un solo sitio el botón que antes estaba
+  // arriba: "Continuar en vivo" si ya hay directo (mismo destino de
+  // siempre, sin confirmación -- ya no hay nada que evitar), "Empezar en
+  // directo" si el modo elegido es "live" pero aún sin iniciar (mismo
+  // aviso de confirmación de B-LIVECONFIRM1, dev.83), o un botón más
+  // discreto "Cambiar a seguimiento en vivo" para partidos en modo
+  // "por cuartos"/"resultado final" -- sigue siendo posible escalarlos a
+  // directo en cualquier momento (nunca se ha restringido a nivel de
+  // datos), solo que ahora no se le da el mismo protagonismo visual que
+  // antes a esa opción cuando el entrenador ya eligió anotar a mano.
+  const liveActionHtml=!FEATURE_LIVE_GAME?"":hasLive
+    ?`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="navTo('liveGame')" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:14px;cursor:pointer">🔴 Continuar en vivo</button></div>`
+    :mode==="live"
+      ?`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="startLiveGameConfirm()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:14px;cursor:pointer">🔴 Empezar en directo</button></div>`
+      :`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="startLiveGameConfirm()" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.08);color:#fca5a5;font-weight:700;font-size:12.5px;cursor:pointer">🔴 Cambiar a seguimiento en vivo</button></div>`;
   // Convocatoria
   const convIds=m.convocados||[];
   const titIds=m.titulares||[];
@@ -9888,13 +10030,13 @@ function matchDetail(){
   <div class="content">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       ${resultBadge}
-      ${FEATURE_LIVE_GAME?`<button onclick="navTo('liveGame')" style="display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:8px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:13px;cursor:pointer">🔴 ${hasLive?"Continuar en vivo":"Seguimiento en vivo"}</button>`:""}
     </div>
     ${scoreboardHtml}
     <div style="margin-bottom:8px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">Marcador por cuartos (Local / Visitante)</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">${scoreEntryTitle}</div>
     </div>
-    ${quartersHtml}
+    ${scoreEntryHtml}
+    ${liveActionHtml}
     <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
       <button onclick="shareMatchResult()" style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px" title="Compartir resultado">📤</button>
     </div>
@@ -9941,6 +10083,23 @@ function openMatchModal(init){
   const el=document.createElement("div");el.id=mid;
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)_closeModal(mid);};
+  // v3.0.0-dev.82 · B-MATCHMODE1: Mario pidió poder elegir, por partido,
+  // cómo se va a anotar el resultado -- "Normal · por cuartos" (como
+  // siempre, cuartos a mano con +/-), "Normal · resultado final" (nuevo,
+  // un único marcador final sin desglose por cuartos) o "En directo"
+  // (seguimiento en vivo, como siempre). Confirmado con `AskUserQuestion`.
+  // Una vez iniciado el directo (m.live existe) el modo queda fijo en "En
+  // directo" -- no se puede volver a "normal" (esto ya lo garantizaba el
+  // bloqueo de solo-lectura de matchDetail; aquí solo se hace explícito en
+  // el selector, que pasa a mostrarse fijo/deshabilitado).
+  const _hasLiveNow=!!init?.live;
+  const _mmode=init?.matchMode||"quarters";
+  const MATCH_MODES=[["quarters","📝 Normal · por cuartos"],["final","🔢 Normal · resultado final"],["live","🔴 En directo"]];
+  const matchModeHtml=_hasLiveNow
+    ?`<div class="fg"><label class="fl">Modo de partido</label><div style="padding:10px 12px;background:var(--s3);border:1px solid var(--border);border-radius:8px;font-size:12.5px;color:var(--td)">🔴 En directo -- ya iniciado, no se puede cambiar de modo.</div></div>`
+    :`<div class="fg"><label class="fl">Modo de partido</label>
+      <div style="display:flex;flex-direction:column;gap:6px" id="${mid}-modes">${MATCH_MODES.map(([k,lb])=>`<button type="button" class="match-mode-btn${_mmode===k?" sel":""}" data-k="${k}" onclick="setMatchModeBtn('${mid}','${k}')" style="padding:10px 12px;border-radius:8px;border:1px solid ${_mmode===k?"var(--orange)":"var(--border)"};background:${_mmode===k?"rgba(240,99,24,.12)":"var(--s3)"};color:${_mmode===k?"var(--orange)":"var(--tx)"};font-size:13px;font-weight:700;text-align:left;cursor:pointer">${lb}</button>`).join("")}</div>
+    </div>`;
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle">${init?"Editar Partido":"Nuevo Partido"}</div>
@@ -9949,6 +10108,7 @@ function openMatchModal(init){
       <div class="fg"><label class="fl">Fecha</label><input class="fi" type="date" id="${mid}-date" value="${esc(init?.date||td())}"/></div>
       <div class="fg"><label class="fl">Hora</label><input class="fi" type="time" id="${mid}-time" value="${esc(init?.time||"")}"/></div>
     </div>
+    ${matchModeHtml}
     <div class="fg"><label class="fl">Campo</label>
       <div style="display:flex;gap:6px;margin-bottom:8px">
         <button class="loc-btn ${!init||init.location==="home"?"on":""}" id="${mid}-loc-home" onclick="setLocBtn('${mid}','home')">🏠 Casa</button>
@@ -10027,17 +10187,40 @@ function openMatchModal(init){
 function setLocBtn(mid,loc){
   ["home","away","neutral"].forEach(l=>{const b=document.getElementById(mid+"-loc-"+l);if(b)b.classList.toggle("on",l===loc);});
 }
+// v3.0.0-dev.82 · B-MATCHMODE1: marca el botón de modo elegido (quarters/
+// final/live) como .sel y actualiza su estilo -- igual que setLocBtn pero
+// para el nuevo selector de "Modo de partido" del modal de partido.
+function setMatchModeBtn(mid,mode){
+  document.querySelectorAll("#"+mid+"-modes .match-mode-btn").forEach(b=>{
+    const on=b.dataset.k===mode;
+    b.classList.toggle("sel",on);
+    b.style.borderColor=on?"var(--orange)":"var(--border)";
+    b.style.background=on?"rgba(240,99,24,.12)":"var(--s3)";
+    b.style.color=on?"var(--orange)":"var(--tx)";
+  });
+}
 /* ═══════════════════════════════════════
    MATCH ACTIONS
 ═══════════════════════════════════════ */
 /* ═══════════════════════════════════════
    CONVOCATORIA SETUP WIZARD
 ═══════════════════════════════════════ */
-function openConvSetup(){
+function openConvSetup(pendingLiveMid){
   const m=mById(S.teamId,S.matchId);
   const t=S.teams.find(x=>x.id===S.teamId);
   if(!m||!t)return;
   document.getElementById("m-conv-setup")?.remove();
+  // v3.0.0-dev.85 · B-LIVECONVGUARD1: si nos llaman desde el guard de
+  // seguimiento en vivo (liveGame(), más abajo) con menos de 5 convocados,
+  // pendingLiveMid es el id de ESE partido -- lo recordamos para que
+  // _convFinishDeferred() continúe directo a vivo al terminar la
+  // convocatoria, en vez de dejar al entrenador de vuelta en matchDetail
+  // teniendo que volver a pulsar "Cambiar a seguimiento en vivo". Cualquier
+  // otra llamada a openConvSetup() (editar convocatoria desde matchDetail,
+  // o el wizard automático de un partido recién creado) no pasa este
+  // argumento, así que de paso limpiamos cualquier pendiente de una llamada
+  // anterior que no tenga que ver con esta.
+  S._pendingLiveAfterConv=pendingLiveMid||null;
   const rivalEnabled=m.rivalStatsEnabled||false;
   const el=document.createElement("div");
   el.id="m-conv-setup";
@@ -10075,7 +10258,7 @@ function _convSetupHtml(m,t,step){
         <button onclick="_convClearAll()" style="padding:5px 10px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:700">Ninguno</button>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán</div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Toca para convocar · ⭐ titular · (C) capitán · toca la pastilla de la derecha para marcar ausente/tarde/justificado</div>
     <div style="text-align:right;margin-bottom:8px">
       <button onclick="openGuestPlayerModal({mode:'match'})" style="background:none;border:none;color:var(--orange);cursor:pointer;font-size:12px;font-weight:700;padding:4px 0">🔄 + Jugador puntual (sube de categoría / externo)</button>
     </div>
@@ -10088,7 +10271,7 @@ function _convSetupHtml(m,t,step){
           const isTit=titIds.includes(p.id)&&inConv;
           const isCap=m.capitan===p.id&&inConv;
           return`<div class="conv-row" data-pid="${p.id}" onclick="_convToggle('${p.id}')">
-            ${_convRowInner(p,t,inConv,isTit,isCap)}
+            ${_convRowInner(p,t,m,inConv,isTit,isCap)}
           </div>`;
         }).join("")}
     </div>`;
@@ -10140,7 +10323,7 @@ function _convSetupHtml(m,t,step){
     ${tabs}
     ${step===0?ourStep:rivalStep}
     ${footerBtn}
-    <button class="btn-s" onclick="document.getElementById('m-conv-setup')?.remove();S.screen='matchDetail';render()">Saltar — configurar después</button>
+    <button class="btn-s" onclick="document.getElementById('m-conv-setup')?.remove();S._pendingLiveAfterConv=null;S.screen='matchDetail';render()">Saltar — configurar después</button>
   </div>`;
 }
 function _convGoStep(step){
@@ -10151,15 +10334,32 @@ function _convGoStep(step){
   el.innerHTML=_convSetupHtml(m,t,step);
   el._step=step;
 }
+// v3.0.0-dev.87 · B-MATCHATT2: pastilla de asistencia por jugador, visible
+// SIEMPRE (convocado o no) -- muestra el estado efectivo (_matchAttState:
+// presente/no convocado/ausente/tarde/justificado) y, al tocarla, cicla el
+// override explícito (ausente→tarde→justificado→auto). Mismos colores que
+// el pase de lista de entrenamientos (AV), más "No convocado" en gris para
+// el caso derivado automáticamente de no estar en m.convocados.
+const CONV_ATT_BADGE={
+  present:{l:"Presente",c:"#22c55e",bg:"rgba(34,197,94,.13)"},
+  not_called:{l:"No convocado",c:"#6b7280",bg:"rgba(107,114,128,.12)"},
+  absent:{l:"Ausente",c:"#ef4444",bg:"rgba(239,68,68,.15)"},
+  late:{l:"Tarde",c:"#f59e0b",bg:"rgba(245,158,11,.15)"},
+  excused:{l:"Justif.",c:"#6b7280",bg:"rgba(107,114,128,.15)"}
+};
 // v1.7.6: render in-place de una fila (sin tocar el DOM completo, mantiene scroll)
-function _convRowInner(p,t,inConv,isTit,isCap){
+function _convRowInner(p,t,m,inConv,isTit,isCap){
   const guestBadge=p.guest?'<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">🔄 PUNTUAL</span>':"";
+  const attSt=_matchAttState(m,p.id);
+  const ab=CONV_ATT_BADGE[attSt];
+  const attBadgeHtml=`<button onclick="event.stopPropagation();_convCycleAtt('${p.id}')" title="Toca para marcar ausente/tarde/justificado" style="padding:4px 7px;border-radius:7px;border:1px solid ${ab.c}55;background:${ab.bg};color:${ab.c};font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">${ab.l}</button>`;
   return`<div class="conv-cb ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
-    <div style="flex:1">
+    <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?'<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>':""}${guestBadge}</div>
       <div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div>
     </div>
+    ${attBadgeHtml}
     ${inConv?`<div style="display:flex;gap:5px" onclick="event.stopPropagation()">
       <button onclick="_convTitular('${p.id}')" style="padding:5px 9px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
       <button onclick="_convCapitan('${p.id}')" style="padding:5px 9px;border-radius:6px;border:1px solid ${isCap?"rgba(234,179,8,.4)":"var(--border)"};background:${isCap?"rgba(234,179,8,.15)":"var(--s2)"};color:${isCap?"#eab308":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">(C)</button>
@@ -10177,7 +10377,23 @@ function _convRefreshRow(pid){
   const inConv=convIds.includes(pid);
   const isTit=titIds.includes(pid)&&inConv;
   const isCap=m.capitan===pid&&inConv;
-  row.innerHTML=_convRowInner(p,t,inConv,isTit,isCap);
+  row.innerHTML=_convRowInner(p,t,m,inConv,isTit,isCap);
+}
+// v3.0.0-dev.87 · B-MATCHATT2: cicla el override explícito de asistencia de
+// un jugador para este partido -- auto(derivado de convocado) → ausente →
+// tarde → justificado → auto. Independiente de si está convocado o no (se
+// puede marcar "ausente" a alguien aunque no esté en la convocatoria, p.ej.
+// para distinguir "no vino" de "vino pero no fue convocado").
+function _convCycleAtt(pid){
+  const m=mById(S.teamId,S.matchId);if(!m)return;
+  if(!m.attOverride)m.attOverride={};
+  const order=[null,"absent","late","excused"];
+  const cur=m.attOverride[pid]||null;
+  const next=order[(order.indexOf(cur)+1)%order.length];
+  if(next)m.attOverride[pid]=next;
+  else delete m.attOverride[pid];
+  save();
+  _convRefreshRow(pid);
 }
 function _convRefreshHeader(){
   const m=mById(S.teamId,S.matchId);if(!m)return;
@@ -10342,6 +10558,18 @@ function _convFinishDeferred(){
   save();
   document.getElementById("m-conv-validation")?.remove();
   document.getElementById("m-conv-setup")?.remove();
+  // v3.0.0-dev.85 · B-LIVECONVGUARD1: si la convocatoria se abrió
+  // automáticamente porque el entrenador intentaba pasar a seguimiento en
+  // vivo sin (suficientes) convocados, continuamos directo a vivo en vez de
+  // quedarnos en matchDetail -- para entonces _convFinish() ya ha
+  // garantizado que hay 5+ convocados (o que el partido es de solo stats de
+  // equipo), así que liveGame() no va a volver a bloquear.
+  const pendingLiveMid=S._pendingLiveAfterConv;
+  S._pendingLiveAfterConv=null;
+  if(pendingLiveMid&&pendingLiveMid===S.matchId){
+    navTo("liveGame",{matchId:pendingLiveMid});
+    return;
+  }
   S.screen="matchDetail";render();
 }
 function _convValidationModal({icon,title,msg,primaryLabel,onContinue}){
@@ -10373,21 +10601,60 @@ function saveMatchMeta(mid,eid){
   const shotChart=document.getElementById(mid+"-sc-btn")?.classList.contains("on")||false;
   const trackPlayType=document.getElementById(mid+"-pt-btn")?.classList.contains("on")||false;
   const fibaRules2026=document.getElementById(mid+"-f26-btn")?.classList.contains("on")||false;
+  // v3.0.0-dev.82 · B-MATCHMODE1: modo de partido elegido (quarters/final/
+  // live) -- si el partido ya está en directo (m.live existe) el selector ni
+  // se muestra, así que no hay botón .sel que leer; en ese caso se conserva
+  // el modo que ya tuviera guardado (o "live" si no tenía ninguno).
+  const existing=eid?S.matches[S.teamId]?.find(m=>m.id===eid):null;
+  const modeBtn=document.querySelector("#"+mid+"-modes .match-mode-btn.sel");
+  const matchMode=modeBtn?modeBtn.dataset.k:(existing?.live?(existing.matchMode||"live"):"quarters");
   if(!S.matches[S.teamId])S.matches[S.teamId]=[];
   if(eid){
-    S.matches[S.teamId]=S.matches[S.teamId].map(m=>m.id===eid?{...m,rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026}:m);
+    S.matches[S.teamId]=S.matches[S.teamId].map(m=>m.id===eid?{...m,rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,matchMode}:m);
     toast("✅ Partido actualizado");
     clearDirty();
     document.getElementById(mid)?.remove();save();render();
   } else {
-    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
+    // v3.0.0-dev.82 · B-MATCHATT1: Mario pidió que los partidos cuenten como
+    // asistencia ("en la general y en asistencias para los partidos"), pero
+    // SOLO de aquí en adelante -- confirmado con AskUserQuestion, eligió
+    // explícitamente "Solo de aquí en adelante" y no la opción recomendada de
+    // aplicarlo también a partidos ya guardados. countsForAttendance:true se
+    // estampa SOLO en la creación de partidos nuevos; los partidos ya
+        // existentes, al no tener este campo, nunca empiezan a contar (ni
+    // siquiera si se editan después, porque la rama de arriba conserva los
+    // campos no listados vía spread).
+    //
+    // v3.0.0-dev.87 · B-MATCHATT2: mismo criterio "solo de aquí en adelante"
+    // para rollCallAtt:true -- activa el pase de lista completo (ver
+    // _matchAttCount()) SOLO en partidos creados desde esta versión; los
+    // partidos de dev.82-86 (countsForAttendance pero sin rollCallAtt) no se
+    // tocan, para no inflar de golpe una asistencia ya registrada con el
+    // modelo anterior (solo convocados).
+    const nm={id:uid(),rival,date,time,venue,location,quarters,qMins,rivalStatsEnabled,teamOnlyStats,stopOnFoul,shotChart,trackPlayType,fibaRules2026,matchMode,countsForAttendance:true,rollCallAtt:true,q:[null,null,null,null,null,null,null,null,null,null],convocados:[],titulares:[],capitan:null,rivalPlayers:[],notes:""};
     S.matches[S.teamId].push(nm);
     S.matchId=nm.id;
     clearDirty();
     save();
     document.getElementById(mid)?.remove();
-    // Open convocatoria setup wizard immediately
-    openConvSetup();
+    // v3.0.0-dev.86 · B-CONVONLYLIVE1: Mario, tras probar B-LIVECONVGUARD1:
+    // *"vale, entonces si se anota el partido normal no hay que poner la
+    // convocatoira anbtes, se hará directamente en el aprtiod. solo se pone
+    // la convocatoira para poner antes de ver el detalle del partido si se
+    // va a hacer seugimiento en vivo"*. Antes de este cambio, CUALQUIER
+    // partido nuevo (sea el modo que sea) abría la convocatoria de golpe al
+    // crearlo -- contradecía justo esta idea. Confirmado con AskUserQuestion:
+    // el wizard automático solo tiene sentido para el modo "En directo"
+    // (donde además, gracias a B-LIVECONVGUARD1, completarlo con 5+
+    // convocados ya continúa directo a vivo); en "por cuartos"/"resultado
+    // final" se va directo al detalle del partido -- la convocatoria se
+    // rellena cuando se quiera, desde el botón "✏️ Editar" que ya hay ahí.
+    if(matchMode==="live"){
+      openConvSetup();
+    } else {
+      toast("✅ Partido creado");
+      S.screen="matchDetail";render();
+    }
   }
   return true;
 }
@@ -10766,6 +11033,34 @@ function _checkLivePresence(m){
   live.trackedBy=myId;live.trackedAt=Date.now();live.trackedByName=_getCoachName()||null;
   save();
 }
+// v3.0.0-dev.83 · B-LIVECONFIRM1: Mario, tras el selector de modo de partido
+// (B-MATCHMODE1): "pero si le doy a seguimiento en vivo sin querer ya no
+// puedo hacerlo por cuartos, borro y creo otro o como?" -- confirmado: antes
+// de esto, pulsar "🔴 Seguimiento en vivo" entraba DIRECTAMENTE a liveGame(),
+// que inicializa m.live sin ningún aviso -- y en cuanto m.live existe, el
+// marcador por cuartos queda bloqueado en solo lectura PARA SIEMPRE en ese
+// partido (ver matchDetail()/_syncQFromLive, sin ningún camino de vuelta
+// atrás). Un toque accidental en ese botón no tenía ninguna red de
+// seguridad. Mario eligió explícitamente solo este aviso previo (no un
+// "cancelar directo" después de empezar) -- confirmado con AskUserQuestion.
+// Solo se pregunta la PRIMERA vez (hasLive===false) -- continuar un directo
+// ya empezado (botón "Continuar en vivo") sigue yendo directo, sin aviso de
+// más, porque ahí ya no hay nada que se pueda evitar.
+// v3.0.0-dev.84 · B-LIVEBTNMOVE1: acepta un `mid` opcional para poder
+// llamarse también desde fuera de matchDetail (tarjetas de Partidos/Hoy,
+// donde S.matchId todavía no es el de ese partido concreto) -- sin
+// argumento sigue leyendo S.matchId como siempre, para no tocar la llamada
+// ya existente dentro de matchDetail.
+function startLiveGameConfirm(mid){
+  const m=mById(S.teamId,mid||S.matchId);
+  if(!m){navTo("liveGame",mid?{matchId:mid}:undefined);return;}
+  if(m.live){navTo("liveGame",{matchId:m.id});return;}
+  _confirm(
+    "¿Seguro que quieres empezar el <b>seguimiento en vivo</b> de este partido?<br/><br/>Una vez empieces, el marcador por cuartos quedará <b>bloqueado</b> y ya no podrás volver a anotarlo a mano -- si solo quieres anotar por cuartos o el resultado final, usa esa opción en el modo de partido en vez de esta.",
+    "🔴 Sí, empezar en directo",
+    ()=>navTo("liveGame",{matchId:m.id})
+  );
+}
 function liveGame(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const m=mById(S.teamId,S.matchId);
@@ -10786,14 +11081,17 @@ function liveGame(){
   // convocados de la plantilla fija para poder empezar no tiene sentido, y
   // menos si el partido se apoya en jugadores puntuales/invitados.
   if(!m.live&&!m.teamOnlyStats&&convP.length<5){
+    // v3.0.0-dev.85 · B-LIVECONVGUARD1: Mario reportó que, al crear un
+    // partido y saltar la convocatoria ("configurar después"), intentar
+    // luego "Cambiar a seguimiento en vivo" dejaba al entrenador en un
+    // callejón sin salida: el aviso bloqueante que había aquí antes tenía un
+    // botón "Ir a la convocatoria" que en realidad solo se cerraba a sí
+    // mismo, sin llevar a ningún sitio. Confirmado con AskUserQuestion: en
+    // vez de ese aviso, abrimos la convocatoria ahí mismo para completarla
+    // al momento -- si queda con 5+ convocados, _convFinishDeferred()
+    // continúa directo a vivo sin tener que volver a pulsar nada.
     S.screen="matchDetail";render();
-    _convValidationModal({
-      icon:"⚠️",
-      title:convP.length===0?"Sin convocados":`Solo ${convP.length} convocado${convP.length===1?"":"s"}`,
-      msg:"FIBA exige <b>5 jugadores en pista</b>. Completa la convocatoria con al menos 5 convocados antes de empezar el seguimiento en vivo.",
-      primaryLabel:"Ir a la convocatoria",
-      onContinue:null
-    });
+    openConvSetup(m.id);
     return"";
   }
   // Init live
