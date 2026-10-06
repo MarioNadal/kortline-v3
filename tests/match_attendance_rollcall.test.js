@@ -18,6 +18,17 @@
 // -- los de dev.82-86 (countsForAttendance sin rollCallAtt) siguen con el
 // comportamiento legado exacto (solo cuentan los convocados, como
 // "presente", sin expandir al resto de la plantilla).
+//
+// v3.0.0-dev.88 · B-MATCHATT3: Mario probó esto y pidió simplificar la
+// interfaz -- *"lo que hay ahora de convocatoria que marcas ahora no
+// sairve porque aparecen los no convocados y enotnces no se entiende [...]
+// Mas funcional y se vea mas simple"*. El test nº9 (UI real) se actualizó
+// para reflejar el nuevo diseño: sin override no se muestra ningún texto
+// ("Presente"/"No convocado" eran ruido visual en todas las filas), solo un
+// icono pequeño y discreto; la pastilla de color con texto SOLO aparece
+// cuando hay un override real (Ausente/Tarde/Justificado). La lógica de
+// datos (_matchAttState/_matchAttCount/_convCycleAtt) no cambia en absoluto
+// -- es puramente un ajuste de qué se pinta en cada caso.
 const { loadApp, buildFixture, newReporter } = require("./harness");
 
 async function run() {
@@ -158,7 +169,7 @@ async function run() {
     assert(c.tot === 1 && c.ab === 1 && c.pr === 0, "una ausencia marcada en un partido se refleja en 'ab' del combinado, no solo en 'pr'/'tot' como antes de B-MATCHATT2");
   }
 
-  // ═══ 9) UI real: la pastilla de asistencia aparece en la convocatoria y cicla al tocarla, sin tocar el convocado ═══
+  // ═══ 9) UI real (B-MATCHATT3/dev.88): sin override no hay texto -- solo un icono discreto; la pastilla de color SOLO aparece con un override real ═══
   {
     const win = await loadApp();
     const match = buildFixture(win, { convocados: ["p1"], rollCallAtt: true });
@@ -168,17 +179,19 @@ async function run() {
     const doc = doc_(win);
     const row = doc.querySelector('[data-pid="p1"]');
     assert(!!row, "la fila de un convocado existe en el wizard real");
-    assert(row.innerHTML.includes("Presente"), "convocado sin override: la pastilla muestra 'Presente'");
-    const badge = [...row.querySelectorAll("button")].find(b => b.textContent.includes("Presente"));
-    assert(!!badge, "la pastilla es un botón tocable");
-    badge.click();
-    assert(match.convocados.includes("p1"), "tocar la pastilla NO quita a p1 de la convocatoria (event.stopPropagation funciona)");
-    assert(match.attOverride.p1 === "absent", "tocar la pastilla sí registra el override 'ausente'");
+    assert(!row.innerHTML.includes("Presente"), "B-MATCHATT3: convocado sin override -- ya NO se muestra el texto 'Presente' (era ruido visual)");
+    const icon = [...row.querySelectorAll("button")].find(b => b.title === "Marcar ausente/tarde/justificado");
+    assert(!!icon, "en su lugar hay un icono pequeño y discreto, siempre tocable");
+    icon.click();
+    assert(match.convocados.includes("p1"), "tocar el icono NO quita a p1 de la convocatoria (event.stopPropagation funciona)");
+    assert(match.attOverride.p1 === "absent", "tocar el icono sí registra el override 'ausente'");
     const rowAfter = doc.querySelector('[data-pid="p1"]');
-    assert(rowAfter.innerHTML.includes("Ausente"), "la fila se refresca mostrando 'Ausente'");
+    assert(rowAfter.innerHTML.includes("Ausente"), "CON un override real, la fila SÍ muestra la pastilla de color con su texto ('Ausente')");
 
-    const row3 = doc.querySelector('[data-pid="p3"]'); // p3 no está convocado
-    assert(row3.innerHTML.includes("No convocado"), "un jugador no convocado muestra la pastilla 'No convocado' por defecto");
+    const row3 = doc.querySelector('[data-pid="p3"]'); // p3 no está convocado, sin override
+    assert(!row3.innerHTML.includes("No convocado"), "B-MATCHATT3: un jugador no convocado, sin override, tampoco muestra ya el texto 'No convocado' -- el check (sin marcar) ya lo dice");
+    const icon3 = [...row3.querySelectorAll("button")].find(b => b.title === "Marcar ausente/tarde/justificado");
+    assert(!!icon3, "pero sigue teniendo el mismo icono discreto disponible, aunque no esté convocado");
   }
 
   return report.summary();
