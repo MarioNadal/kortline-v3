@@ -27,7 +27,7 @@ async function run() {
   const report = newReporter("live_rebound_rival_and_float");
   const assert = (cond, msg) => report.assert(cond, msg);
 
-  // ═══ 1) El picker "¿Quién?" de R.Ofen/R.Def ofrece una tarjeta "Rival" -- SOLO viendo nuestro propio equipo ═══
+  // ═══ 1) El picker "¿Quién?" de R.Ofen/R.Def ofrece la barra "🔴 Fue del rival" -- SOLO viendo nuestro propio equipo ═══
   {
     const win = await loadApp();
     const match = buildFixture(win);
@@ -37,26 +37,36 @@ async function run() {
     win.openActionPicker("ro", 0);
     let picker = win.document.getElementById("m-actpicker");
     let html = picker.innerHTML;
-    assert(html.includes("_pickReboundForRival('ro')"), "B-RIVALREB1: el picker de R.Ofen (rebote ofensivo) ofrece la tarjeta 'Rival' viendo nuestro propio equipo");
-    assert(html.includes("Rival"), "la tarjeta dice 'Rival'");
+    assert(html.includes("_pickReboundForRival('ro')"), "B-RIVALREB1: el picker de R.Ofen (rebote ofensivo) ofrece la opción 'Fue del rival' viendo nuestro propio equipo");
+    assert(html.includes("Fue del rival"), "la opción dice 'Fue del rival'");
+    // v3.0.0-dev.93 · B-RIVALREB2: Mario pidió que, en vez de una tarjeta
+    // dentro de la rejilla de jugadores, fuera "una barra entera" encima
+    // del botón de Cancelar, con un estilo parecido al de "Rebote del
+    // rival" que ya existe en la cadena automática (_chainRebound) -- se
+    // comprueba que efectivamente está FUERA de la rejilla de tarjetas
+    // (que ya cierra su div antes) y justo antes de "Cancelar".
+    const gridEnd = html.indexOf("margin-bottom:14px") ;
+    const rivalBarPos = html.indexOf("_pickReboundForRival");
+    const cancelPos = html.indexOf("Cancelar");
+    assert(rivalBarPos > gridEnd && rivalBarPos < cancelPos, "B-RIVALREB2: la opción 'Fue del rival' es una barra propia, fuera de la rejilla de jugadores y justo encima de 'Cancelar' -- no una tarjeta más dentro de la rejilla");
     picker.remove();
 
     win.openActionPicker("rd", 0);
     picker = win.document.getElementById("m-actpicker");
     html = picker.innerHTML;
-    assert(html.includes("_pickReboundForRival('rd')"), "B-RIVALREB1: el picker de R.Def (rebote defensivo) también ofrece la tarjeta 'Rival'");
+    assert(html.includes("_pickReboundForRival('rd')"), "B-RIVALREB1: el picker de R.Def (rebote defensivo) también ofrece la barra 'Fue del rival'");
     picker.remove();
 
-    // Otras acciones (no rebote) NO deben ofrecer la tarjeta -- scope exacto de lo pedido.
+    // Otras acciones (no rebote) NO deben ofrecer la barra -- scope exacto de lo pedido.
     win.openActionPicker("ast", 0);
     picker = win.document.getElementById("m-actpicker");
     html = picker.innerHTML;
-    assert(!html.includes("_pickReboundForRival"), "la tarjeta 'Rival' NO aparece en el picker de asistencia (solo aplica a ro/rd)");
+    assert(!html.includes("_pickReboundForRival"), "la barra 'Fue del rival' NO aparece en el picker de asistencia (solo aplica a ro/rd)");
     picker.remove();
     win.openActionPicker("foul", 0);
     picker = win.document.getElementById("m-actpicker");
     html = picker.innerHTML;
-    assert(!html.includes("_pickReboundForRival"), "la tarjeta 'Rival' NO aparece en el picker de falta (ya existe rivalFoulLive para eso)");
+    assert(!html.includes("_pickReboundForRival"), "la barra 'Fue del rival' NO aparece en el picker de falta (ya existe rivalFoulLive para eso)");
     picker.remove();
   }
 
