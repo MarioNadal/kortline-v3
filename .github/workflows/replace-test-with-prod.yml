@@ -1,0 +1,62 @@
+name: Sustituir test por producción (calco exacto)
+
+# Ejecuta scripts/replace-test-with-prod.js manualmente desde la pestaña
+# Actions de GitHub (botón "Run workflow"), sin tocar nada en un ordenador.
+#
+# A diferencia de "Copiar producción → test" (copy-prod-to-test.yml), que
+# solo suma/sobrescribe y nunca borra nada, ESTE BORRA en clubs/cbjaca-test
+# cualquier cosa sin equivalente en clubs/cbjaca (producción) -- incluidas
+# la asistencia diaria/notas de entreno y la configuración propia del club
+# (pedido explícito de Mario, 2026-10-06) -- para dejar test como un calco
+# EXACTO de producción, documento por documento. Solo lectura en
+# producción. NO HAY DESHACER.
+#
+# Por seguridad, hay que escribir la palabra exacta "SUSTITUIR" en el
+# cuadro de confirmación al lanzar la ejecución -- si no coincide, el job
+# falla antes de tocar nada en Firestore.
+#
+# Recomendado: lanzar antes "Copia de seguridad de un club"
+# (backup-club.yml) con club_id = cbjaca-test, para tener una foto de test
+# justo antes de sustituirlo, por si luego se echa en falta algo que solo
+# existía ahí.
+#
+# El PIN del club se guarda como secreto del repositorio (Settings →
+# Secrets and variables → Actions → New repository secret, nombre
+# "CLUB_PIN") -- el mismo que ya usan backup-club.yml y
+# copy-prod-to-test.yml. Nunca se escribe aquí ni queda visible en ningún
+# sitio; GitHub oculta automáticamente el valor de los secretos en los logs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escribe SUSTITUIR para confirmar que quieres BORRAR y sustituir clubs/cbjaca-test entero (sin deshacer)'
+        required: true
+
+jobs:
+  replace:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - name: Comprobar confirmación
+        run: |
+          if [ "${{ inputs.confirm }}" != "SUSTITUIR" ]; then
+            echo "Confirmación incorrecta -- escribe exactamente SUSTITUIR para continuar. No se ha tocado nada en Firestore."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Sustituir test por un calco exacto de producción
+        env:
+          CLUB_PIN: ${{ secrets.CLUB_PIN }}
+        run: node replace-test-with-prod.js
