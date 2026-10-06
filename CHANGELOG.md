@@ -3,6 +3,23 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Convocatoria más simple: sin texto cuando no hay nada que destacar (B-MATCHATT3, dev.88, 2026-10-06)
+
+Mario probó B-MATCHATT2 (recién promocionado a producción) y pidió simplificar: *"lo que hay ahora de convocatoria que marcas ahora no sairve porque aparecen los no convocados y enotnces no se entiende. O eso o que no haya ningun convocado y se convoquen al darle al boton de editar que no me aprece mal, lo que sea mejor. Mas funcional y se vea mas simple, mejor"*.
+
+El problema: la pastilla de B-MATCHATT2 mostraba el texto "Presente" o "No convocado" en TODAS las filas todo el rato, aunque no hubiera nada especial que contar -- puro ruido visual, porque el check de convocado ya decía lo mismo sin palabras. Confirmado con `AskUserQuestion`: quitar el texto en el caso normal (sin override) y dejar solo un icono pequeño y discreto -- la pastilla de color con texto pasa a aparecer SOLO cuando hay un override real (Ausente/Tarde/Justificado), que es el único caso que de verdad merece destacarse.
+
+### Añadido
+- **`_convRowInner()`:** cuando `_matchAttState()` devuelve "present" o "not_called" (caso normal, sin override), ya NO se muestra ninguna pastilla de texto -- en su lugar, un icono discreto "⋯" (siempre tocable, para marcar Ausente/Tarde/Justificado cuando haga falta). La pastilla de color de siempre (roja/ámbar/gris con su texto) sigue apareciendo igual, pero solo cuando SÍ hay un override explícito.
+- Texto de ayuda del wizard actualizado ("⋯ para marcar ausente/tarde/justificado" en vez de "toca la pastilla de la derecha").
+- Cero cambios en la lógica de datos: `_matchAttState()`, `_matchAttCount()`, `_convCycleAtt()`, `m.attOverride` -- todo igual que en B-MATCHATT2. Esto es puramente un ajuste de qué se pinta en cada caso, no de cómo se calcula la asistencia.
+
+### Probado (jsdom)
+- `tests/match_attendance_rollcall.test.js` (actualizado, +1 aserción -> 29 en total): el test de "UI real" ahora comprueba que SIN override no aparece ningún texto ("Presente"/"No convocado"), que el icono discreto sigue ahí y sigue siendo tocable (y sigue sin desconvocar al tocarlo), y que CON un override real la pastilla de color con texto sí aparece, exactamente igual que antes.
+- Revert-sanity-check: forzado el control de asistencia a nunca mostrar la pastilla de color (ni con override) → falla exactamente la aserción esperada sobre "Ausente" apareciendo con un override real; restaurado y reconfirmado 29/29.
+- Suite completa: **1378/1378 OK** (1377 ya existentes + 1 nueva), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.88` / `kortline-v3.0.0-dev.88` (raíz) y `kortline-v3-test-dev.88` (`/test/`, lo único entregado por ahora) -- pendiente de que Mario lo pruebe en el móvil antes de promocionarlo a producción (donde ya está B-MATCHATT2 con la pastilla "ruidosa", recién subida).
+
 ## [Publicado] · kortline-v3 · Promoción a producción: todo el lote dev.82→dev.87 (2026-10-06)
 
 Mario, tras probar en `/test/` toda la tanda acumulada desde la última promoción (dev.81, B-INJ5): *"Esto esta bien, hay que subirlo a produccion"*. Confirmado el alcance exacto con `AskUserQuestion` (todo el lote, no solo la última función) antes de tocar la raíz del repo, dado que esto pasa a afectar a los datos reales del club (incluidos menores).
