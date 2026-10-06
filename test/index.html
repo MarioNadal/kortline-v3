@@ -528,7 +528,8 @@ label{-webkit-tap-highlight-color:transparent;}
   body.in-live .header,
   body.in-live .nav,
   body.in-live .live-scoreboard-wrap,
-  body.in-live .live-col-r{display:none!important;}
+  body.in-live .live-col-r,
+  body.in-live .live-float-bar{display:none!important;}
   body.in-live .live-game-content{padding:0!important;max-width:none!important;}
   /* La tabla de stats inline (.live-stats-wrap) está marcada display:none
      en portrait. En landscape la promovemos a overlay fullscreen. */
@@ -617,6 +618,13 @@ function startClock(){
       if(el){el.textContent=_fmtClock(s);el.style.color=s===0?"#ef4444":s<60?"#f59e0b":"var(--tx)";}
       const btn=document.getElementById("live-clock-btn");
       if(btn)btn.textContent="⏸";
+      // v3.0.0-dev.92 · B-LIVEFLOAT1: mismo refresco para el panel flotante
+      // (ver liveGame()) -- sin esto el segundero del panel flotante se
+      // quedaría congelado hasta el próximo render() completo.
+      const elF=document.getElementById("live-clock-float");
+      if(elF){elF.textContent=_fmtClock(s);elF.style.color=s===0?"#ef4444":s<60?"#f59e0b":"var(--tx)";}
+      const btnF=document.getElementById("live-clock-btn-float");
+      if(btnF){btnF.textContent="⏸";btnF.style.background="rgba(239,68,68,.9)";}
       save();
     } else {
       // End of period
@@ -666,6 +674,14 @@ function toggleClock(){
   const btn=document.getElementById("live-clock-btn");
   if(el)el.textContent=_fmtClock(m.live.clockSec);
   if(btn)btn.textContent=m.live.clockRunning?"⏸":"▶";
+  // v3.0.0-dev.92 · B-LIVEFLOAT1: sincroniza también el panel flotante (ver
+  // liveGame()) -- toggleClock() se puede llamar desde CUALQUIERA de los
+  // dos botones de play/pause (cabecera o flotante), así que los dos
+  // deben quedar consistentes sea cual sea el que se tocó.
+  const elF=document.getElementById("live-clock-float");
+  const btnF=document.getElementById("live-clock-btn-float");
+  if(elF){elF.textContent=_fmtClock(m.live.clockSec);elF.style.color=m.live.clockSec===0?"#ef4444":m.live.clockSec<60?"#f59e0b":"var(--tx)";}
+  if(btnF){btnF.textContent=m.live.clockRunning?"⏸":"▶";btnF.style.background=m.live.clockRunning?"rgba(239,68,68,.9)":"rgba(34,197,94,.9)";}
   save();
 }
 function resetClock(){
@@ -2180,7 +2196,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.91";
+const APP_VERSION = "3.0.0-dev.92";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -12035,6 +12051,28 @@ function liveGame(){
     </div>
   </div>
   </div>
+  <!-- v3.0.0-dev.92 · B-LIVEFLOAT1: Mario, revisando partidos en vivo:
+       "el boton del tiempo sobretodo el play y pause... hay que hacerlo
+       como boton flotante sino no es util tener que subir y bajar todo
+       el rato". El reloj/play-pause YA estaba en la cabecera (position:
+       sticky), pero en un móvil alto, con el pulgar ya abajo anotando
+       acciones, "sticky" no evita tener que mover la mano hasta arriba
+       cada vez que hay que parar/arrancar el reloj o pedir un tiempo
+       muerto -- justo lo que Mario describe. Confirmado con
+       AskUserQuestion: panel flotante con reloj (tiempo + play/pause) +
+       Tiempo Muerto, centrado abajo. Aditivo -- la cabecera de arriba
+       sigue intacta con el reloj completo (editar/rebobinar incluidos)
+       para quien lo prefiera ahí; esto es solo un acceso rápido cerca del
+       pulgar. toggleClock()/startClock() actualizan este panel a la vez
+       que la cabecera (mismo mecanismo de "live-clock"/"live-clock-btn",
+       ver updates en esas dos funciones). Oculto en modo lectura
+       horizontal (igual que el resto de controles de anotar, ver
+       body.in-live en el CSS) -- ahí no se anota, solo se consulta. -->
+  <div class="live-float-bar" style="position:fixed;bottom:88px;left:50%;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:7px;background:rgba(10,20,38,.94);border:1px solid var(--border);border-radius:16px;padding:7px 9px;box-shadow:0 8px 24px rgba(0,0,0,.45);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:94vw">
+    <div id="live-clock-float" style="font-family:var(--font-d);font-weight:900;font-size:22px;letter-spacing:1px;color:${live.clockSec===0?"#ef4444":live.clockSec<60?"#f59e0b":"var(--tx)"};min-width:60px;text-align:center;line-height:1">${_fmtClock(live.clockSec||0)}</div>
+    <button id="live-clock-btn-float" onclick="toggleClock()" style="min-width:48px;height:42px;border-radius:11px;border:none;background:${live.clockRunning?"rgba(239,68,68,.9)":"rgba(34,197,94,.9)"};color:#fff;cursor:pointer;font-size:18px;font-weight:900;padding:0 10px">${live.clockRunning?"⏸":"▶"}</button>
+    <button onclick="openTimeoutModal()" style="min-width:48px;height:42px;border-radius:11px;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.14);color:#f59e0b;cursor:pointer;font-size:13px;font-weight:900;padding:0 10px">T.M</button>
+  </div>
   ${navBar()}`;
 }
 /* ═══════════════════════════════════════
@@ -12520,6 +12558,26 @@ function openActionPicker(action,pts){
       <div style="font-size:10px;color:var(--td)">${pts2} pts</div>
     </button>`;
   }).join("");
+  // v3.0.0-dev.92 · B-RIVALREB1: Mario pidió explícitamente que, al tocar
+  // "R.Ofen"/"R.Def" (rebote), se pueda decir que ha sido del rival -- hoy
+  // solo existía esa opción en la cadena automática tras UN FALLO NUESTRO
+  // (_chainRebound → "🔴 Rebote del rival", y solo para defensivo), nunca
+  // desde estos botones manuales, y nunca para el rebote OFENSIVO del
+  // rival (su "datos imprescindible" que faltaba: hoy no hay forma de
+  // anotar que el rival ha cogido su propio rebote tras fallar ellos, sin
+  // tener activado el seguimiento individual del rival). Confirmado con
+  // AskUserQuestion: no hace falta que se vea como contador en el
+  // marcador en vivo (de momento) -- solo poder anotarlo siempre desde
+  // estos mismos botones. Se añade una tarjeta "🔴 Rival" extra SOLO para
+  // ro/rd y SOLO viendo nuestro propio equipo (en la pestaña Rival, estos
+  // botones ya preguntan por un jugador rival concreto -- no hace falta
+  // esta tarjeta ahí).
+  const showRivalCard=(action==="ro"||action==="rd")&&!isRivalSide;
+  const rivalCard=showRivalCard?`<button onclick="_pickReboundForRival('${action}')" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:14px 6px;border-radius:12px;border:2px dashed rgba(239,68,68,.55);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-family:inherit;width:100%">
+      <div style="font-size:22px;line-height:1">🔴</div>
+      <div style="font-weight:800;font-size:12px">Rival</div>
+    </button>`:"";
+  const totalCards=courtP.length+(showRivalCard?1:0);
   const el=document.createElement("div");
   el.id="m-actpicker";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.96);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;";
@@ -12529,11 +12587,28 @@ function openActionPicker(action,pts){
       <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:${meta.color};margin-bottom:6px">${meta.emoji} ${meta.txt}</div>
       <div style="font-family:var(--font-d);font-weight:900;font-size:18px;color:var(--tx)">¿Quién?</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(${Math.min(courtP.length,5)},1fr);gap:7px;margin-bottom:14px">${cards}</div>
+    <div style="display:grid;grid-template-columns:repeat(${Math.min(totalCards||1,5)},1fr);gap:7px;margin-bottom:14px">${cards}${rivalCard}</div>
     <button class="btn-s" onclick="document.getElementById('m-actpicker').remove()" style="width:100%">Cancelar</button>
   </div>`;
   document.body.appendChild(el);
 }
+// Tarjeta "🔴 Rival" del picker de rebote (ver comentario arriba, B-RIVALREB1):
+// registra un rebote genérico del rival (sin jugador concreto), igual de
+// válido para ofensivo que para defensivo. Reutiliza live.rivalTeamAgg (ya
+// existente desde el modo "solo equipo") como acumulador de equipo -- así
+// queda disponible para futuros informes aunque hoy no se muestre en vivo.
+window._pickReboundForRival=function(action){
+  document.getElementById("m-actpicker")?.remove();
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  const live=m.live;
+  const desc=action==="ro"?"Rebote ofensivo rival":"Rebote defensivo rival";
+  const entry={pid:"rival",action,pts:0,q:live.q,clockAt:live.clockSec,desc};
+  live.log=[...(live.log||[]),entry];
+  if(!live.rivalTeamAgg)live.rivalTeamAgg={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};
+  live.rivalTeamAgg[action]=(live.rivalTeamAgg[action]||0)+1;
+  save();render();
+  toast(action==="ro"?"📦 Rebote ofensivo del rival":"🛡 Rebote defensivo del rival");
+};
 // Tras elegir el jugador en el picker
 window._pickActionFor=function(pid,action,pts){
   document.getElementById("m-actpicker")?.remove();
@@ -12673,6 +12748,12 @@ window._pickReboundRival=function(){
   const live=m.live;
   const entry={pid:"rival",action:"rd",pts:0,q:live.q,clockAt:live.clockSec,desc:"Rebote rival"};
   live.log=[...(live.log||[]),entry];
+  // v3.0.0-dev.92 · B-RIVALREB1: mismo acumulador que _pickReboundForRival()
+  // (el rebote del rival "manual" desde los botones R.Ofen/R.Def) -- así
+  // los dos caminos para anotar un rebote del rival sin jugador concreto
+  // suman al mismo sitio, sea cual sea el botón por el que se llegó.
+  if(!live.rivalTeamAgg)live.rivalTeamAgg={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};
+  live.rivalTeamAgg.rd=(live.rivalTeamAgg.rd||0)+1;
   save();render();
   toast("📦 Rebote del rival");
 };
