@@ -41,6 +41,7 @@ jobs:
         working-directory: scripts
     steps:
       - name: Comprobar confirmación
+        working-directory: .
         run: |
           if [ "${{ inputs.confirm }}" != "SUSTITUIR" ]; then
             echo "Confirmación incorrecta -- escribe exactamente SUSTITUIR para continuar. No se ha tocado nada en Firestore."
