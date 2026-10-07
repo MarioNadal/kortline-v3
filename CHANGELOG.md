@@ -3,6 +3,126 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Publicado] · kortline-v3 · Promoción a producción: lote dev.90→dev.94 (2026-10-07)
+
+Mario, tras probar el tutorial guiado en `/test/`: *"aprobado vamos a subirlo a pro"*.
+
+**Funciones incluidas en este lote** (las cinco, ya documentadas en sus propias entradas más abajo -- van juntas porque todas viven en el mismo `index.html` y nunca se habían promocionado por separado):
+- **B-MATCHPDF1** (dev.90): PDF de estadísticas del partido + arreglo real del botón "Copiar stats".
+- **B-MATCHPDF2 / B-COPYFIX1** (dev.91): PDF más compacto (cabe en una página) + el mismo arreglo de "Copiar" aplicado a los otros 3 botones de copiar de la app.
+- **B-RIVALREB1 / B-LIVEFLOAT1** (dev.92): rebote ofensivo del rival siempre registrable desde los botones R.Ofen/R.Def + panel flotante del reloj (play/pause + tiempo muerto) en el partido en vivo.
+- **B-RIVALREB2** (dev.93): la opción "Fue del rival" del rebote pasa de tarjeta a barra destacada, a juego con el patrón ya existente de "Rebote del rival".
+- **B-TOUR1** (dev.94): tutorial guiado con datos de prueba en memoria -- recorre las 8 pantallas básicas de la app, arranca solo para un club nuevo o se repite desde Ajustes.
+
+### Entregado para producción (2026-10-07)
+La raíz ya estaba en `dev.94`/`CLUB_ID="cbjaca"` con la suite completa en verde (**1499/1499**, verificado una última vez justo antes de esta entrega). Se entregan `index.html`/`sw.js` listos para subir a la **RAÍZ** del repo en GitHub (no a `/test/`) -- reemplazando los que usa de verdad el club (que estaban en dev.89, el último lote promocionado). Pendiente de que Mario confirme haber subido esos dos archivos a la raíz vía la interfaz web de GitHub.
+- `APP_VERSION`/`CACHE_VERSION` en la entrega de producción: `3.0.0-dev.94` / `kortline-v3.0.0-dev.94`.
+- `/test/` se queda, de momento, en esta misma versión (`kortline-v3-test-dev.94`) -- quedará por delante de producción otra vez en cuanto se empiece a probar la siguiente función nueva ahí.
+
+## [Sin publicar] · kortline-v3 · Tutorial guiado en la app con datos de prueba (B-TOUR1, dev.94, 2026-10-07)
+
+Proceso completo (primer-run global + toca `save()`/listeners de Firestore). Mario, tras pedir primero un manual de usuario completo (entregado por separado como documento), pidió también: *"despues de esto haremos un tutorial en la aplicacion para la primera vez que se abra y para que este en el menu de configuracion explicando lo basico pero de toda la aplicacion"*. Al pedir pensar cómo hacerlo visual: *"piensa como hacer lo otro que te he dicho para la aplicacion que se visual, busca ejemplos. Es un tutorial que visita la apliacion enseñando cada opcion y un poco lo que se peude hacer. Importantisimo que debe tener datos de prueba al principio porque un club no tendra [datos reales]"*.
+
+Investigado antes de construir: comparadas tres librerías de tour guiado -- Intro.js (gratis solo para uso no comercial, descartada por ser la app de un club real), Shepherd.js (más pesada, depende de Floating UI) y **Driver.js** (MIT, sin dependencias, ~20KB) -- elegida Driver.js, verificando su API real (no de memoria) descargando y revisando el propio código minificado de la CDN.
+
+Confirmado con `AskUserQuestion` (2 preguntas):
+1. Alcance: **"Lo básico de cada pantalla"** (8 paradas: Hoy, Plantilla, Pasar lista, Convocatoria, Partido en vivo, Resumen/PDF, Estadísticas, Ajustes) -- no botón por botón; el manual de usuario ya entregado queda como referencia para el detalle fino.
+2. Datos de muestra: **"Solo en memoria, se borran solos"** -- el equipo "Equipo Demo" (8 jugadoras, un partido ya jugado con estadísticas) vive exclusivamente en el objeto de estado `S` mientras dura el tour, nunca se escribe en localStorage ni en Firestore, y al terminar (o cerrar el tour en cualquier paso) se restauran EXACTAMENTE los datos reales de antes -- vacíos (club nuevo) o no (reproducir el tour en un club ya en marcha).
+
+El tour recorre pantallas REALES navegando con el propio `S` global (igual que haría un entrenador), no capturas ni diapositivas, resaltando con Driver.js el elemento concreto de cada paso.
+
+### Añadido
+- **CDN de Driver.js** (`driver.min.css`/`driver.min.js.iife.js` v1.3.1) + tema CSS propio (`.driver-popover*`) con la paleta navy/naranja de Kortline.
+- **`_tourDemoBundle()`:** construye el equipo/plantilla/partido de demostración (8 jugadoras con nombres, dorsales y posiciones variadas; un partido ya finalizado contra "CB Ejemplo" con estadísticas realistas por jugadora, parciales por cuarto, faltas y tiempos muertos de ambos equipos) -- todo generado en memoria, con ids (`tour-demo-team`/`tour-demo-match`) que nunca pueden colisionar con datos reales.
+- **`_tourSteps(demo)`:** las 8 paradas acordadas, cada una con su `setup()` (navega `S.screen`/`S.teamId`/`S.matchId` a la pantalla correspondiente), el selector del elemento a resaltar, y el texto explicativo.
+- **`startTour()`:** hace una copia de `S.screen/teamId/matchId/date/teams/players/sessions/matches/events` (los datos reales de antes), activa `window._tourActive=true`, sustituye esas mismas claves de `S` por el bundle de demo, y arranca Driver.js en el primer paso.
+- **`_tourGoTo(demo,i)`:** ejecuta el `setup()` del paso, repinta, y resalta el elemento con los botones Siguiente/Atrás/Cerrar -- si el selector de un paso no resuelve a nada (pantalla distinta, etc.) salta al siguiente paso sin bloquear el resto del tour.
+- **`_tourEnd()`:** destruye la instancia de Driver.js, restaura EXACTAMENTE lo que `startTour()` había guardado, marca `cbj:tour_seen` en localStorage (para no repetir el tour solo en este dispositivo) y repinta.
+- **`_maybeStartTour()`:** se llama justo tras el login (`_initCloudGate`) -- arranca el tour automáticamente SOLO si el club no tiene ningún equipo creado todavía Y este dispositivo nunca lo ha visto; en cualquier otro caso no hace nada (el botón de Ajustes sigue disponible siempre).
+- **Botón "🎓 Ver tutorial"** en Ajustes del club (sección "Acerca de", junto a "🐞 Ver errores recientes") -- permite volver a verlo cuando se quiera, tal y como pidió Mario ("para que este en el menu de configuracion").
+
+### Modificado (guards de seguridad)
+- **`save()`:** nuevo guard al principio -- si `window._tourActive` es verdadero, devuelve `true` sin escribir nada en localStorage ni programar sincronización con Firestore. Es la pieza central que hace seguro todo lo demás: aunque cualquier interacción durante el tour llamara a `save()`, los datos de demo nunca llegarían a persistirse.
+- **`_attachTeamListeners(tid)`:** mismo guard -- durante el tour no abre listeners de Firestore para el `tid` falso de demo (evita churn inútil contra la nube).
+- **`_initCloudGate()`:** tras el login, ahora llama a `_maybeStartTour()`; solo si NO arrancó el tour (devuelve `false`) se muestra directamente el aviso de "¿quién eres?" (`_maybeShowCoachNamePrompt()`) -- si el tour sí arrancó, ese mismo aviso se muestra automáticamente al final (`_tourEnd()` ya lo llama), para no apilar los dos avisos a la vez.
+
+### Probado (jsdom)
+- `tests/tour.test.js` (nuevo, 29 aserciones): `startTour()` sustituye `S` por los datos de demo sin tocar los reales y sin que `save()` llame a `lsSet()` ni una vez mientras el tour está activo (comprobado espiando `lsSet()`, no `localStorage.setItem` directamente -- en jsdom ese método está detrás de un Proxy de `Storage` que ignora la sobreescritura); las 8 paradas resuelven su selector a un elemento real tras `_tourGoTo`; `_tourEnd()` restaura referencias EXACTAS (`===`) de `S.teams/players/sessions/matches/events` y la pantalla/equipo/partido/fecha de antes, tanto para un club ya en marcha como para uno nuevo (todo vacío); `_maybeStartTour()` devuelve `false` si ya hay equipos o si `cbj:tour_seen` ya está puesto, y `true` (arrancando el tour tras 400ms) solo para club nuevo + nunca visto.
+- Revert-sanity-check (guard de `save()`): forzado el guard de `window._tourActive` en `save()` a `if(false)` → falla exactamente 1 aserción esperada ("save() NO llama a lsSet() ni una sola vez..."), las otras 28 siguen en verde. Restaurado y reconfirmado en verde.
+- Suite completa: **1499/1499 OK** (1470 ya existentes + 29 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.94` / `kortline-v3.0.0-dev.94` (raíz), regenerado también en `/test/`. Entregado solo a `/test/`, pendiente de que Mario lo pruebe en el móvil (con un club/dispositivo sin tour visto, para ver el arranque automático, y desde Ajustes para la repetición manual) antes de promocionarlo a producción.
+
+## [Sin publicar] · kortline-v3 · La opción "rival" del rebote pasa de tarjeta a barra destacada (B-RIVALREB2, dev.93, 2026-10-06)
+
+Cambio pequeño, proceso ligero (puramente visual, sin tocar el modelo de datos ni la lógica de registro -- una sola pasada de tests, sin revert-sanity-check). Mario, tras probar dev.92: *"antes el rebote defensivo y ofensivo en vez de asi era una barra entera encima de la de saltar parecido que destacaba un pelin mas de la de saltar. Pudes mirarlo y hacerlo asi"*.
+
+Investigado: "la de saltar" es el patrón ya existente en la cadena automática tras un fallo nuestro (`_chainRebound`), donde "🔴 Rebote del rival" ya es una barra completa justo encima de "Sin rebote · Saltar". La tarjeta "🔴 Rival" añadida en dev.92 (dentro de la rejilla de jugadores) no seguía ese mismo patrón visual. Se saca de la rejilla y se convierte en una barra de ancho completo ("🔴 Fue del rival"), colocada justo encima de "Cancelar" con el mismo estilo que ya usa "Rebote del rival" en la otra cadena -- ahora las dos formas de anotar un rebote del rival se ven y se sienten igual.
+
+- Tests: 1 aserción nueva en `tests/live_rebound_rival_and_float.test.js` (comprueba que la barra está fuera de la rejilla y justo encima de "Cancelar"), más ajuste de redacción en las aserciones existentes ("tarjeta" → "barra"/"opción"). Suite completa: **1470/1470 OK** (raíz y `/test/`).
+- `APP_VERSION`/`CACHE_VERSION` → `3.0.0-dev.93` (raíz), `kortline-v3-test-dev.93` (`/test/`). Entregado solo a `/test/`.
+
+## [Sin publicar] · kortline-v3 · Rebote ofensivo del rival siempre registrable + panel flotante del reloj (B-RIVALREB1/B-LIVEFLOAT1, dev.92, 2026-10-06)
+
+Proceso completo (toca el partido en vivo). Mario, revisando funciones de partido en vivo, en el mismo mensaje: *"ahora viene mejora grande: los rebotes ofensivos del otro equipo es algo que hay que contar tambien siempre, hay que saberlo siempre hay datos imprescindibles al igual que las faltas o lso tiempos muertos, y el boton del tiempo sobretodo el play y pause no se si los t.m y lo demas tambien hay que hacerlo como boton flotante sino noe s util tener que subir y bajar todo el rato"*.
+
+Investigado antes de preguntar: faltas y tiempos muertos del rival ya tenían un camino "siempre disponible" (`rivalFoulLive()`, `addTimeout('rival')`) sin depender del seguimiento individual del rival. Los rebotes no: la única forma de anotar un rebote del rival era `_pickReboundRival()`, solo alcanzable desde la cadena automática tras un fallo NUESTRO, y solo para el caso defensivo -- nunca el ofensivo, que es justo el dato que Mario señaló como el que faltaba.
+
+Confirmado con `AskUserQuestion` (4 preguntas):
+1. Rebotes del rival: Mario, en sus palabras -- *"Al poner rebote ofensivo o rebote defensivo de los botones dar la opcion de que haya sido el rival no hace falta que sea visible en el partido en vivo, de momento"*.
+2. Simetría con nuestros propios rebotes ofensivos: *"Lo que te decía antes no hace falta que aperezca en el marcador en vivo la cosa es poder apountarlo siempre desde los botones de rebote donde estan ahora"* -- sin contador visible, solo que se pueda anotar siempre.
+3. Alcance del panel flotante: Reloj + Tiempo muerto (recomendado).
+4. Posición: Abajo centrado (recomendado).
+
+### Añadido
+- **Tarjeta "🔴 Rival"** en el selector "¿Quién?" que aparece al tocar los botones **R.Ofen**/**R.Def** (`openActionPicker`) -- viendo nuestro propio equipo (no en la pestaña de seguimiento individual del rival, donde ya se pregunta por una jugadora rival concreta, más preciso). Permite anotar el rebote del rival sin depender de la cadena automática ni de tener activado el seguimiento individual.
+- **`_pickReboundForRival(action)`:** registra el rebote (`ro` u `rd`) en `live.log` sin jugador concreto y acumula en `live.rivalTeamAgg` (el mismo acumulador ya existente del modo "solo equipo", reutilizado en vez de crear un campo nuevo).
+- **Panel flotante del reloj** (`live-float-bar`, abajo centrado, encima de la barra de navegación): tiempo restante + botón play/pause (misma `toggleClock()` que la cabecera) + acceso directo a "T.M". Aditivo -- la cabecera original con el reloj completo (editar/rebobinar) sigue intacta, sin tocar.
+- `startClock()` (tick de cada segundo) y `toggleClock()` ahora también actualizan los elementos del panel flotante (`live-clock-float`/`live-clock-btn-float`), para que quede sincronizado con la cabecera sea cual sea el botón que se toque.
+- En landscape (donde ya se ocultan cabecera/nav para dejar las estadísticas a pantalla completa), el panel flotante también se oculta -- no hay grabación en ese modo.
+
+### Modificado
+- `_pickReboundRival()` (la cadena automática de siempre, tras un fallo nuestro) ahora también suma a `live.rivalTeamAgg.rd` -- unifica los dos caminos para anotar un rebote del rival sin jugador concreto bajo el mismo acumulador, sin cambiar su comportamiento de log ya existente.
+
+### Probado (jsdom)
+- `tests/live_rebound_rival_and_float.test.js` (nuevo, 27 aserciones): tarjeta "Rival" presente solo para `ro`/`rd` y solo viendo nuestro propio equipo (ausente en asistencia, falta, y en la pestaña Rival); `_pickReboundForRival()` para ofensivo y defensivo (log + acumulación + toast + suma, no reemplaza); `_pickReboundRival()` sigue intacto en su log y ahora también acumula; panel flotante presente con sus controles y la cabecera original sin tocar; `toggleClock()` sincroniza los dos botones de play/pause (cabecera y flotante) al arrancar y al parar.
+- Revert-sanity-check (dos roturas independientes, cada una restaurada y reconfirmada): forzado `showRivalCard=false` → fallan exactamente las 3 aserciones de la tarjeta "Rival" esperadas, nada más. Forzado a que `toggleClock()` no actualice el botón flotante → falla exactamente 1 aserción esperada ("el botón flotante TAMBIÉN cambia a ⏸"), nada más.
+- Suite completa: **1469/1469 OK** (1442 ya existentes + 27 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.92` / `kortline-v3.0.0-dev.92` (raíz), `kortline-v3-test-dev.92` (`/test/`). Entregado solo a `/test/`, pendiente de que Mario lo pruebe en el móvil antes de promocionarlo a producción.
+
+## [Sin publicar] · kortline-v3 · PDF más compacto + fix real del botón "Copiar" (B-MATCHPDF2/B-COPYFIX1, dev.91, 2026-10-06)
+
+Cambio pequeño, proceso ligero (una sola pasada de tests, sin revert-sanity-check). Mario probó dev.90 y pidió dos ajustes:
+
+- **PDF:** quitados los 3 "Destacados del partido" (máximo anotador/mejor +/-/mejor valoración) -- ya se veían en la propia tabla, eran ruido repetido. La tabla sube justo debajo del marcador (antes empezaba en y=108, ahora en y=80), y el salto de página para las estadísticas del rival ahora se calcula según el alto real que necesita en vez de un umbral fijo -- con esto, un partido normal cabe en una sola página.
+- **"Copiar stats" seguía sin funcionar** tras el fix de dev.90 (que solo arregló el `ReferenceError` de scope) -- causa real distinta: `navigator.clipboard?.writeText(...).then(...)` sin `.catch()` no avisa de NADA si `navigator.clipboard` no existe en el navegador/PWA (el optional chaining corta toda la cadena en silencio) o si la promesa se rechaza (permiso denegado) -- exactamente indistinguible de "no funciona" desde fuera. Mismo patrón roto en otros 3 botones "📋 Copiar" de la app (asistencia diaria/semanal, convocatoria). Fix: `_copyToClipboard()`, helper único con fallback real a `document.execCommand("copy")`, usado ahora en los 4 sitios.
+- Tests: 8 aserciones nuevas en `tests/match_stats_pdf.test.js` (clipboard ausente, promesa rechazada, fallback también fallando). Suite completa: **1442/1442 OK** (raíz y `/test/`).
+- `APP_VERSION`/`CACHE_VERSION` → `3.0.0-dev.91` (raíz), `kortline-v3-test-dev.91` (`/test/`). Entregado solo a `/test/`.
+
+## [Sin publicar] · kortline-v3 · PDF de estadísticas del partido + arreglo "Copiar stats" (B-MATCHPDF1, dev.90, 2026-10-06)
+
+Mario: *"Ahroa tenemos que revisar todas las funciones de partidos en vivo. Empezamos por que cuando se acaba un partido y en la propoia vision con un partido finalizado, debemos dacar un pdf con las estadisticas del partido y tiene que ser muy muy chulo a la vez que profesional y que salga todo"*. Añadido durante la aclaración: *"Es importante saber que el boton copiar que hay ahora para copiar las stats no funciona"*.
+
+Confirmado con `AskUserQuestion` (3 preguntas):
+1. El botón de PDF hace falta en los dos sitios: en la pantalla de resumen justo al acabar el partido, **y** en el detalle de un partido ya finalizado reabierto desde el historial (este segundo acceso no existía -- se ha creado).
+2. Contenido: incluir "Destacados del partido" (máximo anotador, mejor +/-, mejor EFF) y, si se registraron, las estadísticas individualizadas del rival. Sin mapa de tiros.
+3. Estilo visual: el mismo que el PDF de asistencia de temporada ya existente (navy/naranja, jsPDF-autotable), no un "póster" distinto.
+
+### Arreglado
+- **"📋 Copiar stats" no funcionaba:** el botón llamaba a una función inline que usaba variables (`convP`, `live`) fuera de su scope real -- fallaba en silencio con un `ReferenceError`. Sustituido por una función de verdad, `_copyMatchStats()`.
+
+### Añadido
+- **`_matchStatsComputed(m)`:** calcula de forma independiente las filas/totales del equipo y (si `m.rivalStatsEnabled` y hay datos reales) del rival, más los destacados (máximo anotador, mejor +/-, mejor EFF). Fuente de datos compartida entre el copiar-stats arreglado y el nuevo PDF -- deliberadamente no se ha tocado la tabla que ya se ve en pantalla en `matchSummaryScreen()`, para no arriesgar nada ya aprobado y en producción.
+- **`exportMatchStatsPDF()`:** nuevo PDF (A4 horizontal) con banda de cabecera, marcador del resultado + cuartos/prórrogas, 3 tarjetas de destacados, tabla completa de estadísticas (18 columnas) con fila de Totales, tabla de estadísticas del rival si hay datos reales, pie con numeración de páginas. Mismo estilo navy/naranja que el PDF de asistencia de temporada.
+- **Nuevo botón "📄 Exportar PDF del partido"** en la pantalla de resumen (`matchSummaryScreen()`), junto al de compartir/copiar.
+- **Nuevo botón 📊** en `matchDetail()` (solo visible si el partido está finalizado y tuvo seguimiento en vivo) que lleva al resumen/PDF desde el historial -- acceso que antes no existía para partidos ya finalizados reabiertos más tarde.
+- Navegación: se añade el flag `S._fromDetail` para que el botón "←" del resumen vuelva al detalle del partido cuando se llega desde ahí, en vez de siempre volver a "Hoy" (comportamiento que se mantiene igual que antes para el flujo normal justo al acabar un partido).
+
+### Probado (jsdom)
+- `tests/match_stats_pdf.test.js` (nuevo, 38 aserciones): `_matchStatsComputed()`, activación/desactivación de estadísticas del rival (activado+datos / desactivado / activado-pero-todo-cero), arreglo de `_copyMatchStats()` (no lanza, texto correcto, caso vacío), `exportMatchStatsPDF()` (no lanza con datos completos, nombre de archivo con equipo/rival/fecha, prórrogas, caso sin jsPDF cargado), visibilidad del botón 📊 en matchDetail en las 3 combinaciones relevantes, ida y vuelta de `_fromDetail` en los dos sentidos, botones en pantalla llaman a las funciones correctas.
+- Revert-sanity-check (dos roturas independientes, cada una restaurada y reconfirmada): forzado `_matchStatsComputed` a devolver `rows:[]` → fallan exactamente las 2 aserciones esperadas; quitado el bloque del botón 📊 en matchDetail → falla exactamente 1 aserción esperada. Nada más se rompe en ninguno de los dos casos.
+- Suite completa: **1434/1434 OK** (1396 ya existentes + 38 nuevas), verificado contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.90` / `kortline-v3.0.0-dev.90` -- entregado solo a `/test/` por ahora, pendiente de que Mario lo pruebe en el móvil antes de promocionarlo a producción.
+
 ## [Publicado] · kortline-v3 · Promoción a producción: lote dev.88→dev.89 (2026-10-06)
 
 Mario, tras probar en `/test/` y confirmar con `AskUserQuestion` el alcance exacto (las dos funciones juntas, ya que dev.89 incluye dev.88 en el mismo archivo): *"perfecto, subimos a real"*.

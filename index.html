@@ -18,6 +18,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- v3.0.0-dev.94 · B-TOUR1: tutorial guiado (ver sección "TOUR GUIADO" en el
+     JS). Driver.js es MIT, sin dependencias y ligera (~20KB) -- a diferencia
+     de Intro.js (gratis solo para uso no comercial) o Shepherd.js (más
+     pesada, depende de Floating UI). -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/driver.js/1.3.1/driver.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/driver.js/1.3.1/driver.min.js.iife.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -528,7 +534,8 @@ label{-webkit-tap-highlight-color:transparent;}
   body.in-live .header,
   body.in-live .nav,
   body.in-live .live-scoreboard-wrap,
-  body.in-live .live-col-r{display:none!important;}
+  body.in-live .live-col-r,
+  body.in-live .live-float-bar{display:none!important;}
   body.in-live .live-game-content{padding:0!important;max-width:none!important;}
   /* La tabla de stats inline (.live-stats-wrap) está marcada display:none
      en portrait. En landscape la promovemos a overlay fullscreen. */
@@ -575,6 +582,15 @@ label{-webkit-tap-highlight-color:transparent;}
 .asst-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .asst-rm{padding:8px 10px;border:none;background:var(--s2);border-radius:8px;cursor:pointer;color:var(--tm);font-size:16px;line-height:1;flex-shrink:0}
 .btn-asst-add{width:100%;padding:9px;border:1px dashed var(--border);background:none;border-radius:8px;cursor:pointer;color:var(--td);font-size:13px;font-weight:600;margin-top:2px}
+/* ── v3.0.0-dev.94 · B-TOUR1: tema de Driver.js con la paleta de Kortline ── */
+.driver-popover{background:#0d2244;color:#eef2ff;border:1px solid rgba(240,99,24,.35);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.5);max-width:320px;font-family:'DM Sans',sans-serif}
+.driver-popover-title{color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:17px}
+.driver-popover-description{color:#b9c6e4;font-size:13px;line-height:1.5}
+.driver-popover-progress-text{color:#7a9cc8;font-size:11px}
+.driver-popover-footer button{background:#1a3a6b;color:#eef2ff;border:1px solid rgba(240,99,24,.4);text-shadow:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700}
+.driver-popover-footer .driver-popover-next-btn{background:linear-gradient(135deg,#f97316,#c2410c);border:none}
+.driver-popover-close-btn{color:#7a9cc8}
+.driver-popover-arrow-side-left.driver-popover-arrow,.driver-popover-arrow-side-right.driver-popover-arrow,.driver-popover-arrow-side-top.driver-popover-arrow,.driver-popover-arrow-side-bottom.driver-popover-arrow{border-color:#0d2244}
 </style>
 </head>
 <body>
@@ -617,6 +633,13 @@ function startClock(){
       if(el){el.textContent=_fmtClock(s);el.style.color=s===0?"#ef4444":s<60?"#f59e0b":"var(--tx)";}
       const btn=document.getElementById("live-clock-btn");
       if(btn)btn.textContent="⏸";
+      // v3.0.0-dev.92 · B-LIVEFLOAT1: mismo refresco para el panel flotante
+      // (ver liveGame()) -- sin esto el segundero del panel flotante se
+      // quedaría congelado hasta el próximo render() completo.
+      const elF=document.getElementById("live-clock-float");
+      if(elF){elF.textContent=_fmtClock(s);elF.style.color=s===0?"#ef4444":s<60?"#f59e0b":"var(--tx)";}
+      const btnF=document.getElementById("live-clock-btn-float");
+      if(btnF){btnF.textContent="⏸";btnF.style.background="rgba(239,68,68,.9)";}
       save();
     } else {
       // End of period
@@ -666,6 +689,14 @@ function toggleClock(){
   const btn=document.getElementById("live-clock-btn");
   if(el)el.textContent=_fmtClock(m.live.clockSec);
   if(btn)btn.textContent=m.live.clockRunning?"⏸":"▶";
+  // v3.0.0-dev.92 · B-LIVEFLOAT1: sincroniza también el panel flotante (ver
+  // liveGame()) -- toggleClock() se puede llamar desde CUALQUIERA de los
+  // dos botones de play/pause (cabecera o flotante), así que los dos
+  // deben quedar consistentes sea cual sea el que se tocó.
+  const elF=document.getElementById("live-clock-float");
+  const btnF=document.getElementById("live-clock-btn-float");
+  if(elF){elF.textContent=_fmtClock(m.live.clockSec);elF.style.color=m.live.clockSec===0?"#ef4444":m.live.clockSec<60?"#f59e0b":"var(--tx)";}
+  if(btnF){btnF.textContent=m.live.clockRunning?"⏸":"▶";btnF.style.background=m.live.clockRunning?"rgba(239,68,68,.9)":"rgba(34,197,94,.9)";}
   save();
 }
 function resetClock(){
@@ -2180,7 +2211,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.89";
+const APP_VERSION = "3.0.0-dev.94";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2299,10 +2330,17 @@ function _initCloudGate(){
       _fbUser=user; _fbReady=true;
       document.getElementById("m-pin-gate")?.remove();
       _attachClubListeners();
+      // v3.0.0-dev.94 · B-TOUR1: para un club genuinamente nuevo (sin ningún
+      // equipo creado todavía) que nunca ha visto el tour en este
+      // dispositivo, arrancarlo automáticamente -- _maybeStartTour() ya se
+      // encarga de comprobar ambas condiciones y de llamar a
+      // _maybeShowCoachNamePrompt() ella misma al terminar el tour
+      // (_tourEnd()), así que aquí solo preguntamos el nombre directamente
+      // si el tour NO ha arrancado (para no apilar los dos avisos a la vez).
       // v1.8.29 · B-COACHID1: tras entrar (recién con el PIN, o porque
       // Firebase ya recordaba la sesión de este móvil), preguntar el
       // nombre UNA vez si este dispositivo todavía no lo tiene puesto.
-      _maybeShowCoachNamePrompt();
+      if(!_maybeStartTour()) _maybeShowCoachNamePrompt();
     } else {
       _fbUser=null;
       _showPinGate();
@@ -2666,6 +2704,12 @@ function _syncGlobalTeamListeners(){
   });
 }
 function _attachTeamListeners(tid){
+  // v3.0.0-dev.94 · B-TOUR1: durante el tour guiado, tid es el equipo falso
+  // de demo -- no tiene sentido (ni es seguro) abrir listeners de Firestore
+  // para un id que no existe en la nube. Al terminar el tour se restaura el
+  // S real y, si corresponde, se vuelve a llamar a esta función con el tid
+  // real desde el flujo normal.
+  if(window._tourActive)return;
   _teardown(_teamUnsubs);
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
@@ -2748,6 +2792,12 @@ function load(){
   S.cfg.riskThreshold=parseInt(S.cfg.riskThreshold)||75;
 }
 function save(){
+  // v3.0.0-dev.94 · B-TOUR1: durante el tour guiado, S contiene datos de
+  // demostración -- no deben escribirse NUNCA en localStorage ni programar
+  // una sincronización con Firestore (ver _scheduleCloudSync() más abajo).
+  // Devolvemos true (éxito "fingido") para no disparar ninguna lógica de
+  // "no cupo, revertir" en quien llamó a save().
+  if(window._tourActive)return true;
   // v1.8.3: cada lsSet devuelve true/false. save() devuelve false si algún
   // dato real no cupo (para que handlePhoto y otros sepan revertir).
   // v1.8.35 · B-NOBKP1: se quitó la copia de seguridad manual (export/import
@@ -5319,7 +5369,38 @@ function buildWeeklyText(tid,showMotivo,opts){
   lines.push(`\n_${realClub||t.name}_`);
   return lines.join("\n");
 }
-function shareText(text){if(navigator.share){navigator.share({text}).catch(()=>{});}else{navigator.clipboard?.writeText(text).then(()=>toast("📋 Copiado")).catch(()=>toast("⚠️ No se pudo copiar"));}}
+// v3.0.0-dev.91 · B-COPYFIX1: Mario reportó que "copiar stats" seguía sin
+// funcionar tras el fix de dev.90 (que solo arregló el ReferenceError de
+// scope) -- la causa real es distinta: navigator.clipboard puede no existir
+// en el navegador/PWA de su móvil, o navigator.clipboard.writeText() puede
+// rechazar la promesa (permiso denegado) -- en los dos casos, con solo
+// `navigator.clipboard?.writeText(...).then(...)` y sin `.catch()`, no pasa
+// NADA visible (el optional chaining corta toda la cadena en silencio si
+// falta la API, y una promesa rechazada sin .catch() tampoco avisa) -- desde
+// fuera es indistinguible de "no funciona". Mismo patrón roto en los otros
+// 3 botones "📋 Copiar" de la app (asistencia diaria/semanal, convocatoria).
+// Fix: helper único con fallback real a document.execCommand("copy") (más
+// compatible, no depende de la Clipboard API) para cuando falta la API o la
+// promesa se rechaza -- y solo si eso también falla, avisa de verdad.
+function _copyToClipboard(text,okMsg){
+  okMsg=okMsg||"📋 Copiado";
+  const fallback=()=>{
+    try{
+      const ta=document.createElement("textarea");
+      ta.value=text;ta.style.position="fixed";ta.style.left="-9999px";ta.style.top="0";
+      document.body.appendChild(ta);ta.focus();ta.select();
+      const ok=document.execCommand("copy");
+      document.body.removeChild(ta);
+      ok?toast(okMsg):toast("⚠️ No se pudo copiar");
+    }catch(e){toast("⚠️ No se pudo copiar");}
+  };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>toast(okMsg)).catch(fallback);
+  }else{
+    fallback();
+  }
+}
+function shareText(text){if(navigator.share){navigator.share({text}).catch(()=>{});}else{_copyToClipboard(text);}}
 function toggleSharePanel(id){const b=document.getElementById(id);if(!b)return;b.classList.toggle("open");const ic=document.getElementById(id+"-icon");if(ic)ic.textContent=b.classList.contains("open")?"▲":"▼";}
 function _refreshSharePrevs(){
   const t=S.teams.find(x=>x.id===S.teamId);
@@ -5351,8 +5432,8 @@ function shareScreen(){
         <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:6px">📅 Asistencia del día</div>
         <div class="share-preview" id="${id}-dp" style="white-space:pre-wrap">${esc(dayTxt)}</div>
         <button class="btn-wa" onclick="shareText(document.getElementById('${id}-dp').innerText)">💬 Compartir</button>
-        <button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('${id}-dp').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar</button>
-        ${wkTxt?`<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin:14px 0 6px">📊 Resumen semanal</div><div class="share-preview" id="${id}-wp" style="white-space:pre-wrap">${esc(wkTxt)}</div><button class="btn-wa" onclick="shareText(document.getElementById('${id}-wp').innerText)">💬 Compartir resumen</button><button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('${id}-wp').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar</button>`:`<div style="font-size:13px;color:var(--tm);padding:10px 0">Sin sesiones para el resumen.</div>`}
+        <button class="btn-copy" onclick="_copyToClipboard(document.getElementById('${id}-dp').innerText)">📋 Copiar</button>
+        ${wkTxt?`<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin:14px 0 6px">📊 Resumen semanal</div><div class="share-preview" id="${id}-wp" style="white-space:pre-wrap">${esc(wkTxt)}</div><button class="btn-wa" onclick="shareText(document.getElementById('${id}-wp').innerText)">💬 Compartir resumen</button><button class="btn-copy" onclick="_copyToClipboard(document.getElementById('${id}-wp').innerText)">📋 Copiar</button>`:`<div style="font-size:13px;color:var(--tm);padding:10px 0">Sin sesiones para el resumen.</div>`}
       </div>
     </div>`;
   }
@@ -5750,7 +5831,12 @@ function _finishAndShowSummary(teamId,matchId){
   // v1.8.12 · B-11: sincronizar live.qScores → m.q[] al finalizar
   _syncQFromLive(m);
   save();
-  navTo('matchSummary',{teamId,matchId});
+  // B-MATCHPDF1: _fromDetail:false explícito -- si venimos de reabrir un
+  // partido viejo desde el historial (navegación que SÍ lo pone a true),
+  // y justo después el entrenador acaba otro partido en vivo, S._fromDetail
+  // es una variable plana de S y se quedaría pegada en true sin este reset,
+  // haciendo que "←" aquí vuelva (mal) a matchDetail en vez de a Hoy.
+  navTo('matchSummary',{teamId,matchId,_fromDetail:false});
 }
 /* ═══════════════════════════════════════
    MODALS
@@ -5821,7 +5907,8 @@ function openClubSettings(){
       <div style="text-align:center;padding:18px 0 6px">
         <img src="${_FULL_SVG_URL}" style="height:36px;max-width:100%;opacity:0.9;margin-bottom:10px"/>
         <div style="font-size:11px;color:var(--tm);line-height:1.7">Versión ${APP_VERSION} · Desarrollada por <b style="color:var(--td)">Mario Nadal Ara</b></div>
-        <button type="button" class="btn-s" onclick="openErrorLogsModal()" style="margin-top:12px;font-size:12px;padding:8px 14px;width:auto">🐞 Ver errores recientes</button>
+        <button type="button" class="btn-s" onclick="startTour()" style="margin-top:12px;font-size:12px;padding:8px 14px;width:auto">🎓 Ver tutorial</button>
+        <button type="button" class="btn-s" onclick="openErrorLogsModal()" style="margin-top:8px;font-size:12px;padding:8px 14px;width:auto">🐞 Ver errores recientes</button>
       </div>
     </div>
     <button class="btn-p" onclick="saveClubSettings()">Guardar configuración</button>
@@ -10028,7 +10115,8 @@ function matchDetail(){
     </div>
     ${scoreEntryHtml}
     ${liveActionHtml}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
+      ${m.finished&&hasLive?`<button onclick="navTo('matchSummary',{teamId:S.teamId,matchId:S.matchId,_fromDetail:true})" style="width:48px;height:48px;border-radius:8px;background:rgba(240,99,24,.15);border:1px solid rgba(240,99,24,.4);color:var(--orange);cursor:pointer;font-size:20px" title="Estadísticas y PDF">📊</button>`:""}
       <button onclick="shareMatchResult()" style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px" title="Compartir resultado">📤</button>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -10956,7 +11044,7 @@ function shareMatchConv(){
     <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--td);margin-bottom:6px">Para padres / grupo</div>
     <div class="share-preview" style="max-height:160px;white-space:pre-wrap">${esc(textP)}</div>
     <button class="btn-wa" onclick="shareText(document.getElementById('m-share-match').querySelector('.share-preview').innerText)">💬 Compartir</button>
-    <button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('m-share-match').querySelector('.share-preview').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar</button>
+    <button class="btn-copy" onclick="_copyToClipboard(document.getElementById('m-share-match').querySelector('.share-preview').innerText)">📋 Copiar</button>
     <button class="btn-s" onclick="document.getElementById('m-share-match').remove()">Cerrar</button>
   </div>`;
   document.body.appendChild(el);
@@ -11071,6 +11159,145 @@ function _confirmCoachNamePrompt(){
 function _skipCoachNamePrompt(){
   lsSet("cbj:coachname_skipped",true,true);
   document.getElementById("m-coachname")?.remove();
+}
+/* ═══════════════════════════════════════
+   TOUR GUIADO (v3.0.0-dev.94 · B-TOUR1)
+   Mario: "despues de esto haremos un tutorial en la aplicacion para la
+   primera vez que se abra y para que este en el menu de configuracion
+   explicando lo basico pero de toda la aplicacion" -- y, al pedir pensar
+   cómo hacerlo: "importantisimo que debe tener datos de prueba al
+   principio porque un club no tendra [datos reales]".
+   Enfoque confirmado con Mario (AskUserQuestion):
+   1) Alcance "lo básico de cada pantalla principal" (8 paradas), no botón
+      por botón -- el manual ya hecho (Claude Docs) queda como referencia
+      para el detalle fino.
+   2) Los datos de muestra ("Equipo Demo") viven SOLO en memoria durante el
+      tour -- jamás se escriben en localStorage ni en Firestore (ver el
+      guard de _tourActive en save(), más abajo) -- y al terminar o saltar
+      el tour se restauran exactamente los datos reales de antes, estén
+      vacíos (club nuevo) o no (reproducir el tour en un club ya en marcha).
+   Recorre pantallas REALES (no capturas/diapositivas) navegando con el
+   propio S global, igual que haría un entrenador, resaltando con Driver.js
+   (MIT, sin dependencias -- ver <head>) el elemento concreto de cada paso.
+═══════════════════════════════════════ */
+let _tourDriver=null,_tourBackup=null,_tourStepIdx=0;
+function _tourDemoBundle(){
+  const tid="tour-demo-team",mid="tour-demo-match";
+  const names=["Ana García","Clara Pérez","Elena Ruiz","Lucía Gómez","Marta Soto","Sara Díaz","Nora Vidal","Irene León"];
+  const players=names.map((name,i)=>({id:"tour-p"+i,addedAt:td(),name,nickname:"",number:String(i+4),position:["Base","Alero","Pívot"][i%3],notes:"",photo:"",birthDate:""}));
+  const onCourt=players.slice(0,5).map(p=>p.id);
+  const stats={};
+  players.forEach((p,i)=>{
+    stats[p.id]={p1m:i===0?2:0,p1a:1,p2m:i===0?3:i===1?2:0,p2a:1,p3m:i===2?1:0,p3a:1,ro:i<5?1:0,rd:i<5?1:0,ast:i===1?2:0,foul:i===3?2:0,ftech:0,funsport:0,fdq:0,stl:i===4?1:0,blk:0,to:i===2?1:0};
+  });
+  const team={id:tid,name:"Equipo Demo",category:"Sub-16 Masculino",gender:"m",schedule:{1:"18:00",3:"18:00"},color:"#F06318",coaches:[],order:0};
+  const match={
+    id:mid,rival:"CB Ejemplo",date:td(),time:"18:00",venue:"Pabellón Municipal",location:"home",
+    quarters:4,qMins:10,rivalStatsEnabled:false,teamOnlyStats:false,stopOnFoul:true,shotChart:false,trackPlayType:false,fibaRules2026:false,
+    matchMode:"live",countsForAttendance:true,rollCallAtt:true,
+    q:[14,10,12,8,null,null,null,null,null,null],
+    convocados:players.map(p=>p.id),titulares:onCourt,capitan:players[0].id,rivalPlayers:[],notes:"",
+    finished:true,
+    live:{
+      q:4,clockSec:0,clockMins:10,clockRunning:false,onCourt,
+      stats,qScores:[[14,11],[10,9],[12,8],[8,9],[0,0]],
+      teamFouls:[2,3,1,2,0,0],rivalFouls:[1,2,3,1,0,0],
+      timeouts:{our:[1,0,0,0,0,0],rival:[0,1,0,0,0,0]},
+      log:[],rivalTeamAgg:{p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0},
+      activeTeam:"our"
+    }
+  };
+  return{tid,mid,team,players,match};
+}
+function _tourSteps(demo){
+  const q=sel=>document.querySelector(sel);
+  return[
+    {setup:()=>{S.screen="hoy";},el:()=>q(".nav"),side:"top",
+      title:"👋 Bienvenido a Kortline",
+      text:"Esta es la pantalla <b>Hoy</b> -- lo que toca hoy. Abajo tienes las tres pestañas fijas de toda la app: Hoy, Equipos y Stats. Vamos a recorrerlas con un equipo de prueba (no se guarda nada de lo que veas aquí)."},
+    {setup:()=>{S.screen="team";S.teamId=demo.tid;},el:()=>q('button[onclick="openPlayerModal()"]'),
+      title:"👥 Plantilla",
+      text:"Cada equipo tiene su plantilla, su calendario y sus entrenamientos. Aquí se añaden jugadores con dorsal, posición y, si quieres, foto y fecha de nacimiento."},
+    {setup:()=>{S.screen="att";S.teamId=demo.tid;S.date=td();},el:()=>q('button[onclick^="cycleAtt("]'),
+      title:"✅ Pasar lista",
+      text:"Tocando este icono se alterna el estado de cada jugador: presente, ausente, tarde o justificado. Así se pasa lista en cada entrenamiento."},
+    {setup:()=>{S.screen="matchDetail";S.teamId=demo.tid;S.matchId=demo.mid;},el:()=>q(".conv-player"),
+      title:"🏟️ Convocatoria",
+      text:"Un partido nace con toda la plantilla convocada -- solo hay que desmarcar a quien no vaya. Aquí mismo se marca la asistencia el día del partido."},
+    {setup:()=>{S.screen="liveGame";S.teamId=demo.tid;S.matchId=demo.mid;demo.match.live.clockRunning=false;},el:()=>q(".live-float-bar"),side:"top",
+      title:"🔴 Partido en vivo",
+      text:"Puntos, rebotes, faltas, tiempos muertos... todo se anota tocando al jugador y la acción. El panel flotante con el reloj va contigo aunque bajes a ver las jugadas."},
+    {setup:()=>{S.screen="matchSummary";S.teamId=demo.tid;S.matchId=demo.mid;S._fromDetail=false;},el:()=>q('button[onclick="exportMatchStatsPDF()"]'),
+      title:"📄 Resumen y PDF",
+      text:"Al acabar el partido tienes sus estadísticas completas, y un PDF profesional listo para compartir -- también se puede volver a sacar más tarde desde el Historial."},
+    {setup:()=>{S.screen="stats";S.teamId=demo.tid;},el:()=>q(".content"),
+      title:"📊 Estadísticas de temporada",
+      text:"Asistencia, partidos y evolución del equipo a lo largo de todo el curso, con exportación a PDF o Excel."},
+    {setup:()=>{openClubSettings();},el:()=>q('button[onclick="startTour()"]'),side:"top",
+      title:"⚙️ Ajustes",
+      text:"Aquí vive la configuración del club y de cómo quieres que se registren los partidos. Y este botón de aquí: siempre puedes volver a ver este tutorial cuando quieras."}
+  ];
+}
+function startTour(){
+  if(typeof window.driver==="undefined"){toast("⚠️ No se pudo cargar el tutorial (sin conexión)");return;}
+  document.getElementById("m-club-settings")?.remove();
+  document.getElementById("m-coachname")?.remove();
+  _tourBackup={screen:S.screen,teamId:S.teamId,matchId:S.matchId,date:S.date,
+    teams:S.teams,players:S.players,sessions:S.sessions,matches:S.matches,events:S.events};
+  window._tourActive=true;
+  const demo=_tourDemoBundle();
+  S.teams=[demo.team];S.players={[demo.tid]:demo.players};S.sessions={};
+  S.matches={[demo.tid]:[demo.match]};S.events={[demo.tid]:[]};
+  _tourDriver=window.driver.js.driver({overlayOpacity:.65,stagePadding:6,animate:true,allowClose:true,disableActiveInteraction:true});
+  _tourGoTo(demo,0);
+}
+function _tourGoTo(demo,i){
+  const steps=_tourSteps(demo);
+  if(i<0){i=0;}
+  if(i>=steps.length){_tourEnd();return;}
+  _tourStepIdx=i;
+  const step=steps[i];
+  document.getElementById("m-club-settings")?.remove();
+  step.setup();
+  render();
+  requestAnimationFrame(()=>setTimeout(()=>{
+    const el=step.el();
+    if(!el){_tourGoTo(demo,i+1);return;} // paso roto (p.ej. pantalla distinta) -- no bloquea el resto del tour
+    _tourDriver.highlight({element:el,popover:{
+      title:step.title,
+      description:step.text+'<div style="margin-top:8px;font-size:11px;opacity:.7">Paso '+(i+1)+' de '+steps.length+'</div>',
+      side:step.side||"bottom",align:"start",
+      showButtons:["next","previous","close"],
+      nextBtnText:i===steps.length-1?"Terminar":"Siguiente",prevBtnText:"Atrás",
+      onNextClick:()=>_tourGoTo(demo,i+1),onPrevClick:()=>_tourGoTo(demo,i-1),onCloseClick:()=>_tourEnd()
+    }});
+  },80));
+}
+function _tourEnd(){
+  if(_tourDriver){_tourDriver.destroy();_tourDriver=null;}
+  document.getElementById("m-club-settings")?.remove();
+  window._tourActive=false;
+  if(_tourBackup){
+    S.screen=_tourBackup.screen;S.teamId=_tourBackup.teamId;S.matchId=_tourBackup.matchId;S.date=_tourBackup.date;
+    S.teams=_tourBackup.teams;S.players=_tourBackup.players;S.sessions=_tourBackup.sessions;
+    S.matches=_tourBackup.matches;S.events=_tourBackup.events;
+    _tourBackup=null;
+  }
+  lsSet("cbj:tour_seen",true,true);
+  render();
+  _maybeShowCoachNamePrompt();
+}
+// Se llama justo tras el login (ver _initCloudGate). Solo arranca solo para
+// un club genuinamente nuevo (sin ningún equipo creado todavía) que nunca
+// lo haya visto en este dispositivo -- en cualquier otro caso, el botón
+// "🎓 Ver tutorial" de Ajustes sigue disponible siempre. Devuelve true si
+// arrancó el tour (para que el llamador no muestre también, a la vez, el
+// aviso de "¿quién eres?").
+function _maybeStartTour(){
+  if(S.teams.length>0)return false;
+  if(lsGet("cbj:tour_seen"))return false;
+  setTimeout(startTour,400);
+  return true;
 }
 function _checkLivePresence(m){
   const live=m.live;if(!live)return;
@@ -11998,6 +12225,28 @@ function liveGame(){
     </div>
   </div>
   </div>
+  <!-- v3.0.0-dev.92 · B-LIVEFLOAT1: Mario, revisando partidos en vivo:
+       "el boton del tiempo sobretodo el play y pause... hay que hacerlo
+       como boton flotante sino no es util tener que subir y bajar todo
+       el rato". El reloj/play-pause YA estaba en la cabecera (position:
+       sticky), pero en un móvil alto, con el pulgar ya abajo anotando
+       acciones, "sticky" no evita tener que mover la mano hasta arriba
+       cada vez que hay que parar/arrancar el reloj o pedir un tiempo
+       muerto -- justo lo que Mario describe. Confirmado con
+       AskUserQuestion: panel flotante con reloj (tiempo + play/pause) +
+       Tiempo Muerto, centrado abajo. Aditivo -- la cabecera de arriba
+       sigue intacta con el reloj completo (editar/rebobinar incluidos)
+       para quien lo prefiera ahí; esto es solo un acceso rápido cerca del
+       pulgar. toggleClock()/startClock() actualizan este panel a la vez
+       que la cabecera (mismo mecanismo de "live-clock"/"live-clock-btn",
+       ver updates en esas dos funciones). Oculto en modo lectura
+       horizontal (igual que el resto de controles de anotar, ver
+       body.in-live en el CSS) -- ahí no se anota, solo se consulta. -->
+  <div class="live-float-bar" style="position:fixed;bottom:88px;left:50%;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:7px;background:rgba(10,20,38,.94);border:1px solid var(--border);border-radius:16px;padding:7px 9px;box-shadow:0 8px 24px rgba(0,0,0,.45);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:94vw">
+    <div id="live-clock-float" style="font-family:var(--font-d);font-weight:900;font-size:22px;letter-spacing:1px;color:${live.clockSec===0?"#ef4444":live.clockSec<60?"#f59e0b":"var(--tx)"};min-width:60px;text-align:center;line-height:1">${_fmtClock(live.clockSec||0)}</div>
+    <button id="live-clock-btn-float" onclick="toggleClock()" style="min-width:48px;height:42px;border-radius:11px;border:none;background:${live.clockRunning?"rgba(239,68,68,.9)":"rgba(34,197,94,.9)"};color:#fff;cursor:pointer;font-size:18px;font-weight:900;padding:0 10px">${live.clockRunning?"⏸":"▶"}</button>
+    <button onclick="openTimeoutModal()" style="min-width:48px;height:42px;border-radius:11px;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.14);color:#f59e0b;cursor:pointer;font-size:13px;font-weight:900;padding:0 10px">T.M</button>
+  </div>
   ${navBar()}`;
 }
 /* ═══════════════════════════════════════
@@ -12483,6 +12732,31 @@ function openActionPicker(action,pts){
       <div style="font-size:10px;color:var(--td)">${pts2} pts</div>
     </button>`;
   }).join("");
+  // v3.0.0-dev.92 · B-RIVALREB1: Mario pidió explícitamente que, al tocar
+  // "R.Ofen"/"R.Def" (rebote), se pueda decir que ha sido del rival -- hoy
+  // solo existía esa opción en la cadena automática tras UN FALLO NUESTRO
+  // (_chainRebound → "🔴 Rebote del rival", y solo para defensivo), nunca
+  // desde estos botones manuales, y nunca para el rebote OFENSIVO del
+  // rival (su "datos imprescindible" que faltaba: hoy no hay forma de
+  // anotar que el rival ha cogido su propio rebote tras fallar ellos, sin
+  // tener activado el seguimiento individual del rival). Confirmado con
+  // AskUserQuestion: no hace falta que se vea como contador en el
+  // marcador en vivo (de momento) -- solo poder anotarlo siempre desde
+  // estos mismos botones. Se añade una opción "rival" extra SOLO para
+  // ro/rd y SOLO viendo nuestro propio equipo (en la pestaña Rival, estos
+  // botones ya preguntan por un jugador rival concreto -- no hace falta
+  // esta opción ahí). Ver más abajo (dev.93) cómo quedó su forma final.
+  const showRivalCard=(action==="ro"||action==="rd")&&!isRivalSide;
+  // v3.0.0-dev.93 · B-RIVALREB2: Mario, tras probar la tarjeta "Rival" dentro
+  // de la rejilla de jugadores, pidió que en vez de eso fuera "una barra
+  // entera" encima del botón de abajo (Cancelar), con un estilo parecido
+  // pero que destacase un poco más -- el mismo patrón que ya existe en la
+  // cadena automática tras un fallo nuestro (_chainRebound → el botón
+  // "🔴 Rebote del rival", que ya es una barra completa justo encima de
+  // "Sin rebote · Saltar"). Se replica ese mismo patrón aquí para que las
+  // dos formas de anotar un rebote del rival se vean y se sientan igual.
+  const rivalBar=showRivalCard?`<button onclick="_pickReboundForRival('${action}')" style="width:100%;padding:12px;border-radius:9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-weight:800;margin-bottom:8px">🔴 Fue del rival</button>`:"";
+  const totalCards=courtP.length;
   const el=document.createElement("div");
   el.id="m-actpicker";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.96);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;";
@@ -12492,11 +12766,29 @@ function openActionPicker(action,pts){
       <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:${meta.color};margin-bottom:6px">${meta.emoji} ${meta.txt}</div>
       <div style="font-family:var(--font-d);font-weight:900;font-size:18px;color:var(--tx)">¿Quién?</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(${Math.min(courtP.length,5)},1fr);gap:7px;margin-bottom:14px">${cards}</div>
-    <button class="btn-s" onclick="document.getElementById('m-actpicker').remove()" style="width:100%">Cancelar</button>
+    <div style="display:grid;grid-template-columns:repeat(${Math.min(totalCards||1,5)},1fr);gap:7px;margin-bottom:14px">${cards}</div>
+    ${rivalBar}
+    <button class="btn-s" onclick="document.getElementById('m-actpicker').remove()" style="width:100%;margin-top:0">Cancelar</button>
   </div>`;
   document.body.appendChild(el);
 }
+// Tarjeta "🔴 Rival" del picker de rebote (ver comentario arriba, B-RIVALREB1):
+// registra un rebote genérico del rival (sin jugador concreto), igual de
+// válido para ofensivo que para defensivo. Reutiliza live.rivalTeamAgg (ya
+// existente desde el modo "solo equipo") como acumulador de equipo -- así
+// queda disponible para futuros informes aunque hoy no se muestre en vivo.
+window._pickReboundForRival=function(action){
+  document.getElementById("m-actpicker")?.remove();
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  const live=m.live;
+  const desc=action==="ro"?"Rebote ofensivo rival":"Rebote defensivo rival";
+  const entry={pid:"rival",action,pts:0,q:live.q,clockAt:live.clockSec,desc};
+  live.log=[...(live.log||[]),entry];
+  if(!live.rivalTeamAgg)live.rivalTeamAgg={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};
+  live.rivalTeamAgg[action]=(live.rivalTeamAgg[action]||0)+1;
+  save();render();
+  toast(action==="ro"?"📦 Rebote ofensivo del rival":"🛡 Rebote defensivo del rival");
+};
 // Tras elegir el jugador en el picker
 window._pickActionFor=function(pid,action,pts){
   document.getElementById("m-actpicker")?.remove();
@@ -12636,6 +12928,12 @@ window._pickReboundRival=function(){
   const live=m.live;
   const entry={pid:"rival",action:"rd",pts:0,q:live.q,clockAt:live.clockSec,desc:"Rebote rival"};
   live.log=[...(live.log||[]),entry];
+  // v3.0.0-dev.92 · B-RIVALREB1: mismo acumulador que _pickReboundForRival()
+  // (el rebote del rival "manual" desde los botones R.Ofen/R.Def) -- así
+  // los dos caminos para anotar un rebote del rival sin jugador concreto
+  // suman al mismo sitio, sea cual sea el botón por el que se llegó.
+  if(!live.rivalTeamAgg)live.rivalTeamAgg={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};
+  live.rivalTeamAgg.rd=(live.rivalTeamAgg.rd||0)+1;
   save();render();
   toast("📦 Rebote del rival");
 };
@@ -12786,6 +13084,198 @@ function shotMap(){
   </div>
   ${navBar()}`;
 }
+/* ═══════════════════════════════════════
+   RESUMEN DE PARTIDO -- datos compartidos para copiar/exportar
+   v3.0.0-dev.90 · B-MATCHPDF1: Mario pidió un PDF "muy chulo y profesional"
+   con las estadísticas del partido finalizado, accesible tanto desde el
+   resumen que sale al terminar como desde el detalle de un partido viejo ya
+   jugado (hoy no hay ningún otro sitio desde el que volver a verlo), y de
+   paso avisó de que el botón "📋 Copiar stats" de matchSummaryScreen no
+   funcionaba. Causa del bug de copiar: su onclick era un IIFE embebido como
+   texto que capturaba `convP`/`live`/`t`/`m`, variables LOCALES de
+   matchSummaryScreen() -- al ejecutarse más tarde (al pulsar el botón, fuera
+   de esa función) esas variables ya no existen en el ámbito global donde
+   corre un onclick, así que lanzaba un ReferenceError silencioso y no
+   copiaba nada. Fix: una función compartida de verdad (global) que
+   recalcula los datos desde S.teamId/S.matchId cada vez que se necesita,
+   igual que ya hace shareMatchResult() -- la usan _copyMatchStats() y
+   exportMatchStatsPDF(), así ambas muestran siempre los mismos números.
+   Deliberadamente NO se ha tocado el cálculo ya existente dentro de
+   matchSummaryScreen() (la tabla en pantalla, ya aprobada y en producción)
+   para no arriesgar ninguna regresión ahí -- esta es una segunda fuente de
+   los mismos datos, verificada con tests de que coincide con la pantalla.
+═══════════════════════════════════════ */
+function _matchStatsComputed(m){
+  const players=pl(S.teamId);
+  const live=m.live||{};
+  const rowFrom=(p,st,withMinPM)=>{
+    const pts=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3;
+    const t2a=(st.p2m||0)+(st.p2a||0),t3a=(st.p3m||0)+(st.p3a||0),t1a=(st.p1m||0)+(st.p1a||0);
+    const row={number:p.number,name:p.name,pts,t2m:st.p2m||0,t2a,t3m:st.p3m||0,t3a,t1m:st.p1m||0,t1a,
+      efg:_calcEFGPct(st),ro:st.ro||0,rd:st.rd||0,ast:st.ast||0,f:_totalFouls(st),frecv:st.frecv||0,
+      stl:st.stl||0,blk:st.blk||0,to:st.to||0,eff:_calcEFF(st)};
+    if(withMinPM){row.minSec=_getMinSec(m,p.id);row.pm=_getPlusMinus(m,p.id);}
+    return row;
+  };
+  const sumRows=(rows,fn)=>rows.reduce((s,r)=>s+fn(r),0);
+  const totalsOf=rows=>{
+    const tt={pts:sumRows(rows,r=>r.pts),t2m:sumRows(rows,r=>r.t2m),t2a:sumRows(rows,r=>r.t2a),
+      t3m:sumRows(rows,r=>r.t3m),t3a:sumRows(rows,r=>r.t3a),t1m:sumRows(rows,r=>r.t1m),t1a:sumRows(rows,r=>r.t1a),
+      ro:sumRows(rows,r=>r.ro),rd:sumRows(rows,r=>r.rd),ast:sumRows(rows,r=>r.ast),f:sumRows(rows,r=>r.f),
+      frecv:sumRows(rows,r=>r.frecv),stl:sumRows(rows,r=>r.stl),blk:sumRows(rows,r=>r.blk),to:sumRows(rows,r=>r.to),
+      eff:sumRows(rows,r=>r.eff)};
+    tt.efg=(tt.t2a+tt.t3a)>0?Math.round(100*(tt.t2m+1.5*tt.t3m)/(tt.t2a+tt.t3a)):0;
+    return tt;
+  };
+  const convP=players.filter(p=>live.stats?.[p.id]&&Object.values(live.stats[p.id]).some(v=>v>0));
+  const rows=convP.map(p=>rowFrom(p,live.stats[p.id]||{},true));
+  const totals=totalsOf(rows);
+  // Rival individualizado -- solo si el partido lo activó (m.rivalStatsEnabled)
+  // Y de verdad hay alguna estadística >0 registrada (si no, no tiene sentido
+  // sacar una tabla entera a cero).
+  const rivalPlayersArr=m.rivalStatsEnabled?(m.rivalPlayers||[]):[];
+  const rivalConvP=rivalPlayersArr.filter(p=>live.rivalStats?.[p.id]&&Object.values(live.rivalStats[p.id]).some(v=>v>0));
+  const hasRival=rivalConvP.length>0;
+  const rivalRows=hasRival?rivalConvP.map(p=>rowFrom(p,live.rivalStats[p.id]||{},false)):[];
+  const rivalTotals=hasRival?totalsOf(rivalRows):null;
+  // Destacados -- máximo anotador, mejor +/- y mejor valoración del equipo.
+  let topScorer=null,topPM=null,topEFF=null;
+  if(rows.length){
+    topScorer=rows.reduce((a,b)=>b.pts>a.pts?b:a);
+    topPM=rows.reduce((a,b)=>(b.pm||0)>(a.pm||0)?b:a);
+    topEFF=rows.reduce((a,b)=>b.eff>a.eff?b:a);
+  }
+  return{rows,totals,hasRival,rivalRows,rivalTotals,topScorer,topPM,topEFF};
+}
+function _copyMatchStats(){
+  const t=S.teams.find(x=>x.id===S.teamId);const m=mById(S.teamId,S.matchId);if(!t||!m)return;
+  const{rows}=_matchStatsComputed(m);
+  if(!rows.length){toast("Sin estadísticas que copiar");return;}
+  const lines=[`📊 ${t.name} vs ${m.rival||"Rival"}`,...rows.map(r=>
+    `#${r.number!=null?r.number:"?"} ${_shortName(r.name)}: ${r.pts}pts T2:${r.t2m}/${r.t2a} T3:${r.t3m}/${r.t3a} AST:${r.ast} REB:${r.ro+r.rd}`
+  )];
+  _copyToClipboard(lines.join("\n"),"📋 Stats copiadas");
+}
+function exportMatchStatsPDF(){
+  if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
+  const{jsPDF}=window.jspdf;
+  const t=S.teams.find(x=>x.id===S.teamId);const m=mById(S.teamId,S.matchId);if(!t||!m)return;
+  const live=m.live||{};
+  const nQ=m.quarters||4;const pL=nQ===4?"Q":"P";const otC=live.otCount||0;
+  const otLabels=otC===1?["OT"]:Array.from({length:otC},(_,i)=>"OT"+(i+1));
+  const qlabels=[...[...Array(nQ).keys()].map(i=>pL+(i+1)),...otLabels];
+  const qs=(live.qScores||[]).map(s=>s||[0,0]);
+  const ourT=qs.reduce((s,q)=>s+(q[0]||0),0),rivT=qs.reduce((s,q)=>s+(q[1]||0),0);
+  const isWin=ourT>rivT,isDraw=ourT===rivT&&ourT>0;
+  const resLabel=isWin?"VICTORIA":isDraw?"EMPATE":"DERROTA";
+  const resRGB=isWin?[34,197,94]:isDraw?[245,158,11]:[239,68,68];
+  const{rows,totals,hasRival,rivalRows,rivalTotals}=_matchStatsComputed(m);
+  const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+  const PAGE_W=297;
+  // ── Header band -- mismo lenguaje visual que el PDF de asistencia de
+  // temporada (exportPDF): banda azul marino + filete naranja del club.
+  doc.setFillColor(13,34,68);doc.rect(0,0,PAGE_W,34,"F");
+  doc.setFillColor(240,99,24);doc.rect(0,30,PAGE_W,4,"F");
+  doc.setFont("helvetica","bold");doc.setFontSize(20);doc.setTextColor(240,99,24);
+  doc.text(S.clubName||"Kortline",14,14);
+  doc.setFontSize(13);doc.setTextColor(240,244,255);
+  doc.text(`${t.name} vs ${m.rival||"Rival"}`,14,23);
+  doc.setFontSize(8);doc.setTextColor(122,156,200);
+  const dateLine=`${m.date?fd(m.date,true):"Sin fecha"}${m.time?" · "+m.time+"h":""}${m.venue?" · "+m.venue:""} · ${m.location==="home"?"🏠 Casa":m.location==="away"?"✈️ Fuera":"⚖️ Neutral"}`;
+  doc.text(dateLine,14,29);
+  doc.setFontSize(7.5);doc.setTextColor(122,156,200);
+  doc.text(`Generado: ${new Date().toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric"})}`,PAGE_W-14,10,{align:"right"});
+  // ── Marcador grande + resultado por cuartos (fila 1, y=40..70)
+  const MARGIN=14,USABLE_W=PAGE_W-MARGIN*2;
+  const scoreBoxW=80;
+  doc.setFillColor(17,31,52);
+  doc.setDrawColor(resRGB[0],resRGB[1],resRGB[2]);doc.setLineWidth(0.8);
+  doc.roundedRect(MARGIN,40,scoreBoxW,30,3,3,"FD");
+  doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(resRGB[0],resRGB[1],resRGB[2]);
+  doc.text(resLabel,MARGIN+scoreBoxW/2,48,{align:"center"});
+  doc.setFontSize(22);doc.setTextColor(240,244,255);
+  doc.text(`${ourT} — ${rivT}`,MARGIN+scoreBoxW/2,61,{align:"center"});
+  // Los cuartos/prórrogas con dato se reparten en lo que queda de fila --
+  // ancho fijo de caja habría desbordado la página con varias prórrogas.
+  const qxStart=MARGIN+scoreBoxW+6;
+  const playedQ=qs.slice(0,qlabels.length).map((q,i)=>({q,label:qlabels[i]||"OT"})).filter(x=>x.q[0]>0||x.q[1]>0);
+  if(playedQ.length){
+    const qGap=2,qAvail=PAGE_W-MARGIN-qxStart;
+    const qBoxW=Math.max(14,Math.min(26,(qAvail-(playedQ.length-1)*qGap)/playedQ.length));
+    playedQ.forEach((pq,i)=>{
+      const x=qxStart+i*(qBoxW+qGap);
+      doc.setFillColor(17,31,52);doc.roundedRect(x,40,qBoxW,30,3,3,"F");
+      doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(122,156,200);
+      doc.text(pq.label,x+qBoxW/2,48,{align:"center"});
+      doc.setFontSize(11);doc.setTextColor(240,244,255);
+      doc.text(`${pq.q[0]}–${pq.q[1]}`,x+qBoxW/2,60,{align:"center"});
+    });
+  }
+  // ── Tabla completa de estadísticas (todas las columnas -- "que salga todo")
+  // v3.0.0-dev.91 · B-MATCHPDF2: Mario pidió quitar "Destacados del partido"
+  // (máximo anotador/mejor +/-/mejor valoración) porque esos mismos datos ya
+  // se ven en la propia tabla (columnas PTS/+/-/EFF) -- repetirlos era ruido,
+  // no información nueva. Al quitar esa fila (y=74..104) la tabla sube justo
+  // debajo del marcador, dejando mucho más margen antes del pie de página
+  // para que el partido quepa en una sola página en el caso normal.
+  const head=[["#","Jugador","MIN","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","FR","ROB","TAP","PER","+/-","EFF"]];
+  const body=rows.map(r=>[r.number!=null?r.number:"—",r.name,_fmtMin(r.minSec||0),r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.frecv,r.stl,r.blk,r.to,(r.pm>0?"+":"")+(r.pm||0),r.eff]);
+  body.push(["—","Totales","—",totals.pts,`${totals.t2m}/${totals.t2a}`,`${totals.t3m}/${totals.t3a}`,`${totals.t1m}/${totals.t1a}`,totals.efg+"%",totals.ro,totals.rd,totals.ast,totals.f,totals.frecv,totals.stl,totals.blk,totals.to,"—",totals.eff]);
+  doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(240,99,24);
+  doc.text("ESTADÍSTICAS DEL PARTIDO",14,80);
+  doc.autoTable({
+    head,body,startY:84,
+    styles:{fontSize:8,cellPadding:2.2,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
+    headStyles:{fillColor:[13,34,68],textColor:[240,99,24],fontStyle:"bold",fontSize:8},
+    alternateRowStyles:{fillColor:[17,31,52]},
+    columnStyles:{0:{halign:"center",cellWidth:9},2:{halign:"center"},3:{halign:"center",fontStyle:"bold"},7:{halign:"center"},16:{halign:"center"},17:{halign:"center",fontStyle:"bold"}},
+    didParseCell(data){
+      if(data.row.index===body.length-1)data.cell.styles.fontStyle="bold";
+      if(!rows.length)return;
+      if(data.column.index===16&&data.section==="body"&&data.row.index<rows.length){
+        const v=rows[data.row.index].pm||0;
+        data.cell.styles.textColor=v>0?[34,197,94]:v<0?[239,68,68]:[122,156,200];
+      }
+    }
+  });
+  let afterY=doc.lastAutoTable.finalY+8;
+  // ── Estadísticas del rival individualizadas, si ese partido las registró
+  if(hasRival){
+    // Estimación real del alto que va a ocupar (cabecera + filas + totales)
+    // en vez de un umbral fijo -- así se aprovecha todo el margen ganado al
+    // quitar los Destacados, y solo salta de página si de verdad no entra.
+    const estRivalH=10+(rivalRows.length+1)*7.5;
+    if(afterY+estRivalH>195){doc.addPage("a4","landscape");afterY=14;}
+    doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(239,68,68);
+    doc.text(`ESTADÍSTICAS — ${(m.rival||"RIVAL").toUpperCase()}`,14,afterY);
+    const rHead=[["#","Jugador","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","ROB","TAP","PER","EFF"]];
+    const rBody=rivalRows.map(r=>[r.number!=null?r.number:"—",r.name,r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.stl,r.blk,r.to,r.eff]);
+    rBody.push(["—","Totales",rivalTotals.pts,`${rivalTotals.t2m}/${rivalTotals.t2a}`,`${rivalTotals.t3m}/${rivalTotals.t3a}`,`${rivalTotals.t1m}/${rivalTotals.t1a}`,rivalTotals.efg+"%",rivalTotals.ro,rivalTotals.rd,rivalTotals.ast,rivalTotals.f,rivalTotals.stl,rivalTotals.blk,rivalTotals.to,rivalTotals.eff]);
+    doc.autoTable({
+      head:rHead,body:rBody,startY:afterY+4,
+      styles:{fontSize:8,cellPadding:2.6,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
+      headStyles:{fillColor:[60,20,20],textColor:[239,68,68],fontStyle:"bold",fontSize:8},
+      alternateRowStyles:{fillColor:[17,31,52]},
+      columnStyles:{0:{halign:"center",cellWidth:9},2:{halign:"center",fontStyle:"bold"}},
+      didParseCell(data){if(data.row.index===rBody.length-1)data.cell.styles.fontStyle="bold";}
+    });
+  }
+  // ── Footer
+  const pagesCount=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pagesCount;i++){
+    doc.setPage(i);
+    doc.setFillColor(13,34,68);doc.rect(0,200,PAGE_W,10,"F");
+    doc.setFontSize(7);doc.setTextColor(122,156,200);
+    doc.text(`${S.clubName||"Kortline"} · Kortline App`,14,206);
+    doc.text(`${t.name} vs ${m.rival||"Rival"}${m.date?" · "+fd(m.date,true):""}`,PAGE_W/2,206,{align:"center"});
+    doc.text(`Pág. ${i}/${pagesCount}`,PAGE_W-14,206,{align:"right"});
+  }
+  const fnTeam=(t.name||"equipo").replace(/[^a-z0-9]/gi,"_").toLowerCase();
+  const fnRival=(m.rival||"rival").replace(/[^a-z0-9]/gi,"_").toLowerCase();
+  const fnDate=m.date||td();
+  doc.save(`${fnTeam}_vs_${fnRival}_${fnDate}.pdf`);
+  toast("📄 PDF del partido generado");
+}
 function matchSummaryScreen(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const m=mById(S.teamId,S.matchId);
@@ -12888,8 +13378,9 @@ function matchSummaryScreen(){
     </div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button onclick="shareMatchResult()" style="flex:1;padding:12px;border-radius:10px;border:none;background:linear-gradient(135deg,#25d366,#128c7e);color:white;font-weight:800;font-size:14px;cursor:pointer">💬 Compartir resultado</button>
-      <button onclick="(()=>{const lines=['📊 ${esc(t.name)} vs ${esc(m.rival||"Rival")}',...convP.map(p=>{const st=live.stats?.[p.id]||{};const pts=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3;const t2a=(st.p2m||0)+(st.p2a||0),t3a=(st.p3m||0)+(st.p3a||0);return '#'+(p.number||'?')+' '+_shortName(p.name)+': '+pts+'pts T2:'+((st.p2m||0)+'/'+t2a)+' T3:'+((st.p3m||0)+'/'+t3a)+' AST:'+(st.ast||0)+' REB:'+((st.ro||0)+(st.rd||0));})];navigator.clipboard?.writeText(lines.join('\\n')).then(()=>toast('📋 Stats copiadas'));})();" style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-weight:800;font-size:14px;cursor:pointer">📋 Copiar stats</button>
-    </div>`;
+      <button onclick="_copyMatchStats()" style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-weight:800;font-size:14px;cursor:pointer">📋 Copiar stats</button>
+    </div>
+    <button onclick="exportMatchStatsPDF()" style="width:100%;margin-top:8px;padding:12px;border-radius:10px;border:1px solid rgba(240,99,24,.4);background:rgba(240,99,24,.12);color:var(--orange);font-weight:800;font-size:14px;cursor:pointer">📄 Exportar PDF del partido</button>`;
   } else if(activeTab==="mins"){
     const hasMin=convP.filter(p=>_getMinSec(m,p.id)>0).sort((a,b)=>_getMinSec(m,b.id)-_getMinSec(m,a.id));
     const totalSec=(nQ+(otC||0))*(m.qMins||10)*60;
@@ -12922,7 +13413,7 @@ function matchSummaryScreen(){
     </div>`;
   }
   return`<header class="header"><div class="hrow">
-    <button class="bbtn" onclick="navRoot('hoy')">←</button>
+    <button class="bbtn" onclick="${S._fromDetail?"navBack()":"navRoot('hoy')"}">←</button>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">Resumen del partido</div></div>
   </div></header>
   <div class="content">
