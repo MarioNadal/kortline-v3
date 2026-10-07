@@ -18,6 +18,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- v3.0.0-dev.94 · B-TOUR1: tutorial guiado (ver sección "TOUR GUIADO" en el
+     JS). Driver.js es MIT, sin dependencias y ligera (~20KB) -- a diferencia
+     de Intro.js (gratis solo para uso no comercial) o Shepherd.js (más
+     pesada, depende de Floating UI). -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/driver.js/1.3.1/driver.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/driver.js/1.3.1/driver.min.js.iife.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -576,6 +582,15 @@ label{-webkit-tap-highlight-color:transparent;}
 .asst-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .asst-rm{padding:8px 10px;border:none;background:var(--s2);border-radius:8px;cursor:pointer;color:var(--tm);font-size:16px;line-height:1;flex-shrink:0}
 .btn-asst-add{width:100%;padding:9px;border:1px dashed var(--border);background:none;border-radius:8px;cursor:pointer;color:var(--td);font-size:13px;font-weight:600;margin-top:2px}
+/* ── v3.0.0-dev.94 · B-TOUR1: tema de Driver.js con la paleta de Kortline ── */
+.driver-popover{background:#0d2244;color:#eef2ff;border:1px solid rgba(240,99,24,.35);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.5);max-width:320px;font-family:'DM Sans',sans-serif}
+.driver-popover-title{color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:17px}
+.driver-popover-description{color:#b9c6e4;font-size:13px;line-height:1.5}
+.driver-popover-progress-text{color:#7a9cc8;font-size:11px}
+.driver-popover-footer button{background:#1a3a6b;color:#eef2ff;border:1px solid rgba(240,99,24,.4);text-shadow:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700}
+.driver-popover-footer .driver-popover-next-btn{background:linear-gradient(135deg,#f97316,#c2410c);border:none}
+.driver-popover-close-btn{color:#7a9cc8}
+.driver-popover-arrow-side-left.driver-popover-arrow,.driver-popover-arrow-side-right.driver-popover-arrow,.driver-popover-arrow-side-top.driver-popover-arrow,.driver-popover-arrow-side-bottom.driver-popover-arrow{border-color:#0d2244}
 </style>
 </head>
 <body>
@@ -2196,7 +2211,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.93";
+const APP_VERSION = "3.0.0-dev.94";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2315,10 +2330,17 @@ function _initCloudGate(){
       _fbUser=user; _fbReady=true;
       document.getElementById("m-pin-gate")?.remove();
       _attachClubListeners();
+      // v3.0.0-dev.94 · B-TOUR1: para un club genuinamente nuevo (sin ningún
+      // equipo creado todavía) que nunca ha visto el tour en este
+      // dispositivo, arrancarlo automáticamente -- _maybeStartTour() ya se
+      // encarga de comprobar ambas condiciones y de llamar a
+      // _maybeShowCoachNamePrompt() ella misma al terminar el tour
+      // (_tourEnd()), así que aquí solo preguntamos el nombre directamente
+      // si el tour NO ha arrancado (para no apilar los dos avisos a la vez).
       // v1.8.29 · B-COACHID1: tras entrar (recién con el PIN, o porque
       // Firebase ya recordaba la sesión de este móvil), preguntar el
       // nombre UNA vez si este dispositivo todavía no lo tiene puesto.
-      _maybeShowCoachNamePrompt();
+      if(!_maybeStartTour()) _maybeShowCoachNamePrompt();
     } else {
       _fbUser=null;
       _showPinGate();
@@ -2682,6 +2704,12 @@ function _syncGlobalTeamListeners(){
   });
 }
 function _attachTeamListeners(tid){
+  // v3.0.0-dev.94 · B-TOUR1: durante el tour guiado, tid es el equipo falso
+  // de demo -- no tiene sentido (ni es seguro) abrir listeners de Firestore
+  // para un id que no existe en la nube. Al terminar el tour se restaura el
+  // S real y, si corresponde, se vuelve a llamar a esta función con el tid
+  // real desde el flujo normal.
+  if(window._tourActive)return;
   _teardown(_teamUnsubs);
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
@@ -2764,6 +2792,12 @@ function load(){
   S.cfg.riskThreshold=parseInt(S.cfg.riskThreshold)||75;
 }
 function save(){
+  // v3.0.0-dev.94 · B-TOUR1: durante el tour guiado, S contiene datos de
+  // demostración -- no deben escribirse NUNCA en localStorage ni programar
+  // una sincronización con Firestore (ver _scheduleCloudSync() más abajo).
+  // Devolvemos true (éxito "fingido") para no disparar ninguna lógica de
+  // "no cupo, revertir" en quien llamó a save().
+  if(window._tourActive)return true;
   // v1.8.3: cada lsSet devuelve true/false. save() devuelve false si algún
   // dato real no cupo (para que handlePhoto y otros sepan revertir).
   // v1.8.35 · B-NOBKP1: se quitó la copia de seguridad manual (export/import
@@ -5873,7 +5907,8 @@ function openClubSettings(){
       <div style="text-align:center;padding:18px 0 6px">
         <img src="${_FULL_SVG_URL}" style="height:36px;max-width:100%;opacity:0.9;margin-bottom:10px"/>
         <div style="font-size:11px;color:var(--tm);line-height:1.7">Versión ${APP_VERSION} · Desarrollada por <b style="color:var(--td)">Mario Nadal Ara</b></div>
-        <button type="button" class="btn-s" onclick="openErrorLogsModal()" style="margin-top:12px;font-size:12px;padding:8px 14px;width:auto">🐞 Ver errores recientes</button>
+        <button type="button" class="btn-s" onclick="startTour()" style="margin-top:12px;font-size:12px;padding:8px 14px;width:auto">🎓 Ver tutorial</button>
+        <button type="button" class="btn-s" onclick="openErrorLogsModal()" style="margin-top:8px;font-size:12px;padding:8px 14px;width:auto">🐞 Ver errores recientes</button>
       </div>
     </div>
     <button class="btn-p" onclick="saveClubSettings()">Guardar configuración</button>
@@ -11124,6 +11159,145 @@ function _confirmCoachNamePrompt(){
 function _skipCoachNamePrompt(){
   lsSet("cbj:coachname_skipped",true,true);
   document.getElementById("m-coachname")?.remove();
+}
+/* ═══════════════════════════════════════
+   TOUR GUIADO (v3.0.0-dev.94 · B-TOUR1)
+   Mario: "despues de esto haremos un tutorial en la aplicacion para la
+   primera vez que se abra y para que este en el menu de configuracion
+   explicando lo basico pero de toda la aplicacion" -- y, al pedir pensar
+   cómo hacerlo: "importantisimo que debe tener datos de prueba al
+   principio porque un club no tendra [datos reales]".
+   Enfoque confirmado con Mario (AskUserQuestion):
+   1) Alcance "lo básico de cada pantalla principal" (8 paradas), no botón
+      por botón -- el manual ya hecho (Claude Docs) queda como referencia
+      para el detalle fino.
+   2) Los datos de muestra ("Equipo Demo") viven SOLO en memoria durante el
+      tour -- jamás se escriben en localStorage ni en Firestore (ver el
+      guard de _tourActive en save(), más abajo) -- y al terminar o saltar
+      el tour se restauran exactamente los datos reales de antes, estén
+      vacíos (club nuevo) o no (reproducir el tour en un club ya en marcha).
+   Recorre pantallas REALES (no capturas/diapositivas) navegando con el
+   propio S global, igual que haría un entrenador, resaltando con Driver.js
+   (MIT, sin dependencias -- ver <head>) el elemento concreto de cada paso.
+═══════════════════════════════════════ */
+let _tourDriver=null,_tourBackup=null,_tourStepIdx=0;
+function _tourDemoBundle(){
+  const tid="tour-demo-team",mid="tour-demo-match";
+  const names=["Ana García","Clara Pérez","Elena Ruiz","Lucía Gómez","Marta Soto","Sara Díaz","Nora Vidal","Irene León"];
+  const players=names.map((name,i)=>({id:"tour-p"+i,addedAt:td(),name,nickname:"",number:String(i+4),position:["Base","Alero","Pívot"][i%3],notes:"",photo:"",birthDate:""}));
+  const onCourt=players.slice(0,5).map(p=>p.id);
+  const stats={};
+  players.forEach((p,i)=>{
+    stats[p.id]={p1m:i===0?2:0,p1a:1,p2m:i===0?3:i===1?2:0,p2a:1,p3m:i===2?1:0,p3a:1,ro:i<5?1:0,rd:i<5?1:0,ast:i===1?2:0,foul:i===3?2:0,ftech:0,funsport:0,fdq:0,stl:i===4?1:0,blk:0,to:i===2?1:0};
+  });
+  const team={id:tid,name:"Equipo Demo",category:"Sub-16 Masculino",gender:"m",schedule:{1:"18:00",3:"18:00"},color:"#F06318",coaches:[],order:0};
+  const match={
+    id:mid,rival:"CB Ejemplo",date:td(),time:"18:00",venue:"Pabellón Municipal",location:"home",
+    quarters:4,qMins:10,rivalStatsEnabled:false,teamOnlyStats:false,stopOnFoul:true,shotChart:false,trackPlayType:false,fibaRules2026:false,
+    matchMode:"live",countsForAttendance:true,rollCallAtt:true,
+    q:[14,10,12,8,null,null,null,null,null,null],
+    convocados:players.map(p=>p.id),titulares:onCourt,capitan:players[0].id,rivalPlayers:[],notes:"",
+    finished:true,
+    live:{
+      q:4,clockSec:0,clockMins:10,clockRunning:false,onCourt,
+      stats,qScores:[[14,11],[10,9],[12,8],[8,9],[0,0]],
+      teamFouls:[2,3,1,2,0,0],rivalFouls:[1,2,3,1,0,0],
+      timeouts:{our:[1,0,0,0,0,0],rival:[0,1,0,0,0,0]},
+      log:[],rivalTeamAgg:{p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0},
+      activeTeam:"our"
+    }
+  };
+  return{tid,mid,team,players,match};
+}
+function _tourSteps(demo){
+  const q=sel=>document.querySelector(sel);
+  return[
+    {setup:()=>{S.screen="hoy";},el:()=>q(".nav"),side:"top",
+      title:"👋 Bienvenido a Kortline",
+      text:"Esta es la pantalla <b>Hoy</b> -- lo que toca hoy. Abajo tienes las tres pestañas fijas de toda la app: Hoy, Equipos y Stats. Vamos a recorrerlas con un equipo de prueba (no se guarda nada de lo que veas aquí)."},
+    {setup:()=>{S.screen="team";S.teamId=demo.tid;},el:()=>q('button[onclick="openPlayerModal()"]'),
+      title:"👥 Plantilla",
+      text:"Cada equipo tiene su plantilla, su calendario y sus entrenamientos. Aquí se añaden jugadores con dorsal, posición y, si quieres, foto y fecha de nacimiento."},
+    {setup:()=>{S.screen="att";S.teamId=demo.tid;S.date=td();},el:()=>q('button[onclick^="cycleAtt("]'),
+      title:"✅ Pasar lista",
+      text:"Tocando este icono se alterna el estado de cada jugador: presente, ausente, tarde o justificado. Así se pasa lista en cada entrenamiento."},
+    {setup:()=>{S.screen="matchDetail";S.teamId=demo.tid;S.matchId=demo.mid;},el:()=>q(".conv-player"),
+      title:"🏟️ Convocatoria",
+      text:"Un partido nace con toda la plantilla convocada -- solo hay que desmarcar a quien no vaya. Aquí mismo se marca la asistencia el día del partido."},
+    {setup:()=>{S.screen="liveGame";S.teamId=demo.tid;S.matchId=demo.mid;demo.match.live.clockRunning=false;},el:()=>q(".live-float-bar"),side:"top",
+      title:"🔴 Partido en vivo",
+      text:"Puntos, rebotes, faltas, tiempos muertos... todo se anota tocando al jugador y la acción. El panel flotante con el reloj va contigo aunque bajes a ver las jugadas."},
+    {setup:()=>{S.screen="matchSummary";S.teamId=demo.tid;S.matchId=demo.mid;S._fromDetail=false;},el:()=>q('button[onclick="exportMatchStatsPDF()"]'),
+      title:"📄 Resumen y PDF",
+      text:"Al acabar el partido tienes sus estadísticas completas, y un PDF profesional listo para compartir -- también se puede volver a sacar más tarde desde el Historial."},
+    {setup:()=>{S.screen="stats";S.teamId=demo.tid;},el:()=>q(".content"),
+      title:"📊 Estadísticas de temporada",
+      text:"Asistencia, partidos y evolución del equipo a lo largo de todo el curso, con exportación a PDF o Excel."},
+    {setup:()=>{openClubSettings();},el:()=>q('button[onclick="startTour()"]'),side:"top",
+      title:"⚙️ Ajustes",
+      text:"Aquí vive la configuración del club y de cómo quieres que se registren los partidos. Y este botón de aquí: siempre puedes volver a ver este tutorial cuando quieras."}
+  ];
+}
+function startTour(){
+  if(typeof window.driver==="undefined"){toast("⚠️ No se pudo cargar el tutorial (sin conexión)");return;}
+  document.getElementById("m-club-settings")?.remove();
+  document.getElementById("m-coachname")?.remove();
+  _tourBackup={screen:S.screen,teamId:S.teamId,matchId:S.matchId,date:S.date,
+    teams:S.teams,players:S.players,sessions:S.sessions,matches:S.matches,events:S.events};
+  window._tourActive=true;
+  const demo=_tourDemoBundle();
+  S.teams=[demo.team];S.players={[demo.tid]:demo.players};S.sessions={};
+  S.matches={[demo.tid]:[demo.match]};S.events={[demo.tid]:[]};
+  _tourDriver=window.driver.js.driver({overlayOpacity:.65,stagePadding:6,animate:true,allowClose:true,disableActiveInteraction:true});
+  _tourGoTo(demo,0);
+}
+function _tourGoTo(demo,i){
+  const steps=_tourSteps(demo);
+  if(i<0){i=0;}
+  if(i>=steps.length){_tourEnd();return;}
+  _tourStepIdx=i;
+  const step=steps[i];
+  document.getElementById("m-club-settings")?.remove();
+  step.setup();
+  render();
+  requestAnimationFrame(()=>setTimeout(()=>{
+    const el=step.el();
+    if(!el){_tourGoTo(demo,i+1);return;} // paso roto (p.ej. pantalla distinta) -- no bloquea el resto del tour
+    _tourDriver.highlight({element:el,popover:{
+      title:step.title,
+      description:step.text+'<div style="margin-top:8px;font-size:11px;opacity:.7">Paso '+(i+1)+' de '+steps.length+'</div>',
+      side:step.side||"bottom",align:"start",
+      showButtons:["next","previous","close"],
+      nextBtnText:i===steps.length-1?"Terminar":"Siguiente",prevBtnText:"Atrás",
+      onNextClick:()=>_tourGoTo(demo,i+1),onPrevClick:()=>_tourGoTo(demo,i-1),onCloseClick:()=>_tourEnd()
+    }});
+  },80));
+}
+function _tourEnd(){
+  if(_tourDriver){_tourDriver.destroy();_tourDriver=null;}
+  document.getElementById("m-club-settings")?.remove();
+  window._tourActive=false;
+  if(_tourBackup){
+    S.screen=_tourBackup.screen;S.teamId=_tourBackup.teamId;S.matchId=_tourBackup.matchId;S.date=_tourBackup.date;
+    S.teams=_tourBackup.teams;S.players=_tourBackup.players;S.sessions=_tourBackup.sessions;
+    S.matches=_tourBackup.matches;S.events=_tourBackup.events;
+    _tourBackup=null;
+  }
+  lsSet("cbj:tour_seen",true,true);
+  render();
+  _maybeShowCoachNamePrompt();
+}
+// Se llama justo tras el login (ver _initCloudGate). Solo arranca solo para
+// un club genuinamente nuevo (sin ningún equipo creado todavía) que nunca
+// lo haya visto en este dispositivo -- en cualquier otro caso, el botón
+// "🎓 Ver tutorial" de Ajustes sigue disponible siempre. Devuelve true si
+// arrancó el tour (para que el llamador no muestre también, a la vez, el
+// aviso de "¿quién eres?").
+function _maybeStartTour(){
+  if(S.teams.length>0)return false;
+  if(lsGet("cbj:tour_seen"))return false;
+  setTimeout(startTour,400);
+  return true;
 }
 function _checkLivePresence(m){
   const live=m.live;if(!live)return;
