@@ -2211,7 +2211,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.94";
+const APP_VERSION = "3.0.0-dev.95";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4455,6 +4455,26 @@ function hoy(){
   <button class="fab-add" onclick="openHoyAddSheet()" title="Añadir actividad sorpresa" aria-label="Añadir actividad">＋</button>
   ${navBar()}`;
 }
+// v3.0.0-dev.95 · B-DLS11: extraído de la función att() (el cálculo de
+// "¿qué estado tiene este jugador hoy, aunque nadie lo haya tocado todavía?"
+// vivía ahí como una función local, _effectiveState_) para poder reutilizar
+// exactamente la misma lógica desde Contraataque de 11 -- Mario pidió que al
+// montar la sesión de Contraataque de 11 solo salgan premarcados los
+// jugadores disponibles ese entrenamiento (ver openDlsSetupModal), y
+// "disponible" tiene que significar lo mismo que ya significa en el pase de
+// lista: presente explícito, O sin marcar todavía (se asume presente por
+// defecto), salvo que esté lesionado esa fecha (entonces se asume
+// justificado). att() ahora llama a esta misma función -- cero cambio de
+// comportamiento ahí, es un refactor puro.
+function _attEffectiveState(p,tid,date){
+  const sess=so(tid,date);
+  if(sess[p.id])return{st:sess[p.id],auto:false};
+  if(isInjured(p)){
+    const st2=injuryStart(p);
+    if(!st2||st2<=date)return{st:"excused",auto:true};
+  }
+  return{st:"present",auto:false};
+}
 /* ═══════════════════════════════════════
    ATTENDANCE
 ═══════════════════════════════════════ */
@@ -4519,14 +4539,10 @@ function att(){
   // para el jugador y la lesión ya estaba activa ese día, lo tratamos como
   // justificado con motivo "Lesionado/a". El entrenador puede seguir cycleando.
   // Devuelve el estado efectivo y si es auto (para UI).
-  const effectiveState=p=>{
-    if(sess[p.id])return{st:sess[p.id],auto:false};
-    if(isInjured(p)){
-      const st2=injuryStart(p);
-      if(!st2||st2<=S.date)return{st:"excused",auto:true};
-    }
-    return{st:"present",auto:false};
-  };
+  // v3.0.0-dev.95 · B-DLS11: lógica movida a _attEffectiveState (reutilizada
+  // también por Contraataque de 11) -- este wrapper solo fija tid/date a los
+  // de esta pantalla, sin cambiar nada del cálculo en sí.
+  const effectiveState=p=>_attEffectiveState(p,S.teamId,S.date);
   const counts={present:0,absent:0,late:0,excused:0};
   players.forEach(p=>{const{st}=effectiveState(p);if(counts[st]!==undefined)counts[st]++;});
   const attFilter=S.attFilter||"";
@@ -6072,20 +6088,36 @@ function _dlsOpenDaySummary(drillId,date){
 }
 function _dlsOpenDaySessionsList(drillId,sessions){
   document.getElementById("m-dls-day-sessions")?.remove();
+  const type=_dlsSessType(sessions[0]);
   const rows=sessions.map((s,i)=>{
-    const type=_dlsSessType(s);
-    const recap=type==="endgame"?`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`:`${(s.players||[]).length} jugadores`;
+    const sType=_dlsSessType(s);
+    const recap=sType==="endgame"?`${_dlsMatchTeamScore(s,"A")} - ${_dlsMatchTeamScore(s,"B")}`:`${(s.players||[]).length} jugadores`;
     return `<button data-dls-day-session="${s.id}" onclick="_dlsOpenHistorySession('${drillId}','${s.id}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;margin-bottom:6px;font-family:inherit">
       <span style="font-size:12.5px">Sesión ${i+1}</span><span style="font-size:12px;color:var(--tm)">${recap}</span>
     </button>`;
   }).join("");
+  // v3.0.0-dev.95 · B-DLS11: Mario -- "si se ha hecho más de un ejercicio de
+  // contraataque de 11 poder ver las estadisticas totales del entrenamiento
+  // como en lo de equipo pero solo de ese entrenamiento (porque normalmente
+  // hago 2 contraataques de 11 y quiero ver el total)". Reutiliza TAL CUAL
+  // el mismo agregado que ya existe para "todo el histórico del ejercicio"
+  // (_dlsAggregateB11Html, B-DLS10) pero alimentado solo con las sesiones de
+  // ESTE día -- mismo componente, mismas columnas, nada nuevo que mantener.
+  // Solo para Contraataque de 11: en "Final de partido" sumar marcadores de
+  // mini-partidos distintos del mismo día no tiene el mismo sentido (cada
+  // uno es un resultado propio), y Mario no lo ha pedido para ese tipo.
+  const totalHtml=(type==="b11"&&sessions.length>1)
+    ?`<label class="fl" style="margin-top:0">Total combinado de hoy</label>${_dlsAggregateB11Html(sessions)}`
+    :"";
   const el=document.createElement("div");el.id="m-dls-day-sessions";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
-  el.innerHTML=`<div class="modal">
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
     <div class="mhandle"></div>
     <div class="mtitle">📊 Resultados de hoy</div>
-    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">Este ejercicio se ha hecho ${sessions.length} veces hoy -- elige cuál quieres ver</div>
+    <div style="font-size:11px;color:var(--tm);margin:-8px 0 12px">Este ejercicio se ha hecho ${sessions.length} veces hoy${totalHtml?" -- total combinado abajo, o elige una sesión suelta":" -- elige cuál quieres ver"}</div>
+    ${totalHtml}
+    ${totalHtml?`<label class="fl" style="margin-top:6px">Sesiones por separado</label>`:""}
     ${rows}
     <button class="btn-s" onclick="document.getElementById('m-dls-day-sessions').remove()" style="margin-top:8px">Cerrar</button>
   </div>`;
@@ -6381,7 +6413,19 @@ function openDlsSetupModal(drillId){
   if(existing){openDlsResumeOrLive(drillId);return;}
   document.getElementById("m-dls-setup")?.remove();
   const roster=_dlsActiveRoster();
-  window._dlsSetup={drillId,selected:new Set(roster.map(p=>p.id)),temps:[]};
+  // v3.0.0-dev.95 · B-DLS11: Mario -- "si se añade contraataque de 11 a un
+  // entrenamiento debe de usar las personas disponibles en ese
+  // entrenamiento". Antes se premarcaba a TODA la plantilla activa, sin
+  // mirar la asistencia del día; ahora se premarca solo a quien conste
+  // presente o con tarde ese entrenamiento (_attEffectiveState, la misma
+  // lógica que ya usa el pase de lista) -- quien no conste así sigue
+  // apareciendo en la lista, sin marcar, por si hay que añadirlo a mano
+  // (p.ej. llegó tarde y el pase de lista de hoy todavía no se ha tocado).
+  const availableIds=new Set(roster.filter(p=>{
+    const st=_attEffectiveState(p,S.teamId,S.date).st;
+    return st==="present"||st==="late";
+  }).map(p=>p.id));
+  window._dlsSetup={drillId,selected:availableIds,temps:[]};
   const el=document.createElement("div");el.id="m-dls-setup";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
@@ -6389,7 +6433,7 @@ function openDlsSetupModal(drillId){
     <div class="mhandle"></div>
     <div class="mtitle">🏀 ${esc(drill.name)}</div>
     <div style="font-size:12px;color:var(--tm);margin:-8px 0 14px">Configura quién participa y qué se registra antes de arrancar el cronómetro.</div>
-    <label class="fl">Jugadores</label>
+    <label class="fl">Jugadores <span style="font-weight:400;color:var(--tm);text-transform:none;letter-spacing:0">· premarcados los presentes de hoy</span></label>
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <button class="btn-s" style="flex:1;padding:8px" onclick="_dlsToggleAll(true)">Todos</button>
       <button class="btn-s" style="flex:1;padding:8px" onclick="_dlsToggleAll(false)">Ninguno</button>
@@ -6559,6 +6603,17 @@ function _dlsDragPointerMove(e){
   ctx.order.splice(to,0,ctx.order.splice(from,1)[0]);
   if(ctx.kind==="setup")_dlsSetupRerenderOrder(ctx.order);
   else _dlsLiveRerenderOrder(ctx.order);
+  // v3.0.0-dev.95 · B-DLS11: Mario -- "que ahora se mueven todos raro de
+  // cara al usuario si no se explica o se entiende". Causa real: las dos
+  // funciones de arriba repintan el contenedor entero (innerHTML=...), así
+  // que el nodo que tenía la clase ".dls-dragging" (el resaltado "esto es lo
+  // que estás moviendo", puesto en _dlsDragHandlePointerDown) se destruye y
+  // nace uno nuevo sin ella -- durante CASI TODO el arrastre no hay ninguna
+  // fila marcada como "la que se mueve", así que se ve como si se reordenara
+  // solo, en vez de "estoy arrastrando esta fila". Se vuelve a aplicar aquí,
+  // en cada repintado, al nodo (nuevo) que corresponde al mismo pid.
+  const draggedRow=container.querySelector(`[data-pid="${ctx.pid}"]`);
+  if(draggedRow)draggedRow.classList.add("dls-dragging");
 }
 function _dlsDragPointerUp(){
   const ctx=_dlsDragCtx;_dlsDragCtx=null;
@@ -7016,20 +7071,31 @@ function confirmEndDls(){
 // tirador (.dls-drag-handle) para arrastrar -- el resto de la tarjeta no
 // tiene ningún gesto propio (los botones de estadística viven aparte, más
 // abajo en la pantalla), así que no hay ningún choque de gestos aquí.
+// v3.0.0-dev.95 · B-DLS11: Mario -- "el orden de los jugadores dentro del
+// contraataque de 11, tiene que salir igual de ordenado en la pantalla
+// primera y en la pantalla de las estadisticas... sino no tiene sentido
+// ordenarlo", y además "quiero que sea más fácil ordenar... que ahora se
+// mueven todos raro". Por dentro el orden YA era el mismo array (b.players)
+// que en la configuración -- pero aquí se pintaba como una REJILLA de varias
+// tarjetas por fila (auto-fill) mientras que la configuración es una lista
+// vertical de una fila por jugador, así que a simple vista parecían dos
+// órdenes distintos, y arrastrar en una rejilla que se reparte en columnas
+// se siente mucho más caótico (confirmado con Mario, AskUserQuestion) que
+// arrastrar en una lista de una sola columna. Se cambia esta rejilla por el
+// mismo formato de fila que ya usa _dlsRosterListHtml (misma clase
+// .conv-row) -- de un vistazo se ve que es exactamente el mismo orden.
 function _dlsLiveCardsHtml(b,players){
   const missPenalty=!!(b.checklist&&b.checklist.missPenalty);
+  if(!players.length)return `<div style="font-size:12px;color:var(--tm);padding:8px 0">Sin jugadores en esta sesión.</div>`;
   return players.map(p=>{
     const st=b.stats[p.id]||_dlsEmptyStats();
     const val=_dlsValoracion(st,missPenalty);
-    // v3.0.0-dev.66 · B-DLS2: dorsal pequeño y en segundo plano bajo el
-    // nombre/apodo (_dlsPlayerLabel) -- ya no lleva el mismo peso visual
-    // que el nombre, coherente con que en los entrenamientos no suele
-    // llevarse puesto.
-    return `<div data-pid="${p.id}" style="position:relative;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center">
-      <div class="dls-drag-handle" style="position:absolute;top:1px;right:1px" title="Mantener pulsado y arrastrar para reordenar" onpointerdown="_dlsDragHandlePointerDown(event,'${p.id}','#dls-live-grid','live')" onclick="event.stopPropagation()">⠿</div>
-      <div style="font-weight:800;font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}</div>
-      ${p.number!=null?`<div style="font-size:9px;color:var(--tm)">#${p.number}</div>`:""}
-      <div style="font-size:10px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb · <span style="color:var(--orange);font-weight:700">${val} val</span></div>
+    return `<div class="conv-row" data-pid="${p.id}" style="cursor:default">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_dlsPlayerLabel(p))}${p.number!=null?` <span style="color:var(--tm);font-size:11px;font-weight:400">#${p.number}</span>`:""}</div>
+        <div style="font-size:11px;color:var(--tm);margin-top:2px">${st.p2m+st.p3m}/${st.p2m+st.p3m+st.p2a+st.p3a} tiro · ${st.reb} reb · <span style="color:var(--orange);font-weight:700">${val} val</span></div>
+      </div>
+      <div class="dls-drag-handle" title="Mantener pulsado y arrastrar para reordenar" onpointerdown="_dlsDragHandlePointerDown(event,'${p.id}','#dls-live-grid','live')" onclick="event.stopPropagation()">⠿</div>
     </div>`;
   }).join("");
 }
@@ -7078,7 +7144,7 @@ function screenDlsLive(){
       <button onclick="addDlsMinutes(2)" title="+2 min" style="width:40px;height:46px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:12px;font-weight:800">+2'</button>
     </div>
     <div style="font-size:12px;color:var(--tm);text-align:center;margin-bottom:10px">✅ ${totalMade} anotadas${missTrack?` · ❌ ${totalMissed} falladas`:""}</div>
-    <div id="dls-live-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px">${cards}</div>
+    <div class="card" id="dls-live-grid" style="margin-bottom:16px;max-height:42vh;overflow-y:auto">${cards}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow2}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${shotsRow3}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
