@@ -3,6 +3,32 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Contraataque de 11: asistencia del día, total combinado, orden consistente y arrastre más claro (B-DLS11, dev.95, 2026-10-08)
+
+Proceso completo (toca la lógica compartida del pase de lista y la pantalla en vivo de un ejercicio). Mario, cuatro mejoras sobre "Contraataque de 11" en el mismo mensaje: *"si se añade contraataque de 11 a un entrenamiento debe de usar las personas disponibles en ese entrenamiento. Y además si se ha hecho más de un ejercicio de contraataque de 11 poder ver las estadisticas totales del entrenamiento como en lo de equipo pero solo de ese entrenamiento (porque normalmente hago 2 contraataques de 11 y quiero ver el total, y asi). Luego, el orden de los jugadores dentro del contraataque de 11, tiene que salir igual de ordenado en la pantalla primera y en la pantalla de las estadisticas cuando vas a apuntar una estadistica, sino no tiene sentido ordenarlo. Y quiero que sea más fácil ordenad a los jugadores, que ahora se mueven todos raro de cara al usuario si no se explica o se entiende"*.
+
+Investigado antes de preguntar (con un subagente de investigación dedicado a leer el código, no a implementar): el orden de jugadores YA era por dentro el mismo array (`b.players`) en la configuración y en la captura en vivo -- la sensación de "no coincide" venía de que la configuración es una LISTA vertical (una fila por jugador) y la pantalla en vivo era una REJILLA de varias tarjetas por fila, que además se reflowea entera en cada movimiento al arrastrar.
+
+Confirmado con `AskUserQuestion` (3 preguntas):
+1. Jugadores disponibles: **"Premarcar solo presentes, pero mostrar a todos"** -- de entrada solo salen marcados (✓) los presentes/con tarde de ese entrenamiento; el resto se sigue viendo en la lista, sin marcar, por si hay que añadir a alguien a mano.
+2. Total del día: **"Dentro del propio día"** -- al abrir el resultado de un entrenamiento con 2+ sesiones terminadas de Contraataque de 11, aparece "Total combinado de hoy" además de poder ver cada sesión suelta.
+3. Pantalla en vivo: **"Lista vertical, igual que la configuración"** -- mismo formato de fila (`.conv-row`) que la pantalla donde se eligen/ordenan jugadores antes de empezar.
+
+### Añadido
+- **`_attEffectiveState(p,tid,date)`:** extraída de `att()` (antes vivía ahí como función local) -- el mismo cálculo de "¿qué estado tiene este jugador hoy, aunque nadie lo haya tocado todavía?" (presente por defecto, o justificado automático si está lesionado esa fecha), ahora reutilizable. `att()` llama a esta misma función -- cero cambio de comportamiento ahí, es un refactor puro.
+- **`openDlsSetupModal()`** premarca ahora solo a quien conste presente o con tarde ese entrenamiento (vía `_attEffectiveState`) -- antes premarcaba a toda la plantilla activa sin mirar la asistencia del día. Quien no conste disponible se sigue mostrando en la lista, sin marcar.
+- **Total combinado del día** en `_dlsOpenDaySessionsList()` (el selector que ya aparecía cuando el mismo ejercicio se repite el mismo día): si es "Contraataque de 11" y hay 2+ sesiones terminadas hoy, se añade "Total combinado de hoy" reutilizando tal cual el mismo agregado que ya existía para todo el histórico (`_dlsAggregateB11Html`, B-DLS10) pero alimentado solo con las sesiones de ese día -- mismo componente, nada nuevo que mantener. Solo para Contraataque de 11 (en "Final de partido" sumar marcadores de mini-partidos distintos no tiene el mismo sentido, y Mario no lo pidió para ese tipo).
+
+### Modificado
+- **`_dlsLiveCardsHtml()`** y el contenedor `#dls-live-grid`: pasan de una rejilla multi-columna (`display:grid;grid-template-columns:repeat(auto-fill,...)`) a la misma lista vertical de una fila por jugador (`.conv-row`) que ya usa la pantalla de configuración -- de un vistazo se ve que es exactamente el mismo orden, y arrastrar para reordenar se comporta igual en las dos pantallas (ya no se reparte en columnas).
+- **`_dlsDragPointerMove()`:** tras cada repintado durante el arrastre (que reconstruye el contenedor entero con `innerHTML=`, destruyendo el nodo marcado), se vuelve a aplicar la clase `.dls-dragging` al nodo nuevo que corresponde al mismo jugador -- antes se perdía en el primer movimiento y, durante casi todo el gesto, ninguna fila quedaba marcada como "la que se mueve", dando la sensación de que todo se reordenaba solo en vez de que se estuviera arrastrando una fila concreta.
+
+### Probado (jsdom)
+- `tests/dls11_attendance_and_daytotal.test.js` (nuevo, 31 aserciones): premarcado por asistencia (presente/tarde premarcados, ausente/lesionado-sin-marcar no, los 4 siguen visibles, se puede seguir marcando a mano, y sin asistencia tocada todavía se premarca a todos como antes -- sin regresión); total combinado del día (suma real de dos sesiones para el mismo jugador, sigue listando las sesiones sueltas, con 1 sola sesión sigue yendo directo al resumen, "Final de partido" NO ofrece total); pantalla en vivo como lista vertical (`.conv-row`, ya no `display:grid`) y persistencia de `.dls-dragging` durante todo el arrastre (simulando el gesto con un mock de `elementFromPoint`, igual que permite la lógica ya extraída de B-DLS9).
+- Revert-sanity-check (tres roturas independientes, cada una restaurada y reconfirmada): quitado el filtro de asistencia en `openDlsSetupModal` → fallan exactamente las 5 aserciones de premarcado esperadas; quitada la condición `type==="b11"` del total del día → falla exactamente 1 aserción esperada ("Final de partido" sí mostraba total); quitada la reaplicación de `.dls-dragging` tras repintar → falla exactamente 1 aserción esperada. Nada más se rompe en ninguno de los tres casos.
+- Suite completa: **1530/1530 OK** (1499 ya existentes + 31 nuevas), verificada contra la raíz y contra `test/index.html` con `KORTLINE_TEST_INDEX`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.95` / `kortline-v3.0.0-dev.95` (raíz), regenerado también en `/test/`. Entregado solo a `/test/`, pendiente de que Mario lo pruebe en un entrenamiento real antes de promocionarlo a producción.
+
 ## [Publicado] · kortline-v3 · Promoción a producción: lote dev.90→dev.94 (2026-10-07)
 
 Mario, tras probar el tutorial guiado en `/test/`: *"aprobado vamos a subirlo a pro"*.
