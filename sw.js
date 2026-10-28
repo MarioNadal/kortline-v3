@@ -61,6 +61,8 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
+  if (url.hostname.includes("google-analytics.com") ||
+      url.hostname.includes("googletagmanager.com")) return;
   const isNavigate = req.mode === "navigate" || (req.destination === "document");
 
   // Network-first para navegaciones (que el usuario vea siempre la última versión)
