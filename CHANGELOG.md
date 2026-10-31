@@ -3,6 +3,30 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Formulario reducido de estadísticas por categoría + +/- final del partido (B-MANUALSTATS2, dev.102, 2026-10-31)
+
+Ajuste pedido por Mario tras ver entregado el formulario de estadísticas de partido sin directo (dev.101): *"en los infantiles hasta junior solo se apunta minutos, tiros de 2 anotados, tiros de 3 anotados, tiros libres intentados y anotas con el porcentaje y +/- (...) y en el senior si que son muchas cosas"* -- el box score completo de 14 columnas (rebotes, asistencias, robos, tapones, pérdidas, faltas) que se construyó en dev.101 es, en realidad, solo lo que se anota en Senior; el resto de categorías usa un apunte mucho más simple, igual que en papel o en el Swish.
+
+Resuelto con `AskUserQuestion` antes de tocar nada: la categoría del equipo decide qué formulario usar -- **"Todo menos Senior"** usa el reducido (el campo `category` del equipo ya existía, no hace falta nada nuevo que configurar); en el formulario reducido, 2P y 3P son **solo anotados, sin intentos ni %** (a diferencia de los libres, que sí llevan anotados/intentados/%); y el **+/- es un único número final del partido por jugador, NO por cuarto** -- vive aparte del resto del formulario.
+
+### Modificado
+
+- **`openManualStatsModal(qi)`**: las columnas del formulario dependen de `t.category` -- **Senior** sigue viendo el box score completo de siempre (sin cambios); **cualquier otra categoría, incluida la ausencia de categoría**, ve un formulario reducido de 5 columnas (minutos, 2P anotados, 3P anotados, tiros libres anotados/intentados), con una columna extra de **%TL calculado en vivo** mientras se escribe (se muestra "—" si todavía no hay intentos, nunca una división por cero). El resto del flujo (guardar por cuarto, el aviso de puntos sumados vs. marcador oficial, los guardas de permisos) no cambia -- solo cambia qué columnas se piden.
+- **`matchDetail()`**: el resumen de puntos/minutos por partido (ya existente de dev.101) añade una columna **+/-** editable, solo para categorías que no sean Senior, con su propio botón "💾 Guardar +/-" independiente de guardar un cuarto.
+
+### Añadido
+
+- **`savePlusMinus()`**: guarda el +/- de cada convocado como un único valor por partido en `m.manualStats.plusMinus={pid:valor}` (puede ser negativo), totalmente aparte de `byQuarter` -- no es una estadística más del cuarto, es un cierre del partido. Mismo guarda de permisos que el resto de mutadores de equipo (`_requireEdit`), y guardar un 0 quita la entrada en vez de dejarla colgada, igual que el resto de la app.
+
+### Probado (jsdom)
+
+- `manual_match_stats.test.js`: la fixture de equipo pasa a tener `category:"Senior"` explícito (es justo lo que ese archivo cubre: el box score completo) -- las 39 aserciones siguen en verde sin ningún otro cambio.
+- `roles_and_manual_stats_integration.test.js`: el equipo "senior" de la simulación pasa a tener `category:"Senior"` por el mismo motivo -- las 15 aserciones siguen en verde.
+- `manual_match_stats_reduced.test.js` (nuevo, 18 aserciones): formulario reducido para una categoría concreta (Infantil) y para un equipo SIN categoría asignada en absoluto (confirma que "todo menos Senior" incluye también ese caso); que nunca pide los campos del box score completo; %TL en vivo y su caso sin intentos ("—"); que el guardado por cuarto no inventa valores en los campos que no se muestran; que Senior sigue con el formulario completo y SIN la columna +/-; que `savePlusMinus()` guarda positivos y negativos por jugador, no toca `byQuarter`, quita la entrada al guardar 0, y respeta el mismo guarda de permisos que el resto (un entrenador sin acceso de edición no puede guardarlo).
+- Revert-sanity-check: forzado `isSenior=true` en los dos sitios -- fallan exactamente las aserciones de "formulario reducido"/"%TL"/"sin columna +/-" (y el resto directamente no puede continuar, porque los campos que esas aserciones necesitan ya no existen en el formulario -- más prueba todavía de que el guarda hace algo real). Quitado el guarda de permisos de `savePlusMinus()` -- falla exactamente esa aserción, ninguna otra. Restaurado ambos y reconfirmada la suite en verde.
+- Suite completa: **1831/1831 OK** (más el mismo fallo preexistente y ajeno a todo esto), verificada contra la raíz y regenerada en `/test/`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.102` / `kortline-v3.0.0-dev.102` (raíz), regenerado también en `/test/`. Entregado solo a `/test/`, encima de todo lo anterior.
+
 ## [Sin publicar] · kortline-v3 · Roles y permisos (entrenador/director deportivo/superadmin) + estadísticas de partido sin directo (B-ROLES1 + B-MANUALSTATS1, dev.101, 2026-10-31)
 
 Proceso completo, pedido explícitamente por Mario junto con el resto de este bloque de trabajo: *"con esto me gustaría hacer una versión de entrenadores, una de superadmin y una de director deportivo con diferentes permisos"* y *"Y me gustaría y esto es casi lo más importante poder anotar las estadisticas de puntos y asi en los partidos no en vivo de cuartos y asi tambien sacarlo del Switsh que tengo als estadisticas y ponerlo ahi para tener en cuenta minutaje posibilidad de lesion juagdores con mas y menos minutos sugerencias y asi"*, con autorización expresa para tomarse el tiempo que hiciera falta ("tómate otra vez 2 horas... o el tiempo que te haga falta, tipo auditoría otra vez").
