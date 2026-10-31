@@ -14,6 +14,16 @@
 // "hoy" es el sitio por defecto, nunca donde te quedaste navegando. navTo/
 // navBack lo incluyen en la pila de navegación como cualquier otro campo de
 // estado de pantalla.
+//
+// v3.0.0-dev.99 · B-HOY4: feedback de Mario tras probar lo anterior --
+// "Viendo hoy queda muy flojo y en los demas destaca mucho, sería mejor que
+// HOY destacase con el naranja y poner un azul que sea mas discreto [...]
+// en azul para otros dias no poner hoy [...] solo el día. Quiero que se
+// vean los cumpleaños tambien de manera que salgan igual" -- HOY pasa a ser
+// una píldora en naranja; cualquier otro día usa azul discreto y solo la
+// fecha (nunca la palabra "Hoy"); y el banner de cumpleaños se generaliza a
+// _birthdaysOnDate(today) -- se muestra también en días navegados, no solo
+// en el día real de hoy.
 const { loadApp, newReporter } = require("./harness");
 
 async function run() {
@@ -50,7 +60,7 @@ async function run() {
   setupFixture();
   win.render();
   let html = win.document.getElementById("root").innerHTML;
-  assert(html.includes("Viendo hoy"), "por defecto (S.hoyDate null) la fila de navegación dice 'Viendo hoy'");
+  assert(/>HOY<\/span>/.test(html), "por defecto (S.hoyDate null) la píldora de navegación muestra 'HOY'");
   assert(!html.includes("Equipo Ayer"), "por defecto no se ve el entrenamiento de AYER (solo el de hoy, que ese día de la semana no coincide)");
 
   // ── Test B: _hoyShiftDay(-1) navega a ayer y muestra su entrenamiento ──
@@ -73,7 +83,7 @@ async function run() {
   win._hoyShiftDay(1);
   assert(win.S.hoyDate === null, "al llegar a HOY, S.hoyDate vuelve a null (no se guarda como fecha explícita)");
   html = win.document.getElementById("root").innerHTML;
-  assert(html.includes("Viendo hoy"), "tras avanzar hasta hoy, la fila de navegación vuelve a decir 'Viendo hoy'");
+  assert(/>HOY<\/span>/.test(html), "tras avanzar hasta hoy, la píldora de navegación vuelve a mostrar 'HOY'");
 
   // ── Test F: Mario confirmó 'Topar en hoy' -- no se puede ir a un día futuro real ──
   win._hoyShiftDay(1);
@@ -104,8 +114,9 @@ async function run() {
   // el botón de compartir (📤) también, solo aparece cuando done=true (Equipo Ayer ya tiene lista pasada)
   assert(html.includes(`navTo('share',{date:'${yesterday}'})`), "el botón de compartir de un día pasado comparte la fecha de ESE día, no la de hoy");
 
-  // ── Test J: el título/fecha del header refleja el día navegado, no siempre hoy ──
-  assert(!html.includes("Viendo hoy"), "viendo un día pasado, ya no dice 'Viendo hoy' en la fila de navegación");
+  // ── Test J: el título/fecha del header refleja el día navegado, no siempre hoy, y usa el azul discreto (no naranja) ──
+  assert(!/>HOY<\/span>/.test(html), "viendo un día pasado, la píldora de navegación ya no muestra 'HOY'");
+  assert(html.includes("#60a5fa"), "viendo un día pasado, la píldora de navegación usa el azul discreto, no el naranja");
 
   // ── Test K: el aviso de 'próximo entrenamiento' / 'toca pasar lista ahora' NO aparece viendo un día que no es hoy ──
   setupFixture();
@@ -121,16 +132,28 @@ async function run() {
   html = win.document.getElementById("root").innerHTML;
   assert(!html.includes("Toca pasar lista ahora") && !html.includes("Próximo entrenamiento"), "viendo un día que no es hoy, el aviso de 'próximo entrenamiento' no aparece (no tiene sentido fuera de isToday)");
 
-  // ── Test L: el banner de cumpleaños de hoy NO aparece viendo un día que no es hoy ──
+  // ── Test L: B-HOY4 -- el banner de cumpleaños se generaliza al día que se está viendo, no solo al de hoy real ──
+  // Jugadora Cumple cumple años justo AYER (no hoy) -- antes de B-HOY4 nunca se habría visto en ningún día.
   setupFixture();
-  win.S.players.tT = [{ id: "p2", name: "Jugadora Cumple", number: 5, birthDate: `2010-${today.slice(5,7)}-${today.slice(8,10)}` }];
+  win.S.players.tT = [{ id: "p2", name: "Jugadora Cumple", number: 5, birthDate: `2010-${yesterday.slice(5,7)}-${yesterday.slice(8,10)}` }];
   win.S.hoyDate = null;
   win.render();
   html = win.document.getElementById("root").innerHTML;
-  assert(html.includes("Jugadora Cumple") && html.includes("🎂"), "control: viendo hoy, el banner de cumpleaños de hoy real del jugador sí aparece");
-  win._hoyShiftDay(-1);
+  assert(!html.includes("Jugadora Cumple"), "viendo HOY, el cumpleaños de AYER de la jugadora no aparece (no es el día que se está viendo)");
+  win._hoyShiftDay(-1); // ahora viendo el día real de su cumpleaños
   html = win.document.getElementById("root").innerHTML;
-  assert(!html.includes("Jugadora Cumple"), "viendo un día pasado, el banner de cumpleaños de 'hoy' no aparece (aunque hoy real sí hubiera uno)");
+  assert(html.includes("Jugadora Cumple") && html.includes("🎂"), "B-HOY4: navegando al día de su cumpleaños, el banner SÍ aparece (generalizado a _birthdaysOnDate(today), no solo al día real de hoy)");
+  assert(html.includes("Cumplió") || html.includes("Fue su cumpleaños"), "B-HOY4: viendo un día pasado, el texto dice 'Cumplió'/'Fue su cumpleaños' (pasado), no 'Hoy cumple'/'Hoy es su cumpleaños'");
+  assert(!html.includes("¡Hoy cumple") && !html.includes("¡Hoy es su cumpleaños"), "B-HOY4: y nunca usa la redacción de HOY real mientras se navega por otro día");
+
+  // ── Test L2: control -- el cumpleaños de HOY real sigue apareciendo con su redacción de siempre ──
+  setupFixture();
+  win.S.players.tT = [{ id: "p2", name: "Jugadora Cumple Hoy", number: 5, birthDate: `2010-${today.slice(5,7)}-${today.slice(8,10)}` }];
+  win.S.hoyDate = null;
+  win.render();
+  html = win.document.getElementById("root").innerHTML;
+  assert(html.includes("Jugadora Cumple Hoy") && html.includes("🎂"), "control: viendo hoy, el cumpleaños de hoy real de la jugadora sí aparece");
+  assert(/¡Hoy cumple \d+ años!|¡Hoy es su cumpleaños!/.test(html), "control: viendo hoy real, mantiene la redacción de siempre ('Hoy cumple...'/'Hoy es su cumpleaños')");
 
   // ── Test M: el botón '+' (actividad sorpresa) NO aparece viendo un día que no es hoy ──
   setupFixture();

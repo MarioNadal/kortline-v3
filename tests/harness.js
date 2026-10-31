@@ -65,9 +65,25 @@ const REAL_FIREBASE_SCRIPT_TAGS = [
   '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>'
 ].join("\n");
 
+// v3.0.0-dev.97: a diferencia de app/auth/firestore (que bajo jsdom se
+// limitan a registrarse en window.firebase sin hacer nada más), el SDK de
+// Firebase Analytics SÍ arranca actividad en segundo plano en cuanto se
+// ejecuta (inyecta y corre gtag.js) -- bajo jsdom eso cuelga la carga y
+// acaba reventando por memoria, en CUALQUIER test, mockeado o no. Analytics
+// nunca debe correr en un test, así que se quita siempre, pase lo que pase
+// con opts.firebase (a diferencia de REAL_FIREBASE_SCRIPT_TAGS, que solo se
+// quita cuando se inyecta un firebase falso). firebase.analytics() en
+// _fbInit() ya tiene su propio try/catch en el código real, así que sin
+// este script simplemente no hace nada -- cero cambio de comportamiento
+// para lo que cada test comprueba.
+const ANALYTICS_SCRIPT_TAG = '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics-compat.js"></script>';
+
 function loadApp(opts) {
   opts = opts || {};
   let html = fs.readFileSync(INDEX_HTML_PATH, "utf-8");
+  if (html.includes(ANALYTICS_SCRIPT_TAG)) {
+    html = html.replace(ANALYTICS_SCRIPT_TAG, "<!-- Analytics real quitado por harness.js: nunca debe cargarse en un test -->");
+  }
   if (opts.firebase) {
     // IMPORTANTE: si vamos a inyectar un firebase falso (para poder
     // ejercitar la ruta de sincronizacion con Firestore en un test), hay
