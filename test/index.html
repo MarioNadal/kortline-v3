@@ -2363,7 +2363,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.101";
+const APP_VERSION = "3.0.0-dev.102";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -11003,17 +11003,30 @@ function matchDetail(){
     // _getMinSec() ya lee de m.manualStats para partidos sin directo (ver
     // junto a computeTeamKPIs), así que esto se rellena solo en cuanto hay
     // algún cuarto guardado.
+    // v3.0.0-dev.102 · B-MANUALSTATS2: confirmado con Mario (categorías de
+    // infantil a junior solo anotan en papel/Swish minutos, 2P/3P anotados
+    // y tiros libres con %, más un +/- final del partido -- el box score
+    // completo de 14 columnas es solo para Senior). t.category ya existía
+    // como campo del equipo (CATEGORIES), así que decide sin nada nuevo que
+    // configurar por equipo.
+    const isSenior=(t.category||"")==="Senior";
     const pst=_matchPlayerStats(m);
     const summaryHtml=pst?(()=>{
       const roster2=pl(S.teamId).filter(p=>Object.prototype.hasOwnProperty.call(pst,p.id)).sort((a,b)=>_msPts(pst[b.id])-_msPts(pst[a.id])||(a.number||99)-(b.number||99));
       if(!roster2.length)return"";
-      const rowsHtml2=roster2.map(p=>`<tr><td style="padding:6px 8px;font-size:12.5px;font-weight:700;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</td><td style="padding:6px 8px;text-align:center;font-size:12.5px;font-weight:800;color:var(--orange)">${_msPts(pst[p.id])}</td><td style="padding:6px 8px;text-align:center;font-size:12.5px;color:var(--td)">${_fmtMin(_getMinSec(m,p.id))}</td></tr>`).join("");
-      return`<div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-top:10px"><table style="border-collapse:collapse;width:100%"><thead><tr><th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--td)">Jugador</th><th style="padding:6px 8px;font-size:10px;color:var(--td)">PTS</th><th style="padding:6px 8px;font-size:10px;color:var(--td)">MIN</th></tr></thead><tbody>${rowsHtml2}</tbody></table></div>`;
+      const pm=(m.manualStats&&m.manualStats.plusMinus)||{};
+      const pmHeaderHtml=isSenior?"":`<th style="padding:6px 8px;font-size:10px;color:var(--td)">+/-</th>`;
+      const rowsHtml2=roster2.map(p=>{
+        const pmCell=isSenior?"":`<td style="padding:3px;text-align:center"><input type="number" class="fi ms-pm-inp" value="${pm[p.id]??0}" style="width:48px;padding:4px 2px;text-align:center;font-size:12px"/></td>`;
+        return`<tr${isSenior?"":` data-pm-pid="${p.id}"`}><td style="padding:6px 8px;font-size:12.5px;font-weight:700;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</td><td style="padding:6px 8px;text-align:center;font-size:12.5px;font-weight:800;color:var(--orange)">${_msPts(pst[p.id])}</td><td style="padding:6px 8px;text-align:center;font-size:12.5px;color:var(--td)">${_fmtMin(_getMinSec(m,p.id))}</td>${pmCell}</tr>`;
+      }).join("");
+      const saveBtnHtml=isSenior?"":`<button class="btn-s" onclick="savePlusMinus()" style="margin-top:8px;font-size:12.5px;padding:7px 14px;width:auto">💾 Guardar +/-</button>`;
+      return`<div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-top:10px"><table id="ms-summary-table" style="border-collapse:collapse;width:100%"><thead><tr><th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--td)">Jugador</th><th style="padding:6px 8px;font-size:10px;color:var(--td)">PTS</th><th style="padding:6px 8px;font-size:10px;color:var(--td)">MIN</th>${pmHeaderHtml}</tr></thead><tbody>${rowsHtml2}</tbody></table></div>${saveBtnHtml}`;
     })():"";
     return`<div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:8px">📊 Estadísticas por jugador</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${chips}</div>
-      <div style="font-size:11px;color:var(--tm)">Anota lo que tengas en papel o en Swish, cuarto a cuarto -- se suma solo a Stats y a los exports, igual que un partido en directo.</div>
+      <div style="font-size:11px;color:var(--tm)">Anota lo que tengas en papel o en Swish, cuarto a cuarto -- se suma solo a Stats y a los exports, igual que un partido en directo.${isSenior?"":" Formulario reducido (categoría "+esc(t.category||"sin categoría")+"): minutos, 2P/3P anotados y tiros libres."}</div>
       ${summaryHtml}
     </div>`;
   })();
@@ -11253,11 +11266,21 @@ function openManualStatsModal(qi){
   const totalQ=nQ+otCount;
   const tabsHtml=Array.from({length:totalQ},(_,i)=>i).map(i=>`<button onclick="document.getElementById('m-manual-stats').remove();openManualStatsModal(${i})" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-weight:800;font-size:12.5px;cursor:pointer;background:${i===curQi?"linear-gradient(135deg,var(--orange),var(--orange2))":"var(--s2)"};color:${i===curQi?"white":"var(--td)"}">${qLbl(i)}</button>`).join("");
   const addOtBtn=(!m.live&&otCount<4)?`<button onclick="_msAddOT();document.getElementById('m-manual-stats').remove();openManualStatsModal(${totalQ})" style="padding:8px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">＋OT</button>`:"";
-  const cols=[["min","MIN"],["p1m","T1 M"],["p1a","T1 I"],["p2m","T2 M"],["p2a","T2 I"],["p3m","T3 M"],["p3a","T3 I"],["ro","R-O"],["rd","R-D"],["ast","AST"],["stl","REC"],["blk","TAP"],["to","PÉR"],["foul","FAL"]];
-  const headerRow=`<tr><th style="position:sticky;left:0;background:var(--s);text-align:left;padding:6px 8px;font-size:10px;color:var(--td)">Jugador</th>${cols.map(([,l])=>`<th style="padding:6px 4px;font-size:9.5px;color:var(--td);min-width:40px">${l}</th>`).join("")}</tr>`;
+  // v3.0.0-dev.102 · B-MANUALSTATS2: confirmado con Mario -- de Escuela a
+  // Junior solo se anota en papel/Swish minutos, 2P/3P anotados (sin
+  // intentos, sin % en esos dos) y tiros libres con %; el box score
+  // completo de siempre (rebotes, asistencias, robos, tapones, pérdidas,
+  // faltas) se queda solo para Senior.
+  const isSenior=(t.category||"")==="Senior";
+  const cols=isSenior
+    ?[["min","MIN"],["p1m","T1 M"],["p1a","T1 I"],["p2m","T2 M"],["p2a","T2 I"],["p3m","T3 M"],["p3a","T3 I"],["ro","R-O"],["rd","R-D"],["ast","AST"],["stl","REC"],["blk","TAP"],["to","PÉR"],["foul","FAL"]]
+    :[["min","MIN"],["p2m","T2"],["p3m","T3"],["p1m","TL M"],["p1a","TL I"]];
+  const ftPctTh=isSenior?"":`<th style="padding:6px 4px;font-size:9.5px;color:var(--td);min-width:36px">TL%</th>`;
+  const headerRow=`<tr><th style="position:sticky;left:0;background:var(--s);text-align:left;padding:6px 8px;font-size:10px;color:var(--td)">Jugador</th>${cols.map(([,l])=>`<th style="padding:6px 4px;font-size:9.5px;color:var(--td);min-width:40px">${l}</th>`).join("")}${ftPctTh}</tr>`;
   const bodyRows=roster.map(p=>{
     const s=_msGet(m,curQi,p.id);
-    return`<tr data-ms-pid="${p.id}"><td style="position:sticky;left:0;background:var(--s);padding:6px 8px;font-size:12px;font-weight:700;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</td>${cols.map(([k])=>`<td style="padding:3px"><input type="number" min="0" class="fi ms-inp" data-k="${k}" value="${s[k]||0}" style="width:42px;padding:5px 2px;text-align:center;font-size:12px"/></td>`).join("")}</tr>`;
+    const ftPctTd=isSenior?"":`<td class="ms-ftpct" style="padding:6px 4px;text-align:center;font-size:12px;color:var(--tm)">${s.p1a>0?Math.round(s.p1m/s.p1a*100)+"%":"—"}</td>`;
+    return`<tr data-ms-pid="${p.id}"><td style="position:sticky;left:0;background:var(--s);padding:6px 8px;font-size:12px;font-weight:700;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</td>${cols.map(([k])=>`<td style="padding:3px"><input type="number" min="0" class="fi ms-inp" data-k="${k}" value="${s[k]||0}" style="width:42px;padding:5px 2px;text-align:center;font-size:12px"/></td>`).join("")}${ftPctTd}</tr>`;
   }).join("");
   // v3.0.0-dev.101: "nuestro" marcador de este cuarto, misma convención que
   // mOurScore() -- a fuera (away), el índice de "nuestro" equipo es el
@@ -11269,7 +11292,7 @@ function openManualStatsModal(qi){
   el.innerHTML=`<div class="modal" style="max-height:92vh;overflow-y:auto;max-width:96vw">
     <div class="mhandle"></div>
     <div class="mtitle">📊 Estadísticas por jugador</div>
-    <div style="font-size:12px;color:var(--td);margin:-4px 0 12px">${esc(t.name)} vs ${esc(m.rival||"Rival")} · completa un cuarto cada vez</div>
+    <div style="font-size:12px;color:var(--td);margin:-4px 0 12px">${esc(t.name)} vs ${esc(m.rival||"Rival")} · completa un cuarto cada vez${isSenior?"":" · formulario reducido ("+esc(t.category||"sin categoría")+")"}</div>
     <div style="display:flex;gap:6px;margin-bottom:12px">${tabsHtml}${addOtBtn}</div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px"><table style="border-collapse:collapse;width:100%"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table></div>
     <div id="ms-check" style="font-size:11.5px;color:var(--tm);margin-bottom:12px"></div>
@@ -11278,7 +11301,18 @@ function openManualStatsModal(qi){
   </div>`;
   document.body.appendChild(el);
   _msRefreshCheck(officialOur);
-  el.querySelectorAll(".ms-inp").forEach(inp=>inp.addEventListener("input",()=>_msRefreshCheck(officialOur)));
+  el.querySelectorAll(".ms-inp").forEach(inp=>inp.addEventListener("input",()=>{_msRefreshCheck(officialOur);if(!isSenior)_msRefreshFtPct();}));
+}
+// v3.0.0-dev.102 · B-MANUALSTATS2: %TL en vivo mientras se escribe, solo en
+// el formulario reducido (en el completo no se pide % de nada, igual que
+// antes).
+function _msRefreshFtPct(){
+  document.querySelectorAll('#m-manual-stats tr[data-ms-pid]').forEach(tr=>{
+    const cell=tr.querySelector(".ms-ftpct");if(!cell)return;
+    const mk=parseInt(tr.querySelector('[data-k="p1m"]')?.value)||0;
+    const at=parseInt(tr.querySelector('[data-k="p1a"]')?.value)||0;
+    cell.textContent=at>0?Math.round(mk/at*100)+"%":"—";
+  });
 }
 function _msRefreshCheck(officialOur){
   const el=document.getElementById("ms-check");if(!el)return;
@@ -11312,6 +11346,27 @@ function saveManualStatsQuarter(qi){
   document.getElementById("m-manual-stats")?.remove();
   render();
   toast("✅ Estadísticas del cuarto guardadas");
+}
+// v3.0.0-dev.102 · B-MANUALSTATS2: +/- final del partido -- confirmado con
+// Mario que, a diferencia del resto del formulario, NO se desglosa por
+// cuarto: un único número por jugador para todo el partido (puede ser
+// negativo). Vive aparte de byQuarter por eso mismo -- no es una stat de
+// cuarto más, es un cierre de partido.
+function savePlusMinus(){
+  if(!_requireEdit(S.teamId))return;
+  const m=mById(S.teamId,S.matchId);if(!m)return;
+  if(m.live){toast("🔒 Este partido tiene seguimiento en vivo -- las estadísticas se anotan desde ahí");return;}
+  if(!m.manualStats)m.manualStats={byQuarter:{},otCount:0};
+  if(!m.manualStats.plusMinus)m.manualStats.plusMinus={};
+  document.querySelectorAll('#ms-summary-table tr[data-pm-pid]').forEach(tr=>{
+    const pid=tr.dataset.pmPid;
+    const v=parseInt(tr.querySelector(".ms-pm-inp")?.value)||0;
+    if(v===0)delete m.manualStats.plusMinus[pid];
+    else m.manualStats.plusMinus[pid]=v;
+  });
+  save();
+  render();
+  toast("✅ +/- guardado");
 }
 // v3.0.0-dev.82 · B-MATCHMODE1: marca el botón de modo elegido (quarters/
 // final/live) como .sel y actualiza su estilo -- igual que setLocBtn pero
