@@ -24,7 +24,7 @@ async function run() {
   win.S.teams = [
     { id: "cadete", name: "Cadete Masculino", color: "#F06318", schedule: {} },
     { id: "infantil", name: "Infantil Femenino", color: "#1a6fc4", schedule: {} },
-    { id: "senior", name: "Senior A", color: "#22c55e", schedule: {} }
+    { id: "senior", name: "Senior A", category: "Senior", color: "#22c55e", schedule: {} }
   ];
   win.S.players = {
     cadete: [{ id: "c1", name: "Cadete Uno", number: 4, addedAt: "2026-07-01" }, { id: "c2", name: "Cadete Dos", number: 5, addedAt: "2026-07-01" }],

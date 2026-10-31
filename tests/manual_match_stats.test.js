@@ -26,7 +26,12 @@ async function run() {
   const document = win.document;
   const assert = (cond, msg) => report.assert(cond, msg);
 
-  win.S.teams = [{ id: "t1", name: "Cadete Masculino", color: "#F06318", schedule: {} }];
+  // v3.0.0-dev.102 · B-MANUALSTATS2: category:"Senior" a propósito -- este
+  // archivo cubre el box score COMPLETO (rebotes/asistencias/robos/
+  // tapones/pérdidas/faltas), que tras B-MANUALSTATS2 solo se usa para
+  // Senior. El formulario reducido (resto de categorías) tiene su propio
+  // test, manual_match_stats_reduced.test.js.
+  win.S.teams = [{ id: "t1", name: "Senior Masculino", category: "Senior", color: "#F06318", schedule: {} }];
   win.S.players = {
     t1: [
       { id: "p1", name: "Jugador Uno", number: 4, addedAt: "2026-07-01" },
