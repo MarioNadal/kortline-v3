@@ -48,4 +48,20 @@ with open("test/manifest.json", "w", encoding="utf-8") as f:
     json.dump(m, f, ensure_ascii=False, indent=2)
 PYEOF
 
+# 4) Google Analytics: decisión explícita de Mario (2026-10-30) -- /test/
+#    NO debe cargar Analytics, para que las pruebas que se hagan ahí no
+#    mezclen datos con las métricas reales del club. Se quita el script del
+#    SDK, la llamada de inicialización y measurementId de FIREBASE_CONFIG
+#    (appId se queda -- es el mismo proyecto Firebase, solo cambia CLUB_ID).
+python3 - <<'PYEOF'
+import re
+with open("test/index.html", encoding="utf-8") as f:
+    html = f.read()
+html = html.replace('<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics-compat.js"></script>\n', '')
+html = re.sub(r'\s*measurementId:\s*"[^"]*",?\n', '\n', html, count=1)
+html = html.replace('\n    try{ firebase.analytics(); }catch(e){ console.warn("Analytics no disponible", e); }', '')
+with open("test/index.html", "w", encoding="utf-8") as f:
+    f.write(html)
+PYEOF
+
 echo "listo: test/ regenerado a partir de index.html/sw.js/manifest.json"
