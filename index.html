@@ -2365,7 +2365,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.102";
+const APP_VERSION = "3.0.0-dev.103";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -11295,7 +11295,8 @@ function openManualStatsModal(qi){
   el.innerHTML=`<div class="modal" style="max-height:92vh;overflow-y:auto;max-width:96vw">
     <div class="mhandle"></div>
     <div class="mtitle">📊 Estadísticas por jugador</div>
-    <div style="font-size:12px;color:var(--td);margin:-4px 0 12px">${esc(t.name)} vs ${esc(m.rival||"Rival")} · completa un cuarto cada vez${isSenior?"":" · formulario reducido ("+esc(t.category||"sin categoría")+")"}</div>
+    <div style="font-size:12px;color:var(--td);margin:-4px 0 10px">${esc(t.name)} vs ${esc(m.rival||"Rival")} · completa un cuarto cada vez${isSenior?"":" · formulario reducido ("+esc(t.category||"sin categoría")+")"}</div>
+    <div style="font-size:10.5px;color:var(--tm);margin:0 0 12px">M = anotados · I = <b>intentos totales</b> (anotados + fallados, no solo los fallos)</div>
     <div style="display:flex;gap:6px;margin-bottom:12px">${tabsHtml}${addOtBtn}</div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px"><table style="border-collapse:collapse;width:100%"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table></div>
     <div id="ms-check" style="font-size:11.5px;color:var(--tm);margin-bottom:12px"></div>
@@ -11338,6 +11339,27 @@ function saveManualStatsQuarter(qi){
     const pid=tr.dataset.msPid;
     const s=_msEmpty();
     tr.querySelectorAll(".ms-inp").forEach(inp=>{s[inp.dataset.k]=Math.max(0,parseInt(inp.value)||0);});
+    // v3.0.0-dev.103 · B-MANUALSTATS3 (bug encontrado en auditoría, no pedido
+    // por Mario): las columnas "T1/T2/T3 I" se rellenan con INTENTOS
+    // TOTALES tecleados (tal cual pide Mario -- "tiros libres intentados" --
+    // y tal cual los publica la propia web del club, formato "12/21"), pero
+    // TODO el resto de la app (live tracking -- botones "Fallo 2/3/TL" --,
+    // computeTeamKPIs, _matchAggRows, _calcEFF, el %TL/%T2 de Stats, los
+    // exports PDF/Excel) asume que p1a/p2a/p3a guardan FALLOS, no intentos
+    // totales (fórmula establecida en todo el código: intentos=pXm+pXa). Si
+    // se guardaba tal cual lo tecleado, un cuarto real de 3/5 TL se
+    // almacenaba como p1m=3,p1a=5 y el resto de la app lo leía como
+    // "3 anotados + 5 fallados = 8 intentos", duplicando los aciertos y
+    // dejando el %TL de Stats/exports mal para CUALQUIER partido anotado a
+    // mano (completo o reducido) -- aunque la propia vista previa en vivo
+    // de este modal (%TL mientras escribes) ya mostraba el % correcto, sin
+    // que se notara hasta agregarlo en Stats. Se convierte aquí, al
+    // guardar, de "intentos" a "fallos" (intentos-anotados) para que el
+    // dato quede consistente con el resto del código SIN tocar ninguna de
+    // esas fórmulas ya probadas.
+    s.p1a=Math.max(0,s.p1a-s.p1m);
+    s.p2a=Math.max(0,s.p2a-s.p2m);
+    s.p3a=Math.max(0,s.p3a-s.p3m);
     // v3.0.0-dev.101: una fila totalmente a cero no aporta nada -- se quita
     // en vez de dejar un objeto vacío colgado (mismo criterio que otras
     // partes de la app que evitan "sesiones fantasma").
