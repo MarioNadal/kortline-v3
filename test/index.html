@@ -926,12 +926,24 @@ function _scoreDiff(m){
 }
 // Minutos jugados por un jugador (en segundos)
 function _getMinSec(m,pid){
-  const live=m?.live;if(!live)return 0;
-  let total=(live.minTracked&&live.minTracked[pid])||0;
-  if(live.inSince&&live.inSince[pid]!=null){
-    total+=Math.max(0,_absSec(m)-live.inSince[pid]);
+  const live=m?.live;
+  if(live){
+    let total=(live.minTracked&&live.minTracked[pid])||0;
+    if(live.inSince&&live.inSince[pid]!=null){
+      total+=Math.max(0,_absSec(m)-live.inSince[pid]);
+    }
+    return total;
   }
-  return total;
+  // v3.0.0-dev.101 · B-MANUALSTATS1: partidos SIN seguimiento en vivo --
+  // minutos introducidos a mano por cuarto (ver m.manualStats, sección
+  // "ESTADÍSTICAS DE PARTIDO A MANO" junto a matchDetail). Se guardan en
+  // minutos enteros por cuarto; aquí se expresan en segundos para poder
+  // reutilizar _fmtMin() y toda la tubería existente sin cambiar nada más.
+  const ms=m&&m.manualStats;
+  if(!ms||!ms.byQuarter)return 0;
+  let totalMin=0;
+  Object.values(ms.byQuarter).forEach(qd=>{const s=qd&&qd[pid];if(s&&s.min)totalMin+=s.min;});
+  return totalMin*60;
 }
 // Formato MM:SS para tabla
 function _fmtMin(secs){
@@ -955,15 +967,49 @@ function _getPlusMinus(m,pid){
    de live.plays, que solo existe en partidos con el toggle "🎬 Tipo de
    jugada" activado — de ahí el flag hasPlayTypeData para avisar en la UI.
 ═══════════════════════════════════════ */
+// v3.0.0-dev.101 · B-MANUALSTATS1: estadísticas de UN partido por jugador,
+// vengan de seguimiento EN VIVO (live.stats) o de estadísticas introducidas
+// A MANO por cuarto después del partido (manualStats.byQuarter, ver sección
+// "ESTADÍSTICAS DE PARTIDO A MANO" más abajo, junto a matchDetail). Pedido
+// explícito de Mario -- "casi lo más importante" -- para poder anotar
+// partidos que hoy apunta a mano/en Swish y que esos datos alimenten las
+// MISMAS pantallas de Stats/exportación que ya existen, sin montar nada
+// nuevo. Normaliza ambas fuentes al mismo formato {p1m,p1a,p2m,p2a,p3m,p3a,
+// ro,rd,ast,stl,blk,to,foul} para que toda la tubería existente
+// (_matchAggRows/computeTeamKPIs/exports) funcione igual sin tocar nada más.
+function _matchPlayerStats(m){
+  if(m&&m.live&&m.live.stats)return m.live.stats;
+  const ms=m&&m.manualStats;
+  if(!ms||!ms.byQuarter)return null;
+  const out={};
+  Object.values(ms.byQuarter).forEach(qd=>{
+    Object.entries(qd||{}).forEach(([pid,s])=>{
+      if(!out[pid])out[pid]={p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,foul:0,stl:0,blk:0,to:0};
+      const o=out[pid];
+      o.p1m+=s.p1m||0;o.p1a+=s.p1a||0;o.p2m+=s.p2m||0;o.p2a+=s.p2a||0;o.p3m+=s.p3m||0;o.p3a+=s.p3a||0;
+      o.ro+=s.ro||0;o.rd+=s.rd||0;o.ast+=s.ast||0;o.foul+=s.foul||0;o.stl+=s.stl||0;o.blk+=s.blk||0;o.to+=s.to||0;
+    });
+  });
+  return Object.keys(out).length?out:null;
+}
+// Puntos de un objeto de estadísticas ya normalizado (el que devuelve
+// _matchPlayerStats() para un jugador, venga de live.stats o de manualStats).
+function _msPts(s){return(s?(s.p1m||0)+(s.p2m||0)*2+(s.p3m||0)*3:0);}
 // v3 · ¿Tiene este partido estadísticas registradas? Antes solo miraba
 // live.stats (por jugador) -- los partidos en modo "solo equipo" nunca lo
 // rellenan (usan live.teamAgg en su lugar) y quedaban excluidos de las
 // pestañas 🏀 Partidos / 📈 Equipo y de sus exportaciones PDF/Excel, aunque
 // tuvieran datos de sobra.
+// v3.0.0-dev.101 · B-MANUALSTATS1: ahora también cuenta como "con
+// estadísticas" un partido SIN seguimiento en vivo que tenga estadísticas a
+// mano por cuarto (ver _matchPlayerStats).
 function _hasMatchStats(mm){
-  if(!mm||!mm.live)return false;
-  if(mm.live.stats&&Object.keys(mm.live.stats).length>0)return true;
-  if(mm.live.teamAgg)return true;
+  if(!mm)return false;
+  if(mm.live){
+    if(mm.live.stats&&Object.keys(mm.live.stats).length>0)return true;
+    if(mm.live.teamAgg)return true;
+  }
+  if(!mm.live&&_matchPlayerStats(mm))return true;
   return false;
 }
 function computeTeamKPIs(matchList){
@@ -971,7 +1017,9 @@ function computeTeamKPIs(matchList){
   let transPts=0,transPoss=0,bdPts=0,bdPoss=0,secondChancePts=0,secondChanceCount=0;
   let hasPlayTypeData=false,matchesWithPlayType=0;
   matchList.forEach(mm=>{
-    const st=mm.live?.stats||{};
+    // v3.0.0-dev.101 · B-MANUALSTATS1: incluye también estadísticas a mano
+    // por cuarto en partidos sin seguimiento en vivo (ver _matchPlayerStats).
+    const st=_matchPlayerStats(mm)||{};
     Object.values(st).forEach(s=>{
       p2m+=s.p2m||0;p2a+=s.p2a||0;p3m+=s.p3m||0;p3a+=s.p3a||0;
       ro+=s.ro||0;rd+=s.rd||0;to+=s.to||0;stl+=s.stl||0;
@@ -1179,6 +1227,7 @@ function _forceSubAfterDQ(pid,isRival){
 }
 window._doDQSub=function(inId,outId,isRival){
   document.getElementById("m-dqsub")?.remove();
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   _stopClockForSub(m);
   const live=m.live;
@@ -2034,6 +2083,7 @@ function _tmPickOut(pid){
 }
 function _tmPickIn(inPid){
   if(!_tmOutPid)return;
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m?.live)return;
   // v1.8.25 · B-ADV6: comprobación en el origen, no solo en la UI del
   // banquillo del tiempo muerto (defensa en profundidad).
@@ -2126,7 +2176,21 @@ const JUST_REASONS=[{id:"sick",label:"Enfermo/a",icon:"🤒"},{id:"injury",label
 // pretemporada) a propósito -- es una decisión que tiene que tomar el
 // entrenador desde Ajustes -> Estadísticas cada temporada, no un valor que
 // aparezca solo. null/vacío = comportamiento de siempre (nada excluido).
-const DEFAULT_CFG={riskThreshold:75,seasonStart:null,dlsNameMode:"nombre",features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
+// v3.0.0-dev.100 · B-SEASON2: `seasons` guarda las temporadas YA ARCHIVADAS
+// ({id,label,startDate,endDate}), ver archiveSeason(). Vacío por defecto --
+// ningún entrenador ha archivado nada todavía. No se borra ni se mueve
+// ningún dato real al archivar (S.sessions/S.matches siguen intactos para
+// siempre, Historial los sigue mostrando tal cual) -- archivar una temporada
+// solo guarda la foto de sus fechas y empuja seasonStart hacia delante, que
+// es el único mecanismo que ya existía (B-SEASON1) para que las medias/%
+// empiecen limpias desde ahí.
+// v3.0.0-dev.101 · B-ROLES1: `coaches` guarda la lista de entrenadores con
+// permisos ({id,name,role,teamsEdit,teamsView}), ver sección "ROLES Y
+// PERMISOS" más abajo. Vacío por defecto = SIN restricciones (comportamiento
+// de siempre, cualquiera con el PIN del club ve y edita todo) -- el reparto
+// de roles es algo que el superadmin activa a propósito desde Ajustes,
+// nunca algo que aparezca solo y bloquee a nadie sin que él lo decida.
+const DEFAULT_CFG={riskThreshold:75,seasonStart:null,seasons:[],coaches:[],dlsNameMode:"nombre",features:{teamScore:false,playerScore:false,photos:false,exercises:false,quickMode:false,chainPrompt:true,incidents:true}};
 // v3.0.0-dev.34 · B-DRILL1: catalogo de ejercicios reutilizables por equipo
 // (planificacion de entrenamientos, v1 acotada). No sustituye al campo libre
 // "Ejercicios del entrenamiento" (f.exercises) -- es un catalogo aparte,
@@ -2178,6 +2242,89 @@ function sk(tid,d){return tid+"_"+d;}
 function so(tid,d){return S.sessions[sk(tid,d)]||{};}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 function cap(s){return s?s.charAt(0).toUpperCase()+s.slice(1):"";}
+/* ═══════════════════════════════════════
+   ROLES Y PERMISOS (v3.0.0-dev.101 · B-ROLES1)
+   Pedido por Mario: "me gustaría hacer una versión de entrenadores, una de
+   superadmin y una de director deportivo con diferentes permisos".
+   Confirmado con AskUserQuestion: login eligiendo el nombre de una LISTA
+   CERRADA que gestiona el superadmin desde Ajustes (no texto libre, no
+   cuentas con contraseña) -- S.cfg.coaches=[{id,name,role,teamsEdit,
+   teamsView}]. Un entrenador normal solo ve/edita sus propios equipos
+   (teamsEdit), con la opción de que se le añadan más equipos en modo SOLO
+   VER (teamsView, para un 2º/3º entrenador que ayuda poco). Un director
+   deportivo edita sus propios equipos (si entrena alguno, igual que un
+   entrenador normal) y ADEMÁS ve en solo lectura TODOS los demás equipos
+   del club, sin que haga falta añadirlo a cada teamsView. Un superadmin
+   tiene acceso total, incluida la propia gestión de esta lista.
+   IMPORTANTE -- límite real de este sistema, documentado para que nadie
+   se lleve una idea equivocada de qué protege: toda la app comparte una
+   única cuenta de Firebase Auth por club (ver firestore.rules), así que
+   esto es un filtro de la INTERFAZ (evita que un entrenador vea/edite por
+   accidente lo que no le toca, organiza el acceso por roles), NO una
+   barrera de seguridad a nivel de base de datos -- alguien con
+   conocimientos técnicos que abriera la consola del navegador podría
+   saltárselo. Encaja con lo que Mario pidió (login por nombre, sin
+   contraseñas individuales), pero no sustituye a una cuenta real por
+   persona si en el futuro se necesitara esa garantía.
+   Vacío por defecto (S.cfg.coaches.length===0) = SIN restricciones, exactamente
+   el comportamiento de siempre -- _permissionsActive() es el único punto
+   que decide si el resto de esta sección aplica algo o no.
+═══════════════════════════════════════ */
+function _permissionsActive(){ return Array.isArray(S.cfg.coaches) && S.cfg.coaches.length>0; }
+function _getCurrentCoachId(){ return lsGet("cbj:currentcoachid")||""; }
+function _setCurrentCoachId(id){ lsSet("cbj:currentcoachid", id||"", true); }
+// Coach (con permisos) que está usando ESTE dispositivo ahora mismo. null si
+// los permisos no están activos (irrelevante) o si este dispositivo todavía
+// no ha elegido/ya no es válido su identidad (hay que mostrar el selector).
+function _currentCoach(){
+  if(!_permissionsActive())return null;
+  const id=_getCurrentCoachId();
+  if(!id)return null;
+  return (S.cfg.coaches||[]).find(c=>c.id===id)||null;
+}
+// "superadmin" cuando los permisos están desactivados (comportamiento de
+// siempre, acceso total) -- nunca null salvo que SÍ estén activos y a este
+// dispositivo le falte elegir identidad todavía.
+function _myRole(){
+  if(!_permissionsActive())return "superadmin";
+  const c=_currentCoach();
+  return c?c.role:null;
+}
+function _isSuperadmin(){ return _myRole()==="superadmin"; }
+function _needsIdentityPick(){ return _permissionsActive() && !_currentCoach(); }
+function _canEditTeam(tid){
+  if(!_permissionsActive())return true;
+  const c=_currentCoach();
+  if(!c)return false;
+  if(c.role==="superadmin")return true;
+  return (c.teamsEdit||[]).includes(tid);
+}
+// Director deportivo ve TODO en solo lectura, aunque no se lo haya añadido
+// explícitamente a ningún teamsView -- es justo el punto que lo distingue
+// de un entrenador normal con equipos en modo "solo ver".
+function _canViewTeam(tid){
+  if(!_permissionsActive())return true;
+  const c=_currentCoach();
+  if(!c)return false;
+  if(c.role==="superadmin"||c.role==="director_deportivo")return true;
+  return (c.teamsEdit||[]).includes(tid)||(c.teamsView||[]).includes(tid);
+}
+function _visibleTeams(){
+  if(!_permissionsActive())return S.teams;
+  return S.teams.filter(t=>_canViewTeam(t.id));
+}
+function _editableTeams(){
+  if(!_permissionsActive())return S.teams;
+  return S.teams.filter(t=>_canEditTeam(t.id));
+}
+// Guard de un solo uso para mutadores de un equipo concreto: llamar al
+// principio de la función (if(!_requireEdit(tid))return;). Avisa con un
+// toast y no deja seguir si este dispositivo solo puede VER ese equipo.
+function _requireEdit(tid){
+  if(_canEditTeam(tid))return true;
+  toast("🔒 Solo lectura -- no tienes permiso para editar este equipo");
+  return false;
+}
 function getJR(sess,pid){return sess[pid+"_jr"]||"";}
 function getJN(sess,pid){return sess[pid+"_jn"]||"";}
 function getPS(sess,pid){return sess[pid+"_score"]||0;}
@@ -2216,7 +2363,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.98";
+const APP_VERSION = "3.0.0-dev.101";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2345,7 +2492,14 @@ function _initCloudGate(){
       // v1.8.29 · B-COACHID1: tras entrar (recién con el PIN, o porque
       // Firebase ya recordaba la sesión de este móvil), preguntar el
       // nombre UNA vez si este dispositivo todavía no lo tiene puesto.
-      if(!_maybeStartTour()) _maybeShowCoachNamePrompt();
+      // v3.0.0-dev.101 · B-ROLES1: si hay permisos activos y este
+      // dispositivo todavía no ha elegido quién es, eso va PRIMERO y
+      // bloquea cualquier otra cosa (tour/nombre de dispositivo) hasta
+      // resolverse -- no tiene sentido enseñar el tour o preguntar un
+      // nombre informativo mientras no se sabe con qué permisos se está
+      // entrando.
+      if(_needsIdentityPick()) _showIdentityGate();
+      else if(!_maybeStartTour()) _maybeShowCoachNamePrompt();
     } else {
       _fbUser=null;
       _showPinGate();
@@ -2604,6 +2758,14 @@ function _attachClubListeners(){
     S.clubLogo=fresh.clubLogo;S.clubName=fresh.clubName;S.clubAbrev=fresh.clubAbrev;S.clubLema=fresh.clubLema;S.cfg=fresh.cfg;
     _applyingRemote=false;
     _persistLocalCacheOnly();render();
+    // v3.0.0-dev.101 · B-ROLES1: si otro entrenador activó/cambió la lista de
+    // permisos desde otro dispositivo mientras este estaba abierto, hay que
+    // volver a comprobar si ESTE dispositivo necesita elegir identidad (p.ej.
+    // el superadmin acaba de activar roles por primera vez) o si el coach
+    // elegido aquí ya no existe en la lista nueva (se quedaría con _currentCoach()
+    // null, que _needsIdentityPick() detecta igual). Si ya no hace falta
+    // (p.ej. alguien desactivó los roles por completo), quita el overlay.
+    _maybeShowIdentityGate();
   }));
   _clubUnsubs.push(_clubDocRef().collection("teams").onSnapshot(snap=>{
     const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
@@ -3035,6 +3197,58 @@ function toast(m){document.querySelectorAll(".toast").forEach(e=>e.remove());con
 function _isDateInSeason(date){
   return !S.cfg.seasonStart||date>=S.cfg.seasonStart;
 }
+// v3.0.0-dev.100 · B-SEASON2: "Archivar temporada", pedido por Mario en la
+// auditoría exhaustiva ("haz para archivar temporadas"), confirmado con
+// AskUserQuestion como "Congelar y empezar limpio". No mueve ni borra NINGÚN
+// dato real (S.sessions/S.matches siguen intactos para siempre, Historial
+// los sigue mostrando tal cual, como ya pasaba con la pretemporada de
+// B-SEASON1) -- solo: 1) guarda en S.cfg.seasons la foto de la temporada que
+// se cierra (su label y su rango de fechas, para poder consultarlo después),
+// y 2) empuja S.cfg.seasonStart al día siguiente del fin elegido, que es el
+// ÚNICO mecanismo que ya existía (_isDateInSeason, usado por absolutamente
+// todos los agregados de temporada vía _sessForPlayer/_teamSessionEntries)
+// para que %/riesgo FEB/gráficas/exports empiecen limpios desde ahí sin
+// tener que tocar ni un solo sitio más. endDate por defecto: hoy.
+function archiveSeason(label,endDate){
+  const end=endDate||td();
+  const prevStart=S.cfg.seasonStart||null;
+  if(prevStart&&end<prevStart)return{ok:false,error:"La fecha de fin no puede ser anterior al inicio de la temporada actual."};
+  S.cfg.seasons=S.cfg.seasons||[];
+  S.cfg.seasons.push({id:uid(),label:(label||"").trim()||`Temporada hasta ${end}`,startDate:prevStart,endDate:end});
+  S.cfg.seasonStart=_addDaysISO(end,1);
+  save();
+  return{ok:true};
+}
+// Quita un registro de temporada archivada (solo la "foto"/etiqueta -- los
+// entrenamientos y partidos de esas fechas NUNCA se tocan ni se borran).
+// Pensado para corregir un archivado hecho por error (fecha/label mal).
+function deleteArchivedSeason(id){
+  S.cfg.seasons=(S.cfg.seasons||[]).filter(s=>s.id!==id);
+  save();
+}
+// v3.0.0-dev.100 · B-VOLTECH1: construye la lista de sesiones de un equipo a
+// partir de S.sessions. Mario, entrenamientos voluntarios/tecnificaciones:
+// "que los ausentes no les cuente para mal ya que no es algo obligatorio...
+// pero a los que han asistido les tiene que sumar de alguna manera" --
+// confirmado con AskUserQuestion: un contador APARTE, que NUNCA toca el %
+// de asistencia oficial. Estas sesiones se guardan en el mismo S.sessions
+// (mismo mecanismo que un entrenamiento sorpresa, solo con el campo
+// `_optType` puesto: "voluntario"/"tecnificacion") para poder reutilizar
+// tal cual toda la lógica de pase de lista ya existente (cycleAtt,
+// _flushSess, setAll, notas, ejercicios, foto...) sin tocar ni un solo sitio
+// de esa parte -- la parte sensible de verdad, donde un bug costaría caro.
+// En vez de eso, se centraliza la exclusión AQUÍ, en el único punto de
+// construcción de listas de sesiones que casi todos los cálculos de
+// asistencia/temporada/exports ya usaban -- así una sesión opcional nunca
+// llega a _countAtt/_sessForPlayer/gráficas/PDF/Excel/convocatorias, sin
+// tener que acordarse de excluirla en cada sitio por separado.
+// Por defecto excluye las opcionales; pasar {includeOptional:true} para los
+// pocos sitios que sí necesitan verlas (su propio resumen/contador aparte).
+function _teamSessionEntries(tid,opts){
+  const prefix=tid+"_";
+  const entries=Object.entries(S.sessions).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>({date:k.slice(prefix.length),data:v}));
+  return(opts&&opts.includeOptional)?entries:entries.filter(e=>!(e.data&&e.data._optType));
+}
 function _playerStartDate(p,sessList){
   if(p.addedAt)return p.addedAt;
   let first=null;
@@ -3061,6 +3275,37 @@ function _playerStartDate(p,sessList){
 // addedAt de siempre.
 function _attOnlyActiveOn(p,date){
   return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
+}
+// v3.0.0-dev.100 · B-ATT8, bug encontrado en auditoría: el mismo filtro
+// "¿este jugador entrena hoy?" (B-GUEST7: nunca un puntual de PARTIDO
+// -matchOnly-, y un puntual de ENTRENO -attOnly- solo el día exacto para el
+// que se dio de alta) ya vivía repetido suelto en att()/hoy()/buildDailyText
+// -- pero _flushSess() y setAll() seguían iterando pl(tid) SIN este filtro,
+// escribiendo un "present"/estado fantasma en S.sessions para jugadores que
+// no entrenaban ese día. Hoy no se veía mal en ningún sitio (todo lo que
+// LEE ya filtraba al mostrar), pero ensuciaba Firestore con datos
+// incorrectos en cada "Pasar/Confirmar lista" de cualquier equipo con
+// puntuales -- y es exactamente el tipo de dato que una pantalla futura sin
+// este mismo filtro mostraría mal. Centralizado aquí para que _flushSess/
+// setAll (y cualquier futuro consumidor) usen siempre el mismo criterio.
+function _attRosterFor(tid,date){
+  return pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date)));
+}
+// v3.0.0-dev.100 · B-VOLTECH1: "contador aparte" de asistencia a
+// entrenamientos voluntarios/tecnificaciones, confirmado con AskUserQuestion
+// ("contador aparte, nunca toca el % oficial"). A propósito NO reutiliza
+// _effAttState/_countAtt (que dan "presente" por defecto si no hay marca
+// explícita -- correcto para un entrenamiento OFICIAL, donde pasar lista es
+// obligatorio, pero aquí convertiría cualquier sesión opcional creada pero
+// nunca pasada en "asistieron todos" por defecto). Solo cuenta una marca
+// EXPLÍCITA de "present"/"late" para ese jugador en esa sesión concreta.
+function _optionalAttCount(p,tid,optType){
+  if(!p||p.matchOnly)return{asistidas:0,total:0};
+  const all=_teamSessionEntries(tid,{includeOptional:true});
+  const entries=all.filter(e=>e.data&&e.data._optType&&(!optType||e.data._optType===optType)&&_isPlayerActiveOn(p,e.date,all));
+  let asistidas=0;
+  entries.forEach(e=>{const v=e.data[p.id];if(v==="present"||v==="late")asistidas++;});
+  return{asistidas,total:entries.length};
 }
 // v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
 // en el entrenamiento de una fecha dada. Antes esta misma comprobación (¿ya
@@ -3281,23 +3526,41 @@ function isBirthdayToday(p){
 }
 // Edad que cumple HOY (asume que isBirthdayToday(p) ya es true). null si por
 // lo que sea no hay año válido registrado.
-function playerBirthdayAge(p){
+// v3.0.0-dev.99 · B-HOY4: segundo argumento opcional (día de referencia, no
+// siempre HOY real) para poder calcular la edad correctamente cuando se
+// pregunta por el cumpleaños de un día navegado en la pantalla "Hoy" (ver
+// _birthdaysOnDate). Por defecto sigue siendo td(), así que la llamada ya
+// existente en att() (cumpleaños del día real) no cambia de comportamiento.
+function playerBirthdayAge(p,refDate){
   if(!p||!p.birthDate)return null;
   const y=parseInt(p.birthDate.slice(0,4),10);
   if(!y)return null;
-  return parseInt(td().slice(0,4),10)-y;
+  return parseInt((refDate||td()).slice(0,4),10)-y;
 }
-// Todos los cumpleaños de HOY en todo el club (todos los equipos), para la
-// pantalla "Hoy". Cada entrada lleva el equipo para poder etiquetarla.
-function _todaysBirthdays(){
+// v3.0.0-dev.99 · B-HOY4: igual que isBirthdayToday(p) pero para una fecha
+// cualquiera -- necesario para que, al navegar hacia atrás en "Hoy", se
+// pueda seguir mostrando el cumpleaños de ESE día concreto, no solo el de
+// hoy real.
+function _birthdayOnDate(p,dateStr){
+  if(!p||!p.birthDate||p.birthDate.length<10||!dateStr)return false;
+  return p.birthDate.slice(5)===dateStr.slice(5);
+}
+// Todos los cumpleaños de una fecha dada en todo el club (todos los
+// equipos), para la pantalla "Hoy". Cada entrada lleva el equipo para poder
+// etiquetarla. v3.0.0-dev.99 · B-HOY4: generalizada a cualquier fecha
+// (antes solo miraba el día real de hoy) -- _todaysBirthdays() se queda como
+// wrapper de conveniencia para el resto del código que sigue queriendo
+// siempre el día real.
+function _birthdaysOnDate(dateStr){
   const out=[];
   (S.teams||[]).forEach(t=>{
     (S.players[t.id]||[]).forEach(p=>{
-      if(isBirthdayToday(p))out.push({player:p,team:t});
+      if(_birthdayOnDate(p,dateStr))out.push({player:p,team:t});
     });
   });
   return out;
 }
+function _todaysBirthdays(){return _birthdaysOnDate(td());}
 // Determina si un jugador está actualmente lesionado. Orden de prioridad:
 // 1) p.injury.active (modelo nuevo v1.6.3) · 2) p.injured booleano legacy ·
 // 3) patrón "lesion" en notas (retrocompat con datos muy antiguos).
@@ -3456,7 +3719,24 @@ function reducedMinutesInfo(p,tid,m){
 // marcas _jr='injury' previas que queden fuera del rango (evita residuos cuando
 // el entrenador edita la fecha de inicio o da el alta). Llamar siempre tras
 // modificar p.injury para mantener coherente la asistencia histórica.
-function applyInjuryToSessions(tid,pid,startDate,endDate,noteText){
+//
+// v3.0.0-dev.100 · B-INJ7, bug CRÍTICO encontrado en auditoría (2026-10-31):
+// el paso 1 (limpieza) recorría TODAS las sesiones del equipo, sin
+// distinguir a qué EPISODIO de lesión pertenecía cada marca "_jr=injury" ya
+// guardada. Al dar de alta una lesión NUEVA (o mover la fecha de una activa
+// hacia adelante), cualquier sesión de un episodio ANTERIOR ya cerrado y
+// archivado (injuryHistory) que todavía tuviera "_jr=injury" quedaba fuera
+// del rango de la lesión nueva → se borraba su "excused" real. Como
+// isInjured()/injuryStart() en _attEffectiveState() solo miran la lesión
+// ACTIVA actual (no el historial), ese día pasaba a verse como "Presente"
+// por defecto -- asistencia real corrompida en silencio, sin que el
+// entrenador tocara nada de esas fechas. Fix: nuevo parámetro opcional
+// `prevStartDate` -- el `startDate` que tenía ESTE MISMO episodio antes de
+// este guardado (solo si ya estaba activo). La limpieza del paso 1 nunca
+// toca una fecha anterior a `prevStartDate`: una lesión nueva (sin episodio
+// previo activo que editar) no limpia nada; editar la fecha de una lesión
+// ya activa solo limpia el tramo que de verdad dejó de estar cubierto.
+function applyInjuryToSessions(tid,pid,startDate,endDate,noteText,prevStartDate){
   const end=endDate||td();
   const keys=Object.keys(S.sessions).filter(k=>k.startsWith(tid+"_"));
   keys.forEach(k=>{
@@ -3464,8 +3744,11 @@ function applyInjuryToSessions(tid,pid,startDate,endDate,noteText){
     let changed=false;
     const d=k.slice(tid.length+1);
     const inRange=startDate&&d>=startDate&&d<=end;
-    // 1) Limpia marcas de lesión que ya no aplican (fuera del nuevo rango)
-    if(sess[pid+"_jr"]==="injury"&&!inRange){
+    // 1) Limpia marcas de lesión que ya no aplican (fuera del nuevo rango),
+    // pero SOLO dentro de la ventana de ESTE MISMO episodio (desde
+    // prevStartDate) -- nunca antes, donde viviría un episodio ya cerrado.
+    const withinThisEpisode=!!prevStartDate&&d>=prevStartDate;
+    if(withinThisEpisode&&sess[pid+"_jr"]==="injury"&&!inRange){
       delete sess[pid+"_jr"];
       delete sess[pid+"_jn"];
       if(sess[pid]==="excused")delete sess[pid];
@@ -3516,9 +3799,7 @@ function _buildStatsCharts(){
   // se excluye la pretemporada de raíz aquí (no solo vía _isPlayerActiveOn)
   // para que la línea de tendencia no muestre un falso "0%" en días de
   // pretemporada sin jugadores "activos" que contar.
-  const allSess=Object.entries(S.sessions)
-    .filter(([k])=>k.startsWith(tid+"_"))
-    .map(([k,v])=>({date:k.replace(tid+"_",""),data:v}))
+  const allSess=_teamSessionEntries(tid)
     .filter(s=>_isDateInSeason(s.date))
     .sort((a,b)=>a.date.localeCompare(b.date));
   if(!allSess.length)return;
@@ -3622,7 +3903,7 @@ function exportPDF(){
   // v3.0.0-dev.55 · B-SEASON1: informe de TEMPORADA -- se excluye la
   // pretemporada de raíz (no hay tabla día a día en este PDF, todo lo que
   // usa allSess de aquí en adelante es agregado de temporada).
-  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).filter(s=>_isDateInSeason(s.date)).sort((a,b)=>a.date.localeCompare(b.date));
+  const allSess=_teamSessionEntries(S.teamId).filter(s=>_isDateInSeason(s.date)).sort((a,b)=>a.date.localeCompare(b.date));
   const thr=S.cfg.riskThreshold;
   const sf=S.sf||"all";
   // Pre-calcula stats por jugador respetando fecha de alta
@@ -3748,7 +4029,7 @@ function exportExcel(){
   // v3.0.0-dev · B-GUEST2: idem exportPDF -- los puntuales de partido no
   // entrenan, se excluyen de las hojas de asistencia de temporada.
   const players=pl(S.teamId).filter(p=>!p.matchOnly);
-  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).sort((a,b)=>a.date.localeCompare(b.date));
+  const allSess=_teamSessionEntries(S.teamId).sort((a,b)=>a.date.localeCompare(b.date));
   // v3.0.0-dev.55 · B-SEASON1: allSess sigue siendo TODO el histórico (la
   // hoja "Sesiones" -- día a día -- se queda igual que siempre, pretemporada
   // incluida: son entrenamientos reales). seasonSess es solo para los
@@ -3874,7 +4155,10 @@ function _matchAggRows(){
   // partido "solo equipo" en la temporada, aunque el resto sí tuviera
   // seguimiento por jugador.
   const matchAgg={};
-  matchList.forEach(mm=>{if(!mm.live.stats)return;Object.entries(mm.live.stats).forEach(([pid,st])=>{
+  // v3.0.0-dev.101 · B-MANUALSTATS1: incluye también partidos con
+  // estadísticas a mano por cuarto (sin seguimiento en vivo), normalizadas
+  // por _matchPlayerStats() al mismo formato que live.stats.
+  matchList.forEach(mm=>{const _mst=_matchPlayerStats(mm);if(!_mst)return;Object.entries(_mst).forEach(([pid,st])=>{
     if(!matchAgg[pid])matchAgg[pid]={pj:0,pts:0,p2m:0,p2a:0,p3m:0,p3a:0,p1m:0,p1a:0,ro:0,rd:0,ast:0,foul:0,frecv:0,stl:0,blk:0,to:0,minSec:0,eff:0};
     const a=matchAgg[pid];
     a.pj++;a.pts+=(st.p2m||0)*2+(st.p3m||0)*3+(st.p1m||0);
@@ -4022,7 +4306,18 @@ function exportTeamKPIsExcel(){
 /* ═══════════════════════════════════════
    RENDER
 ═══════════════════════════════════════ */
+// v3.0.0-dev.101 · B-ROLES1: pantallas que dependen de un equipo concreto
+// (S.teamId) -- si hay permisos activos y el entrenador de este dispositivo
+// no puede ni ver ese equipo (enlace viejo, o le quitaron el acceso remoto
+// mientras tenía la app abierta en otro sitio -- ver el listener de
+// _attachClubListeners), render() lo manda de vuelta a "Equipos" en vez de
+// enseñarle una pantalla de datos a los que no debería tener acceso.
+const _TEAM_SCOPED_SCREENS=new Set(["team","att","stats","hist","share","eventos","matchList","matchDetail","liveGame","shotMap","matchSummary","trainingNote","trainingNotesWeek","dlsLive"]);
 function render(){
+  if(_TEAM_SCOPED_SCREENS.has(S.screen)&&S.teamId&&!_canViewTeam(S.teamId)){
+    S.screen="equipos";S.teamId=null;S.navStack=[];
+    toast("🔒 Ya no tienes acceso a ese equipo");
+  }
   if(_cloudEnabled && _fbReady && _fbUser && S.teamId!==_lastListenedTeamId){
     _lastListenedTeamId=S.teamId;
     _attachTeamListeners(S.teamId);
@@ -4151,10 +4446,15 @@ function toggleHtml(key,title,desc){const on=S.cfg.features[key];return`<div cla
 /* ── EQUIPOS SCREEN ── */
 function equiposScreen(){
   const allSessions=S.sessions;
-  const reorder=!!S._teamReorder&&S.teams.length>1;
-  const cards=S.teams.length===0
-    ?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">👥</div><div style="font-size:14px;line-height:1.7;color:var(--tm)">Sin equipos aún.<br/>Pulsa <b style="color:var(--orange)">＋</b> para crear el primero.</div></div>`
-    :S.teams.map((t,i)=>{
+  // v3.0.0-dev.101 · B-ROLES1: con permisos activos, un entrenador/director
+  // deportivo solo ve aquí los equipos a los que tiene acceso (editar o solo
+  // ver) -- _visibleTeams() devuelve S.teams tal cual si no hay permisos
+  // activos, cero cambio de comportamiento para el uso normal de siempre.
+  const visTeams=_visibleTeams();
+  const reorder=!!S._teamReorder&&visTeams.length>1;
+  const cards=visTeams.length===0
+    ?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">👥</div><div style="font-size:14px;line-height:1.7;color:var(--tm)">${S.teams.length===0?`Sin equipos aún.<br/>Pulsa <b style="color:var(--orange)">＋</b> para crear el primero.`:"No tienes acceso a ningún equipo todavía.<br/>Pide al superadmin del club que te asigne uno desde Ajustes."}</div></div>`
+    :visTeams.map((t,i)=>{
       const players=pl(t.id);
       // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
       const sessions=Object.entries(allSessions).filter(([k])=>k.startsWith(t.id+"_")).map(([k,v])=>({date:k.replace(t.id+"_",""),data:v}));
@@ -4212,7 +4512,14 @@ function equiposScreen(){
         </div>
       </div>`;
     }).join("");
-  const reorderToggleBtn=S.teams.length>1
+  // v3.0.0-dev.101 · B-ROLES1: reordenar equipos y crear equipos nuevos son
+  // cambios de estructura del CLUB (afectan a todos, no solo a "mis
+  // equipos"), así que con permisos activos quedan reservados al superadmin
+  // -- igual que archivar temporada o los ajustes del club. Sin permisos
+  // activos _isSuperadmin() es true para cualquiera (comportamiento de
+  // siempre, cero cambio).
+  const canManageTeams=_isSuperadmin();
+  const reorderToggleBtn=canManageTeams&&visTeams.length>1
     ?(reorder
       ?`<button class="bbtn" onclick="toggleTeamsReorder()" style="width:auto;padding:0 12px;font-size:13px;font-weight:800;color:var(--orange)">✓ Listo</button>`
       :`<button class="bbtn" onclick="toggleTeamsReorder()" title="Ordenar equipos">↕</button>`)
@@ -4222,22 +4529,25 @@ function equiposScreen(){
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">${esc(S.clubName)}</div>
     <div style="font-size:11px;color:var(--orange);font-weight:700;letter-spacing:2px;text-transform:uppercase">Equipos</div></div>
     ${reorderToggleBtn}
-    ${reorder?"":`<button class="bbtn" onclick="openTeamModal()">＋</button>`}
+    ${(!reorder&&canManageTeams)?`<button class="bbtn" onclick="openTeamModal()">＋</button>`:""}
   </div></header>
   <div class="content"><div class="cards-grid">${cards}</div></div>
   ${navBar()}`;
 }
 /* ── STATS HOME SCREEN ── */
 function statsHomeScreen(){
-  if(S.teams.length===0)return`
+  // v3.0.0-dev.101 · B-ROLES1: igual que equiposScreen(), solo se listan los
+  // equipos visibles para este entrenador (todos si no hay permisos activos).
+  const visTeams=_visibleTeams();
+  if(visTeams.length===0)return`
     <header class="header"><div class="hrow"><div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div></div></div></header>
-    <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm)">Sin equipos aún.</div></div></div>
+    <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm)">${S.teams.length===0?"Sin equipos aún.":"No tienes acceso a ningún equipo todavía."}</div></div></div>
     ${navBar()}`;
-  if(S.teams.length===1){S.teamId=S.teams[0].id;S.screen="stats";return stats();}
-  const cards=S.teams.map(t=>{
+  if(visTeams.length===1){S.teamId=visTeams[0].id;S.screen="stats";return stats();}
+  const cards=visTeams.map(t=>{
     const players=pl(t.id);
     // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
-    const sessions=Object.entries(S.sessions).filter(([k])=>k.startsWith(t.id+"_")).map(([k,v])=>({date:k.replace(t.id+"_",""),data:v}));
+    const sessions=_teamSessionEntries(t.id);
     const totalSess=sessions.length;
     let avgPct=0;
     if(totalSess>0&&players.length>0){
@@ -4305,7 +4615,10 @@ function hoy(){
   const today=S.hoyDate||realToday;
   const isToday=today===realToday;
   const ti=_weekdayIdxForDate(today);
-  const scheduledToday=S.teams.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
+  // v3.0.0-dev.101 · B-ROLES1: "Hoy" solo muestra entrenamientos/partidos de
+  // equipos visibles para este entrenador (todos si no hay permisos activos).
+  const _visTeamsHoy=_visibleTeams();
+  const scheduledToday=_visTeamsHoy.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
   // v3.0.0-dev.73 · B-HOY2: un "Entrenamiento sorpresa" (openHoyAddSheet,
   // fuera del horario semanal fijo) guarda su asistencia exactamente igual
   // que cualquier otro entreno (S.sessions[sk(teamId,date)], vía cycleAtt/
@@ -4313,7 +4626,7 @@ function hoy(){
   // filtro solo miraba el horario semanal fijo, nunca si ya se había pasado
   // lista hoy. Pedido explícito de Mario: si se guarda la asistencia de un
   // entrenamiento sorpresa, debe verse en "Hoy" igual que uno programado.
-  const surpriseToday=S.teams.filter(t=>!(t.schedule&&t.schedule.hasOwnProperty(ti))&&!!S.sessions[sk(t.id,today)]);
+  const surpriseToday=_visTeamsHoy.filter(t=>!(t.schedule&&t.schedule.hasOwnProperty(ti))&&!!S.sessions[sk(t.id,today)]);
   const todayTeams=[...scheduledToday,...surpriseToday];
   // v1.8.31 · B-HOY1: la pantalla Hoy iba en el orden de la pantalla Equipos
   // (S.teams / _sortTeams()), que no tiene por que coincidir con la hora de
@@ -4330,7 +4643,9 @@ function hoy(){
   // Deduplicate matches by id (in case same match indexed under multiple keys)
   const _allMatchMap={};
   Object.entries(S.matches||{}).forEach(([tid,arr])=>(arr||[]).forEach(m=>{if(!_allMatchMap[m.id])_allMatchMap[m.id]={...m,_tid:tid};}));
-  const todayMatches=Object.values(_allMatchMap).filter(m=>m.date===today&&!m.finished);
+  // v3.0.0-dev.101 · B-ROLES1: igual que arriba, solo partidos de equipos
+  // visibles para este entrenador.
+  const todayMatches=Object.values(_allMatchMap).filter(m=>m.date===today&&!m.finished&&_canViewTeam(m._tid));
   // ── Match cards ──
   const matchCards=todayMatches.map(m=>{
     const t=S.teams.find(x=>x.id===m._tid);
@@ -4414,12 +4729,16 @@ function hoy(){
     const ex=effSt.filter(v=>v==="excused").length;
     const pct=pc(pr+la,players.length);
     const coaches=(t.coaches||[]).filter(Boolean);
+    // v3.0.0-dev.100 · B-VOLTECH1: distingue en la propia tarjeta de "Hoy"
+    // si esta sesión es voluntaria/tecnificación (para que no se confunda
+    // con un entrenamiento oficial normal de un vistazo).
+    const optLabel=sess._optType==="tecnificacion"?"🎯 TECNIFICACIÓN":sess._optType==="voluntario"?"🙋 VOLUNTARIO":"🏋️ ENTRENAMIENTO";
     return`<div style="background:var(--s);border:1px solid ${done?"rgba(34,197,94,.3)":"rgba(249,115,22,.3)"};border-radius:14px;margin-bottom:12px;overflow:hidden">
       <div style="height:4px;background:${t.color}"></div>
       <div style="padding:14px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
           <div>
-            <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:3px">🏋️ ENTRENAMIENTO</div>
+            <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:3px">${optLabel}</div>
             <div style="font-weight:900;font-size:18px">${esc(t.name)}</div>
             <div style="font-size:12px;color:var(--td);margin-top:2px">${esc(t.category||"")}${time?" · 🕐 "+time+"h":""}</div>
             ${coaches.length?`<div style="font-size:12px;color:var(--td);margin-top:1px">👟 ${coaches.map(esc).join(" · ")}</div>`:""}
@@ -4479,31 +4798,40 @@ function hoy(){
   // Va FUERA del if/else de emptyState a propósito: si el cumpleaños cae en
   // un día sin entreno ni partido, es precisamente cuando más falta hace que
   // salga aquí (en el pase de lista de ese equipo nunca se vería ese día).
-  // v3.0.0-dev.98 · B-HOY3: _todaysBirthdays() mira el día real de hoy, así
-  // que solo se muestra viendo isToday -- en un día pasado/futuro no sería
-  // más que ruido (el cumpleaños de "hoy" no tiene nada que ver con ese día).
-  const bdayToday=isToday?_todaysBirthdays():[];
-  const bdayBannerHoy=bdayToday.length?`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px">
-    ${bdayToday.map(({player,team})=>{
-      const age=playerBirthdayAge(player);
-      const label=age?`🎉 ¡Hoy cumple ${age} años!`:"🎉 ¡Hoy es su cumpleaños!";
-      return`<div style="display:flex;align-items:center;gap:10px${bdayToday.length>1?";margin-bottom:8px":""}">
+  // v3.0.0-dev.99 · B-HOY4: Mario, tras probar B-HOY3 -- "quiero que se vean
+  // los cumpleaños tambien de manera que salgan igual" -- generalizado a
+  // _birthdaysOnDate(today): se muestra el cumpleaños del día que se está
+  // VIENDO (navegado o no), no solo el de hoy real. El texto distingue si es
+  // hoy real ("Hoy cumple...") o un día pasado que se está revisando
+  // ("Cumplió..." / "Fue su cumpleaños") -- nunca puede ser futuro, porque
+  // navegar hacia adelante está topado en el propio día de hoy.
+  const bdayOnViewedDay=_birthdaysOnDate(today);
+  const bdayBannerHoy=bdayOnViewedDay.length?`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px">
+    ${bdayOnViewedDay.map(({player,team})=>{
+      const age=playerBirthdayAge(player,today);
+      const label=isToday
+        ?(age?`🎉 ¡Hoy cumple ${age} años!`:"🎉 ¡Hoy es su cumpleaños!")
+        :(age?`🎂 Cumplió ${age} años ese día`:"🎂 Fue su cumpleaños ese día");
+      return`<div style="display:flex;align-items:center;gap:10px${bdayOnViewedDay.length>1?";margin-bottom:8px":""}">
         <span style="font-size:22px">🎂</span>
         <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(player.name)} <span style="font-weight:500;color:var(--td);font-size:12px">· ${esc(team.name)}</span></div><div style="font-size:12px;color:#ec4899;font-weight:700">${label}</div></div>
       </div>`;
     }).join("")}
   </div>`:"";
-  // v3.0.0-dev.98 · B-HOY3: fila de navegación de día -- Mario: "poder ir
-  // para adelante y hacia atrás, sobretodo me importa hacia atrás para
-  // comprobar que todos los entrenamientos han sido pasado lista". ‹ siempre
+  // v3.0.0-dev.98 · B-HOY3, retocado en dev.99 tras feedback de Mario --
+  // "Viendo hoy queda muy flojo y en los demas destaca mucho, sería mejor
+  // que HOY destacase con el naranja y poner un azul que sea mas discreto
+  // [...] en azul para otros dias no poner hoy [...] solo el día": HOY pasa
+  // a ser una píldora en naranja (el color de marca, el que más destaca en
+  // toda la app); cualquier otro día usa un azul deliberadamente más
+  // discreto, y nunca lleva la palabra "Hoy" -- solo la fecha. ‹ siempre
   // activo (sin límite hacia atrás); › se desactiva en el propio día de hoy
-  // (confirmado con Mario: "Topar en hoy" -- un día futuro no tiene nada que
-  // comprobar todavía). Cuando no se está viendo hoy, aparece además un
-  // botón "Hoy" para volver de un toque, sin tener que darle a › varias veces.
+  // (confirmado con Mario: "Topar en hoy"). Cuando no se está viendo hoy,
+  // aparece además un botón "Hoy" para volver de un toque.
   const hoyNavHtml=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
     <button onclick="_hoyShiftDay(-1)" aria-label="Día anterior" style="width:40px;height:40px;flex-shrink:0;border-radius:9px;background:var(--s2);border:1px solid var(--border);color:var(--tx);font-size:18px;font-weight:700;cursor:pointer">‹</button>
-    <div style="flex:1;min-width:0;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px">
-      <span style="font-size:13px;font-weight:700;color:${isToday?"var(--td)":"var(--orange)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${isToday?"Viendo hoy":cap(dateStr)}</span>
+    <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:8px">
+      <span style="display:inline-flex;max-width:100%;align-items:center;padding:5px 12px;border-radius:8px;font-size:13px;font-weight:800;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${isToday?"background:rgba(240,99,24,.15);border:1px solid rgba(240,99,24,.4);color:var(--orange)":"background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);color:#60a5fa"}">${isToday?"HOY":cap(dateStr)}</span>
       ${!isToday?`<button onclick="_hoyGoToday()" style="flex-shrink:0;background:rgba(240,99,24,.12);border:1px solid rgba(240,99,24,.3);color:var(--orange);font-size:11px;font-weight:800;border-radius:8px;padding:4px 10px;cursor:pointer">Hoy</button>`:""}
     </div>
     <button onclick="_hoyShiftDay(1)" aria-label="Día siguiente" ${isToday?"disabled":""} style="width:40px;height:40px;flex-shrink:0;border-radius:9px;background:var(--s2);border:1px solid var(--border);color:var(--tx);font-size:18px;font-weight:700;cursor:${isToday?"default":"pointer"};opacity:${isToday?".35":"1"}">›</button>
@@ -4515,17 +4843,20 @@ function hoy(){
   // v1.6.12: el título del header usa el nombre del club si está configurado
   const _hasClub=S.clubName&&S.clubName.trim()&&S.clubName!=="Kortline";
   const _title=_hasClub?esc(S.clubName):"Hoy";
-  // v3.0.0-dev.98 · B-HOY3: el "Hoy ·" literal de delante de la fecha solo
-  // tiene sentido viendo isToday -- de lo contrario diría p.ej. "Hoy ·
-  // miércoles 28" mientras se navega al día anterior, que es contradictorio.
-  const _subtitle=(_hasClub&&isToday)?`Hoy · <span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`:`<span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`;
+  // v3.0.0-dev.98 · B-HOY3, color retocado en dev.99: el "Hoy ·" literal de
+  // delante de la fecha solo tiene sentido viendo isToday. Mismo criterio de
+  // color que la píldora de arriba: naranja viendo hoy, azul discreto en
+  // cualquier otro día.
+  const _subtitle=isToday
+    ?(_hasClub?`Hoy · <span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`:`<span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`)
+    :`<span style="color:#60a5fa;font-weight:700">${cap(dateStr)}</span>`;
   return`<header class="header"><div class="hrow">
     <div onclick="openClubSettings()" style="cursor:pointer">${logoHtml(42,10)}</div>
     <div style="flex:1;min-width:0">
       <div style="font-family:var(--font-d);font-weight:900;font-size:19px;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_title}</div>
       <div style="font-size:12px;color:var(--td);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_subtitle}</div>
     </div>
-    ${totalToday>0?`<div style="background:var(--orangeG);color:white;font-size:12px;font-weight:800;padding:4px 10px;border-radius:10px;font-family:var(--font-d);letter-spacing:.5px">${totalToday}${isToday?" HOY":""}</div>`:""}
+    ${totalToday>0?`<div style="background:${isToday?"var(--orangeG)":"linear-gradient(135deg,#3b82f6,#1d4ed8)"};color:white;font-size:12px;font-weight:800;padding:4px 10px;border-radius:10px;font-family:var(--font-d);letter-spacing:.5px">${totalToday}${isToday?" HOY":""}</div>`:""}
   </div></header>
   <div class="content">${content}</div>
   ${isToday?`<button class="fab-add" onclick="openHoyAddSheet()" title="Añadir actividad sorpresa" aria-label="Añadir actividad">＋</button>`:""}
@@ -4596,6 +4927,16 @@ function att(){
   // confirmación (no pidió eso), así que no cambia ningún flujo de guardado,
   // solo dice claramente qué día se está viendo/editando cuando no es hoy.
   const notTodayBannerHtml=(S.date!==td())?`<div style="display:flex;align-items:center;gap:8px;background:rgba(240,99,24,.08);border:1px solid rgba(240,99,24,.25);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:var(--orange);font-weight:600"><span style="font-size:16px">📅</span><span>Estás viendo/editando el entrenamiento del ${fd(S.date,true)} -- no es el de hoy</span></div>`:"";
+  // v3.0.0-dev.100 · B-VOLTECH1: aviso cuando esta sesión es voluntaria o de
+  // tecnificación (ver openHoyAddSheet/_hoyAddCommitOptional) -- Mario pidió
+  // explícitamente que las ausencias aquí "no cuenten para mal ya que no es
+  // algo obligatorio", así que el pase de lista se deja hacer EXACTAMENTE
+  // igual que siempre (mismo cycleAtt/setAll/_flushSess, sin tocar ese
+  // código), pero con un aviso claro de que esto no toca el % oficial --
+  // para que el entrenador nunca piense que una ausencia aquí cuenta igual
+  // que en un entrenamiento normal.
+  const optType=sess._optType;
+  const optSessionBannerHtml=optType?`<div style="display:flex;align-items:center;gap:8px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#a855f7;font-weight:600"><span style="font-size:16px">${optType==="tecnificacion"?"🎯":"🙋"}</span><span>${optType==="tecnificacion"?"Tecnificación":"Entrenamiento voluntario"} -- las ausencias aquí NO cuentan para el % oficial. Las asistencias suman a un contador aparte.</span></div>`:"";
   // v3.0.0-dev.62 · B-BDAY1: aviso de cumpleaños de HOY para jugadores de
   // este equipo (solo decorativo, sin botones -- no hay ninguna acción que
   // tomar, a diferencia del aviso de lesión de arriba).
@@ -4808,6 +5149,7 @@ function att(){
       <button onclick="_guardedExit(()=>{_attFlushDraft();S.date=td();S._attDraft=null;S._attNoCaptureOnRender=true;render();})" style="background:rgba(240,99,24,.15);color:var(--orange);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:700">HOY</button>
     </div>
     ${notTodayBannerHtml}
+    ${optSessionBannerHtml}
     ${bdayReminderHtml}
     ${injReminderHtml}
     <div class="agrid">${agrid}</div>
@@ -4841,7 +5183,7 @@ function stats(){
   // sin tocar, en la pestaña Partidos más abajo -- esa usa `players` sin
   // filtrar a propósito, porque ahí sí jugaron).
   const attPlayers=players.filter(p=>!p.matchOnly);
-  const rawSessList=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
+  const rawSessList=_teamSessionEntries(S.teamId);
   const thr=S.cfg.riskThreshold;
   const feat=S.cfg.features;
   const view=S.statsView||"table";
@@ -4969,7 +5311,10 @@ function stats(){
   // partido "solo equipo" en la temporada, aunque el resto sí tuviera
   // seguimiento por jugador.
   const matchAgg={};
-  matchList.forEach(mm=>{if(!mm.live.stats)return;Object.entries(mm.live.stats).forEach(([pid,st])=>{
+  // v3.0.0-dev.101 · B-MANUALSTATS1: incluye también partidos con
+  // estadísticas a mano por cuarto (sin seguimiento en vivo), normalizadas
+  // por _matchPlayerStats() al mismo formato que live.stats.
+  matchList.forEach(mm=>{const _mst=_matchPlayerStats(mm);if(!_mst)return;Object.entries(_mst).forEach(([pid,st])=>{
     if(!matchAgg[pid])matchAgg[pid]={pj:0,pts:0,p2m:0,p2a:0,p3m:0,p3a:0,p1m:0,p1a:0,ro:0,rd:0,ast:0,foul:0,frecv:0,stl:0,blk:0,to:0,minSec:0,eff:0};
     const a=matchAgg[pid];
     a.pj++;a.pts+=(st.p2m||0)*2+(st.p3m||0)*3+(st.p1m||0);
@@ -5101,7 +5446,12 @@ function hist(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const players=pl(S.teamId);
   const thr=S.cfg.riskThreshold||75;
-  const allEntries=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({k,date:k.replace(S.teamId+"_",""),data:v})).sort((a,b)=>b.date.localeCompare(a.date));
+  // v3.0.0-dev.100 · B-VOLTECH1: allEntries para el % medio/agregado del mes
+  // (mStats) excluye entrenamientos opcionales (ver _teamSessionEntries) --
+  // pero el LISTADO de filas de abajo (rows) sí debe poder mostrarlos
+  // (marcados aparte), así que se guarda también optEntries con todo.
+  const allEntries=_teamSessionEntries(S.teamId).sort((a,b)=>b.date.localeCompare(a.date));
+  const optEntries=_teamSessionEntries(S.teamId,{includeOptional:true}).filter(e=>e.data._optType).sort((a,b)=>b.date.localeCompare(a.date));
   const months=[...new Set(allEntries.map(e=>e.date.slice(0,7)))].sort().reverse();
   const entries=S.histMonth?allEntries.filter(e=>e.date.startsWith(S.histMonth)):allEntries;
   const monthSel=months.length>0?`<div class="month-row"><select class="fi" style="flex:1" onchange="S.histMonth=this.value||null;render()"><option value="" ${!S.histMonth?"selected":""}>📅 Todos los meses (${allEntries.length})</option>${months.map(m=>`<option value="${m}" ${S.histMonth===m?"selected":""}>${cap(fMonth(m))} — ${allEntries.filter(e=>e.date.startsWith(m)).length} ses.</option>`).join("")}</select></div>`:"";
@@ -5163,12 +5513,31 @@ function hist(){
         </div>
       </div>`;
     }).join("")}</div>`;
+  // v3.0.0-dev.100 · B-VOLTECH1: lista aparte de entrenamientos voluntarios/
+  // tecnificación -- NUNCA mezclados con el listado de arriba (que es de
+  // temporada oficial) para que quede clarísimo que esto es un registro
+  // distinto, informativo, que no cuenta para el % de asistencia.
+  const optRowsHtml=optEntries.length===0?"":`<div style="display:flex;align-items:center;gap:10px;margin:18px 0 8px"><div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#a855f7;white-space:nowrap">🙋 Voluntarios / tecnificación (${optEntries.length})</div><div style="flex:1;height:1px;background:var(--border)"></div></div>
+    <div style="font-size:11.5px;color:var(--tm);margin-bottom:8px;line-height:1.5">No cuentan para el % de asistencia oficial.</div>
+    <div class="card">${optEntries.map((e,i)=>{
+      const activeP=players.filter(p=>!p.matchOnly&&_isPlayerActiveOn(p,e.date,allEntries));
+      let pr=0;activeP.forEach(p=>{const v=e.data[p.id];if(v==="present"||v==="late")pr++;});
+      const typeLabel=e.data._optType==="tecnificacion"?"🎯 Tecnificación":"🙋 Voluntario";
+      return`<div class="he" style="${i===optEntries.length-1?"border-bottom:none":""}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div onclick="S.date='${e.date}';navTo('att')" style="flex:1;cursor:pointer">
+            <div style="display:flex;align-items:center;gap:6px"><div style="font-family:var(--font-d);font-weight:700;font-size:16px">${fd(e.date,true)}</div><span style="font-size:11px;font-weight:800;color:#a855f7;background:rgba(168,85,247,.12);border-radius:5px;padding:1px 6px">${typeLabel}</span></div>
+            <div style="font-size:12px;color:var(--td);margin-top:4px">✓ ${pr} asistieron de ${activeP.length}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join("")}</div>`;
   return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📋 Historial</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")} · ${allEntries.length} sesiones</div></div>
     <button class="bbtn" onclick="navTo('share',{date:td()})">📤</button>
   </div></header>
-  <div class="content">${monthSel}${mStats}${rows}</div>
+  <div class="content">${monthSel}${mStats}${rows}${optRowsHtml}</div>
   ${navBar()}`;
 }
 /* ═══════════════════════════════════════
@@ -5297,6 +5666,11 @@ function team(){
       const iDays=iStart?injuryDays(iStart):0;
       const badge=isInj?`<span class="injury-badge" title="Lesionado${iStart?" desde "+fd(iStart,false):""}">🚑</span>`:"";
       const guestBadge=p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="Jugador puntual/invitado${p.guestNote?": "+esc(p.guestNote):""}">🔄 PUNTUAL</span>`:"";
+      // v3.0.0-dev.100 · B-VOLTECH1: "contador aparte" de asistencia a
+      // voluntarios/tecnificaciones (ver _optionalAttCount) -- nunca toca el
+      // % oficial de arriba, solo informativo.
+      const _optC=_optionalAttCount(p,S.teamId);
+      const optBadge=_optC.asistidas>0?`<span style="background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="Asistencias a entrenamientos voluntarios/tecnificación (no cuentan para el % oficial)">🙋 ${_optC.asistidas}</span>`:"";
       const pnum=`<div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}99)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>`;
       const avatar=p.photo?`<img class="pavatar" src="${p.photo}" alt=""/>`:"";
       // Formato compacto para no cortar en filas estrechas: "🚑 10/04 (6d)"
@@ -5317,7 +5691,7 @@ function team(){
         :"background:var(--s2);border:1px solid var(--border);color:var(--td)";
       const incBadge=incCount>0?`<span class="injury-badge" style="background:#f59e0b" title="${incCount} incidencia${incCount===1?"":"s"}">${incCount}</span>`:"";
       const incBtn=S.cfg.features.incidents?`<button onclick="openIncidentModal('${p.id}')" title="Incidencias" style="position:relative;padding:5px 9px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:4px;${incBtnStyle}">⚠️${incBadge}</button>`:"";
-      return `<div class="pr">${pnum}${avatar}<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${badge}${guestBadge}</div><div style="font-size:12px;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subLine)}</div></div><button onclick="openPlayerModal(${JSON.stringify({...p,id:p.id}).replace(/"/g,'&quot;')})" title="Editar datos" style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:13px;margin-right:4px">✏️</button>${injBtn}${incBtn}<button onclick="delPlayer('${p.id}')" title="Eliminar" style="padding:5px 9px;border-radius:6px;border:none;background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-size:13px">🗑</button></div>`;
+      return `<div class="pr">${pnum}${avatar}<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${badge}${guestBadge}${optBadge}</div><div style="font-size:12px;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subLine)}</div></div><button onclick="openPlayerModal(${JSON.stringify({...p,id:p.id}).replace(/"/g,'&quot;')})" title="Editar datos" style="padding:5px 9px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--td);cursor:pointer;font-size:13px;margin-right:4px">✏️</button>${injBtn}${incBtn}<button onclick="delPlayer('${p.id}')" title="Eliminar" style="padding:5px 9px;border-radius:6px;border:none;background:rgba(239,68,68,.1);color:#ef4444;cursor:pointer;font-size:13px">🗑</button></div>`;
   };
   const _fixedP=players.filter(p=>!p.guest).sort(_byNumber);
   const _guestP=players.filter(p=>p.guest).sort(_byNumber);
@@ -5336,7 +5710,7 @@ function team(){
   // v3.0.0-dev.55 · B-SEASON1: "Asistencia media" es un agregado de
   // temporada -- se excluye la pretemporada de raíz, para que el número de
   // "X entrenamientos" cuadre con el % mostrado justo al lado.
-  const allSessTeam=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v})).filter(s=>_isDateInSeason(s.date));
+  const allSessTeam=_teamSessionEntries(S.teamId).filter(s=>_isDateInSeason(s.date));
   const totalSessTeam=allSessTeam.length;
   let avgPctTeam=0;
   if(totalSessTeam>0&&players.length>0){
@@ -5432,7 +5806,7 @@ function buildWeeklyText(tid,showMotivo,opts){
   // v3.0.0-dev · B-GUEST2: idem buildDailyText -- los puntuales de partido
   // no entrenan, se excluyen del resumen semanal de asistencia.
   const players=pl(tid).filter(p=>!p.matchOnly);
-  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([k,v])=>({date:k.replace(tid+"_",""),data:v})).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,7);
+  const allSess=_teamSessionEntries(tid).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,7);
   if(!allSess.length)return null;
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *Resumen semanal — ${t.name}*`];
@@ -5679,6 +6053,7 @@ function evtTipoSel(btn,id){
   if(rw)rw.style.display=tipo==="partido"?"":"none";if(tw)tw.style.display=tipo!=="partido"?"":"none";
 }
 function saveEvento(mid,eid){
+  if(!_requireEdit(S.teamId))return;
   const modal=document.getElementById(mid);
   const tipo=modal?._tipo||(eid?(evtById(S.teamId,eid)?.tipo||"partido"):"partido");
   const rival=document.getElementById(mid+"-rival")?.value.trim()||"";
@@ -5693,13 +6068,33 @@ function saveEvento(mid,eid){
   else{const newEvt={id:uid(),tipo,rival,titulo,fecha,hora,horaConc,lugar,mensaje,convocados:[]};S.events[S.teamId].push(newEvt);save();document.getElementById(mid)?.remove();S.eventId=newEvt.id;_evtAutoSuggest(S.teamId,newEvt.id);openEventoConvModal();}
 }
 function _evtAutoSuggest(tid,eid){
-  const e=evtById(tid,eid);if(!e)return;const players=pl(tid);if(!players.length)return;if((e.convocados||[]).length>0)return;
+  const e=evtById(tid,eid);if(!e)return;
+  // v3.0.0-dev.100 · B-GUEST8, bug encontrado en la simulación de temporada
+  // completa de la auditoría: esta función (que rellena convocados en
+  // automático nada más crear un evento, ver saveEvento) usaba pl(tid) SIN
+  // el filtro "!p.attOnly" que SÍ aplican convRows/evtTogglePlayer en el
+  // mismo modal (B-GUEST3: "un puntual de ENTRENAMIENTO no es convocable a
+  // un evento"). Resultado real: un puntual de entreno se colaba en
+  // e.convocados en cuanto se creaba el evento -- invisible en el propio
+  // modal (que SÍ lo filtra al listar), pero buildEventoText()/
+  // shareEventoConv() leen e.convocados contra el roster COMPLETO sin ese
+  // filtro, así que su nombre aparecía de verdad en el texto de WhatsApp de
+  // convocatoria enviado al equipo, sin que el entrenador lo hubiera visto
+  // ni pulsado en ningún sitio.
+  const players=pl(tid).filter(p=>!p.attOnly);if(!players.length)return;if((e.convocados||[]).length>0)return;
   // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
-  const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([k,v])=>({date:k.replace(tid+"_",""),data:v}));
+  // v3.0.0-dev.100 · B-VOLTECH1, bug de auditoría confirmado: faltaba el
+  // filtro _isDateInSeason que ya usan Historial/Stats/exports -- el % que
+  // ayuda a sugerir convocatoria podía mezclar pretemporada con temporada
+  // regular. Aprovechado también para excluir entrenamientos opcionales
+  // (ver _teamSessionEntries) -- nunca deben influir en la convocatoria.
+  const allSess=_teamSessionEntries(tid).filter(s=>_isDateInSeason(s.date));
   if(allSess.length>0){const ranked=[...players].sort((a,b)=>{const ca=_countAtt(a,allSess),cb=_countAtt(b,allSess);return(cb.pr+cb.la)-(ca.pr+ca.la);});e.convocados=ranked.map(p=>p.id);}
   else{e.convocados=players.map(p=>p.id);}save();
 }
-function delEvento(eid){_confirm("¿Eliminar este evento y su convocatoria?","🗑 Eliminar",()=>{S.events[S.teamId]=(S.events[S.teamId]||[]).filter(e=>e.id!==eid);save();render();toast("🗑 Evento eliminado");});}
+function delEvento(eid){
+  if(!_requireEdit(S.teamId))return;
+  _confirm("¿Eliminar este evento y su convocatoria?","🗑 Eliminar",()=>{S.events[S.teamId]=(S.events[S.teamId]||[]).filter(e=>e.id!==eid);save();render();toast("🗑 Evento eliminado");});}
 function openEventoConvModal(){
   const eid=S.eventId;if(!eid)return;const t=S.teams.find(x=>x.id===S.teamId);const e=evtById(S.teamId,eid);if(!e){render();return;}
   // v3.0.0-dev.37 · B-GUEST3: idem convocatoria de partido -- un puntual de
@@ -5708,7 +6103,9 @@ function openEventoConvModal(){
   function convRows(cids){
     if(!players.length)return'<div style="padding:20px;text-align:center;color:var(--tm);font-size:13px">Sin jugadores en la plantilla.</div>';
     // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
-    const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
+    // v3.0.0-dev.100 · B-VOLTECH1: idem _evtAutoSuggest -- _isDateInSeason +
+    // exclusión de entrenamientos opcionales (ver _teamSessionEntries).
+    const allSess=_teamSessionEntries(S.teamId).filter(s=>_isDateInSeason(s.date));
     return players.map(p=>{const inc=cids.includes(p.id);const _c=_countAtt(p,allSess);const att=_c.tot>0?pc(_c.pr+_c.la,_c.tot):null;
       return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
     }).join("");
@@ -5728,19 +6125,22 @@ function openEventoConvModal(){
   document.body.appendChild(el);
 }
 function evtTogglePlayer(pid){
+  if(!_canEditTeam(S.teamId))return;
   const e=evtById(S.teamId,S.eventId);if(!e)return;if(!e.convocados)e.convocados=[];
   if(e.convocados.includes(pid)){e.convocados=e.convocados.filter(x=>x!==pid);}else{e.convocados.push(pid);}save();
   const t=S.teams.find(x=>x.id===S.teamId);const players=[...pl(S.teamId)].filter(p=>!p.attOnly).sort((a,b)=>(a.number||99)-(b.number||99));
   // v1.8.33 · B-ATT1: respeta fecha de alta de cada jugador (ver team())
-  const cids=e.convocados;const allSess=Object.entries(S.sessions).filter(([k])=>k.startsWith(S.teamId+"_")).map(([k,v])=>({date:k.replace(S.teamId+"_",""),data:v}));
+  // v3.0.0-dev.100 · B-VOLTECH1: idem _evtAutoSuggest -- _isDateInSeason +
+  // exclusión de entrenamientos opcionales (ver _teamSessionEntries).
+  const cids=e.convocados;const allSess=_teamSessionEntries(S.teamId).filter(s=>_isDateInSeason(s.date));
   const list=document.getElementById("ev-conv-list");
   if(list){list.innerHTML=players.map(p=>{const inc=cids.includes(p.id);const _c=_countAtt(p,allSess);const att=_c.tot>0?pc(_c.pr+_c.la,_c.tot):null;
     return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
   }).join("");}
   const cnt=document.getElementById("ev-conv-count");if(cnt)cnt.textContent=cids.length+" convocado"+(cids.length!==1?"s":"");
 }
-function evtConvAll(){const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=pl(S.teamId).filter(p=>!p.attOnly).map(p=>p.id);save();openEventoConvModal();}
-function evtConvNone(){const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=[];save();openEventoConvModal();}
+function evtConvAll(){if(!_canEditTeam(S.teamId))return;const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=pl(S.teamId).filter(p=>!p.attOnly).map(p=>p.id);save();openEventoConvModal();}
+function evtConvNone(){if(!_canEditTeam(S.teamId))return;const e=evtById(S.teamId,S.eventId);if(!e)return;e.convocados=[];save();openEventoConvModal();}
 function _refreshSRPrev(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const allC=(t?.coaches||[]).filter(Boolean);
@@ -5947,6 +6347,12 @@ function openClubSettings(){
       <div class="fg"><label class="fl">Tu nombre</label><input class="fi" id="cfg-coachname" value="${esc(_getCoachName())}" placeholder="ej. María" maxlength="40"/><div style="font-size:11px;color:var(--tm);margin-top:4px">Solo se guarda en este móvil (no es una cuenta). Sirve para que el aviso de "partido en directo ya seguido por otro dispositivo" diga quién es en vez de un aviso genérico.</div></div>
     </div>
     <div class="stg-sec">
+      <div class="stg-sec-title">👥 Entrenadores y permisos</div>
+      <div style="font-size:12px;color:var(--tm);margin:-4px 0 12px;line-height:1.5">${_isSuperadmin()?"Define quién es cada entrenador, con qué rol y qué equipos puede ver/editar. Mientras la lista esté vacía, nadie tiene restricciones (como hasta ahora)." :"Lista de quién tiene acceso al club y con qué rol. Solo el superadmin puede añadir, editar o quitar entrenadores."}</div>
+      ${_coachesListHtml()}
+      ${_isSuperadmin()?`<button type="button" class="btn-s" onclick="openCoachEditModal(null)" style="font-size:13px;padding:9px 14px;width:auto">➕ Añadir entrenador</button>`:""}
+    </div>
+    <div class="stg-sec">
       <div class="stg-sec-title">🏀 Club</div>
       <div class="fg"><label class="fl">Logo</label>
         <div style="text-align:center"><div class="logo-upload" onclick="document.getElementById('logo-input').click()">${S.clubLogo?`<img src="${S.clubLogo}" style="width:100%;height:100%;object-fit:cover"/>`:`<div style="font-size:28px;margin-bottom:4px">📷</div><div style="font-size:11px;color:var(--tm)">Subir</div>`}</div>
@@ -5993,6 +6399,12 @@ function openClubSettings(){
         <input type="date" class="fi" id="cfg-season-start" value="${S.cfg.seasonStart||""}"/>
         <div style="font-size:12px;color:var(--tm);margin-top:5px">Los entrenamientos de antes de esta fecha se siguen guardando igual (Historial los muestra tal cual) pero no cuentan en % de asistencia, riesgo FEB, gráficas ni exports de temporada. Déjalo vacío para no excluir nada.</div>
       </div>
+    </div>
+    <div class="stg-sec">
+      <div class="stg-sec-title">🗂 Temporadas</div>
+      <div style="font-size:12px;color:var(--tm);margin:-4px 0 12px;line-height:1.5">Temporada actual: ${S.cfg.seasonStart?`en curso desde ${fd(S.cfg.seasonStart,true)}`:"sin fecha de inicio definida"}. Archivar congela las estadísticas de la temporada que termina y empieza a contar limpio desde el día siguiente -- ningún entrenamiento ni partido se borra ni se mueve, Historial sigue mostrándolo todo igual que siempre.</div>
+      ${(S.cfg.seasons||[]).length?`<div style="margin-bottom:10px">${[...S.cfg.seasons].reverse().map(s=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:6px"><div><div style="font-weight:700;font-size:13px">${esc(s.label)}</div><div style="font-size:11px;color:var(--tm)">${s.startDate?fd(s.startDate,true):"desde siempre"} → ${fd(s.endDate,true)}</div></div><button type="button" onclick="confirmDeleteArchivedSeason('${s.id}')" style="background:none;border:none;color:var(--tm);font-size:16px;cursor:pointer;padding:4px 6px" title="Quitar este registro (no borra entrenamientos/partidos)">✕</button></div>`).join("")}</div>`:""}
+      <button type="button" class="btn-s" onclick="openArchiveSeasonModal()" style="font-size:13px;padding:9px 14px;width:auto">📦 Archivar temporada actual</button>
     </div>
     <div class="stg-sec" style="margin-top:4px">
       <div class="stg-sec-title">ℹ️ Acerca de</div>
@@ -8028,6 +8440,7 @@ function openInjuryRecoveryModal(pid){
 // Confirma y ejecuta el alta médica directamente sin abrir el modal grande.
 // Archiva la lesión, backfillea sesiones hasta hoy y limpia p.injury.
 function confirmInjuryRecovery(pid){
+  if(!_requireEdit(S.teamId))return;
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return;
   const prev=p.injury&&typeof p.injury==="object"?p.injury:null;
   if(!prev||!prev.active){toast("✅ Sin cambios");return;}
@@ -8035,7 +8448,10 @@ function confirmInjuryRecovery(pid){
   const startDate=prev.startDate||endDate;
   const days=injuryDays(startDate,endDate);
   const tid=S.teamId;
-  applyInjuryToSessions(tid,pid,startDate,endDate,prev.notes||"");
+  // v3.0.0-dev.100 · B-INJ7: startDate no cambia al dar el alta (es el mismo
+  // episodio, solo se le pone fecha de fin) -- prevStartDate=startDate
+  // acota la limpieza a este episodio y nunca toca uno anterior ya cerrado.
+  applyInjuryToSessions(tid,pid,startDate,endDate,prev.notes||"",startDate);
   const hist=Array.isArray(p.injuryHistory)?p.injuryHistory.slice():[];
   hist.push({startDate,endDate,days,origin:prev.origin||"unknown",originId:prev.originId||"",originLabel:prev.originLabel||"",type:prev.type||"other",typeLabel:prev.typeLabel||"",estimatedReturn:prev.estimatedReturn||"",notes:prev.notes||"",snapshotPct:prev.snapshotPct,snapshotWasAtRisk:!!prev.snapshotWasAtRisk});
   S.players[S.teamId]=pl(S.teamId).map(x=>x.id===pid?{...x,injured:false,injury:null,injuryHistory:hist}:x);
@@ -8153,6 +8569,7 @@ function _recalcInjEstimate(mid){
 // backfillea las sesiones desde startDate hasta hoy como excused+injury para
 // que no baje el % de asistencia durante la baja.
 function saveInjury(mid,pid){
+  if(!_requireEdit(S.teamId))return false;
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return false;
   const tid=S.teamId;
   const prev=p.injury&&typeof p.injury==="object"?p.injury:null;
@@ -8175,7 +8592,9 @@ function saveInjury(mid,pid){
     snapshotPct=prev.snapshotPct;
     snapshotWasAtRisk=!!prev.snapshotWasAtRisk;
   }else{
-    const sessList=Object.entries(S.sessions).filter(([k])=>k.startsWith(tid+"_")).map(([k,v])=>({date:k.replace(tid+"_",""),data:v}));
+    // v3.0.0-dev.100 · B-VOLTECH1: excluye entrenamientos opcionales del
+    // snapshot de riesgo FEB al activar una lesión (ver _teamSessionEntries).
+    const sessList=_teamSessionEntries(tid);
     const snap=computeInjurySnapshot(p,startDate,sessList);
     snapshotPct=snap.pct;
     const thr=S.cfg.riskThreshold||75;
@@ -8185,7 +8604,12 @@ function saveInjury(mid,pid){
   // Backfill: todas las sesiones entre startDate y hoy → excused + motivo lesión.
   // También limpia marcas _jr='injury' que queden fuera del nuevo rango (p.ej. si
   // el entrenador mueve la fecha hacia adelante).
-  applyInjuryToSessions(tid,pid,startDate,null,injNotesVal);
+  // v3.0.0-dev.100 · B-INJ7: prevStartDate = la fecha que YA tenía esta
+  // lesión si ya estaba activa (edición) -- si es una lesión nueva (prev
+  // null o no activa), se pasa undefined y la limpieza no toca nada, para
+  // no barrer el episodio anterior ya cerrado y archivado.
+  const prevStartDateForCleanup=(prev&&prev.active)?prev.startDate:undefined;
+  applyInjuryToSessions(tid,pid,startDate,null,injNotesVal,prevStartDateForCleanup);
   S.players[S.teamId]=pl(S.teamId).map(x=>x.id===pid?{...x,injured:true,injury:injuryObj,injuryHistory:Array.isArray(x.injuryHistory)?x.injuryHistory:[]}:x);
   clearDirty();
   document.getElementById(mid)?.remove();
@@ -8322,6 +8746,7 @@ function setIncidentCat(mid,k){
 // Persiste una incidencia nueva o editada. Si incId viene informado, edita en
 // sitio (nivel intacto); si no, crea una nueva con el nivel de escalado actual.
 function saveIncident(mid,pid,incId){
+  if(!_requireEdit(S.teamId))return false;
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return false;
   const modalEl=document.getElementById(mid);
   const date=document.getElementById(mid+"-date")?.value||td();
@@ -8351,6 +8776,7 @@ function saveIncident(mid,pid,incId){
   return true;
 }
 function deleteIncident(pid,incId){
+  if(!_requireEdit(S.teamId))return;
   const p=pl(S.teamId).find(x=>x.id===pid);if(!p)return;
   _confirm("¿Borrar esta incidencia? No se puede deshacer.","🗑 Borrar incidencia",()=>{
     const list=playerIncidents(p).filter(x=>x.id!==incId);
@@ -8389,7 +8815,9 @@ function openDeleteConfirm(teamId,date){
   </div>`;
   document.body.appendChild(el);
 }
-function execDelete(teamId,date){delete S.sessions[sk(teamId,date)];save();document.getElementById("m-del")?.remove();render();toast("🗑 Sesión eliminada");}
+function execDelete(teamId,date){
+  if(!_requireEdit(teamId))return;
+  delete S.sessions[sk(teamId,date)];save();document.getElementById("m-del")?.remove();render();toast("🗑 Sesión eliminada");}
 let _justPid="";
 function openJustModal(pid,name){
   _justPid=pid;const sess=so(S.teamId,S.date);const jr=getJR(sess,pid),jn=getJN(sess,pid);
@@ -8408,8 +8836,8 @@ function openJustModal(pid,name){
   document.body.appendChild(el);
 }
 function selectJR(el){const m=document.getElementById("m-just");if(!m)return;m._jr=m._jr===el.dataset.rid?"":el.dataset.rid;m.querySelectorAll(".just-opt").forEach(e=>e.classList.toggle("sel",e.dataset.rid===m._jr));}
-function saveJust(){const m=document.getElementById("m-just");if(!m)return;const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};sess[_justPid+"_jr"]=m._jr||"";sess[_justPid+"_jn"]=document.getElementById("just-note")?.value.trim()||"";S.sessions[k]=sess;save();m.remove();render();}
-function clearJust(){const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};delete sess[_justPid+"_jr"];delete sess[_justPid+"_jn"];S.sessions[k]=sess;save();document.getElementById("m-just")?.remove();render();}
+function saveJust(){if(!_requireEdit(S.teamId))return;const m=document.getElementById("m-just");if(!m)return;const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};sess[_justPid+"_jr"]=m._jr||"";sess[_justPid+"_jn"]=document.getElementById("just-note")?.value.trim()||"";S.sessions[k]=sess;save();m.remove();render();}
+function clearJust(){if(!_requireEdit(S.teamId))return;const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};delete sess[_justPid+"_jr"];delete sess[_justPid+"_jn"];S.sessions[k]=sess;save();document.getElementById("m-just")?.remove();render();}
 /* ═══════════════════════════════════════
    ACTIONS
 ═══════════════════════════════════════ */
@@ -8420,6 +8848,174 @@ function toggleDayTime(cb,tid){const ti=document.getElementById(tid);if(!ti)retu
 function syncDayCheckFromTime(ti,cid){const cb=document.getElementById(cid);if(!cb)return;cb.checked=!!ti.value;}
 function toggleFeat(key){S.cfg.features[key]=!S.cfg.features[key];const btn=document.querySelector(`[onclick="toggleFeat('${key}')"]`);if(btn){btn.classList.toggle("on",S.cfg.features[key]);}}
 function handleLogo(input){const file=input.files[0];if(!file)return;const r=new FileReader();r.onload=e=>{openLogoCropModal(e.target.result,function(croppedUrl){S.clubLogo=croppedUrl;save();render();toast("✅ Logo actualizado");});};r.readAsDataURL(file);}
+// v3.0.0-dev.100 · B-SEASON2: modal de "Archivar temporada" (ver
+// archiveSeason más arriba). Vive aparte de m-club-settings (no dentro de su
+// <form>) porque es una acción propia con su propia confirmación -- no algo
+// que se "guarde" junto al resto de Ajustes.
+function openArchiveSeasonModal(){
+  document.getElementById("m-archive-season")?.remove();
+  const el=document.createElement("div");el.id="m-archive-season";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:10000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const suggested=S.cfg.seasonStart?`${S.cfg.seasonStart.slice(0,4)}-${parseInt(S.cfg.seasonStart.slice(0,4))+1}`:"";
+  el.innerHTML=`<div class="modal">
+    <div class="mhandle"></div><div class="mtitle">📦 Archivar temporada</div>
+    <div class="msub">Congela las estadísticas de esta temporada y empieza a contar limpio desde el día siguiente. No se borra ni se mueve ningún entrenamiento ni partido -- Historial sigue mostrándolo todo igual que siempre.</div>
+    <div class="fg"><label class="fl">Nombre de la temporada</label><input class="fi" id="arch-season-label" placeholder="Ej: ${esc(suggested||"2025-2026")}"/></div>
+    <div class="fg"><label class="fl">Fecha de fin de temporada</label><input type="date" class="fi" id="arch-season-end" value="${td()}"/>
+      <div style="font-size:12px;color:var(--tm);margin-top:5px">La nueva temporada empezará a contar al día siguiente de esta fecha.</div>
+    </div>
+    <button class="btn-p" onclick="confirmArchiveSeason()">📦 Archivar y empezar temporada nueva</button>
+    <button class="btn-s" onclick="document.getElementById('m-archive-season').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function confirmArchiveSeason(){
+  const label=document.getElementById("arch-season-label")?.value||"";
+  const end=document.getElementById("arch-season-end")?.value||td();
+  _confirm(`¿Archivar la temporada actual hasta <b>${esc(fd(end,true))}</b>? Las estadísticas quedarán congeladas y la próxima temporada empezará a contar limpia desde el día siguiente.`,"📦 Archivar",()=>{
+    const r=archiveSeason(label,end);
+    if(!r.ok){toast("⚠️ "+r.error);return;}
+    document.getElementById("m-archive-season")?.remove();
+    openClubSettings();
+    toast("✅ Temporada archivada -- empezando limpio desde "+fd(S.cfg.seasonStart,true));
+  });
+}
+function confirmDeleteArchivedSeason(id){
+  _confirm("¿Quitar este registro de temporada archivada?<br><span style=\"font-size:12px;color:var(--td)\">Solo se quita la etiqueta -- los entrenamientos y partidos de esas fechas no se tocan ni se borran.</span>","🗑 Quitar",()=>{
+    deleteArchivedSeason(id);
+    openClubSettings();
+    toast("🗑 Registro de temporada eliminado");
+  });
+}
+/* ═══════════════════════════════════════
+   GESTIÓN DE ENTRENADORES Y PERMISOS (v3.0.0-dev.101 · B-ROLES1)
+   UI de Ajustes para administrar S.cfg.coaches (ver helpers _permissionsActive/
+   _isSuperadmin/etc. junto a DEFAULT_CFG más arriba). Solo el superadmin puede
+   añadir/editar/quitar -- el resto solo ve la lista (quién es quién y su rol),
+   consistente con lo acordado con Mario vía AskUserQuestion: "Superadmin:
+   acceso total + gestión de roles (recomendado)".
+═══════════════════════════════════════ */
+function _coachesListHtml(){
+  const coaches=S.cfg.coaches||[];
+  const canManage=_isSuperadmin();
+  if(!coaches.length){
+    return `<div style="font-size:12px;color:var(--tm);margin-bottom:10px">Sin restricciones todavía -- cualquiera que entre con el PIN del club ve y edita todo, como siempre.</div>`;
+  }
+  const rows=coaches.map(c=>{
+    const scope=c.role==="superadmin"
+      ?"Acceso total"
+      :c.role==="director_deportivo"
+        ?`Ve TODOS los equipos · edita ${(c.teamsEdit||[]).length?`${(c.teamsEdit||[]).length} equipo(s) propio(s)`:"ninguno propio"}`
+        :`Edita ${(c.teamsEdit||[]).length} equipo(s)${(c.teamsView||[]).length?` · ve ${(c.teamsView||[]).length} más`:""}`;
+    const mine=c.id===_getCurrentCoachId();
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:6px">
+      <div style="min-width:0">
+        <div style="font-weight:700;font-size:13px">${esc(c.name)}${mine?' <span style="color:var(--td);font-weight:600">(tú)</span>':""}</div>
+        <div style="font-size:11px;color:var(--tm)">${_roleLabel(c.role)} · ${scope}</div>
+      </div>
+      ${canManage?`<div style="display:flex;gap:2px;flex-shrink:0">
+        <button type="button" onclick="openCoachEditModal('${c.id}')" style="background:none;border:none;color:var(--tm);font-size:15px;cursor:pointer;padding:4px 6px" title="Editar">✏️</button>
+        <button type="button" onclick="confirmDeleteCoach('${c.id}')" style="background:none;border:none;color:var(--tm);font-size:15px;cursor:pointer;padding:4px 6px" title="Quitar">✕</button>
+      </div>`:""}
+    </div>`;
+  }).join("");
+  return `<div style="margin-bottom:10px">${rows}</div>`;
+}
+function _coachEditRoleChanged(){
+  const role=document.getElementById("coach-edit-role")?.value;
+  const editWrap=document.getElementById("coach-edit-teamsedit-wrap");
+  const viewWrap=document.getElementById("coach-edit-teamsview-wrap");
+  if(editWrap)editWrap.style.display=role==="superadmin"?"none":"";
+  if(viewWrap)viewWrap.style.display=role==="entrenador"?"":"none";
+  const editLbl=document.getElementById("coach-edit-teamsedit-label");
+  const editHint=document.getElementById("coach-edit-teamsedit-hint");
+  if(editLbl)editLbl.textContent=role==="director_deportivo"?"Equipo(s) que entrena (opcional)":"Equipo(s) que edita";
+  if(editHint)editHint.textContent=role==="director_deportivo"?"El director deportivo ya ve TODOS los equipos en solo lectura automáticamente -- esto es solo si además entrena alguno en concreto, con permiso de editar.":"Asistencia, jugadores, partidos... de estos equipos.";
+}
+function openCoachEditModal(id){
+  if(!_isSuperadmin()){toast("🔒 Solo el superadmin gestiona entrenadores y permisos");return;}
+  document.getElementById("m-coach-edit")?.remove();
+  const c=id?(S.cfg.coaches||[]).find(x=>x.id===id):null;
+  const el=document.createElement("div");el.id="m-coach-edit";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:10000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const teamsEdit=c?(c.teamsEdit||[]):[];
+  const teamsView=c?(c.teamsView||[]):[];
+  const role=c?c.role:"entrenador";
+  el.innerHTML=`<div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="mhandle"></div><div class="mtitle">${c?"✏️ Editar entrenador":"➕ Añadir entrenador"}</div>
+    <div class="fg"><label class="fl">Nombre</label><input class="fi" id="coach-edit-name" value="${c?esc(c.name):""}" placeholder="ej. María" maxlength="40"/></div>
+    <div class="fg"><label class="fl">Rol</label>
+      <select class="fi" id="coach-edit-role" onchange="_coachEditRoleChanged()">
+        <option value="entrenador" ${role==="entrenador"?"selected":""}>Entrenador/a</option>
+        <option value="director_deportivo" ${role==="director_deportivo"?"selected":""}>Director deportivo</option>
+        <option value="superadmin" ${role==="superadmin"?"selected":""}>Superadmin</option>
+      </select>
+    </div>
+    <div class="fg" id="coach-edit-teamsedit-wrap" style="${role==="superadmin"?"display:none":""}">
+      <label class="fl" id="coach-edit-teamsedit-label">${role==="director_deportivo"?"Equipo(s) que entrena (opcional)":"Equipo(s) que edita"}</label>
+      <div id="coach-edit-teamsedit-hint" style="font-size:11px;color:var(--tm);margin-bottom:6px">${role==="director_deportivo"?"El director deportivo ya ve TODOS los equipos en solo lectura automáticamente -- esto es solo si además entrena alguno en concreto, con permiso de editar.":"Asistencia, jugadores, partidos... de estos equipos."}</div>
+      <div style="display:flex;flex-direction:column;gap:6px">${S.teams.map(t=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" class="coach-edit-teamedit" value="${t.id}" ${teamsEdit.includes(t.id)?"checked":""}/> <span style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;display:inline-block"></span> ${esc(t.name)}</label>`).join("")||`<div style="font-size:12px;color:var(--tm)">Sin equipos todavía.</div>`}</div>
+    </div>
+    <div class="fg" id="coach-edit-teamsview-wrap" style="${role!=="entrenador"?"display:none":""}">
+      <label class="fl">Equipo(s) que ve en solo lectura (opcional)</label>
+      <div style="font-size:11px;color:var(--tm);margin-bottom:6px">Para un segundo/tercer entrenador que ayuda en otro equipo: lo ve, pero no lo edita.</div>
+      <div style="display:flex;flex-direction:column;gap:6px">${S.teams.map(t=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" class="coach-edit-teamview" value="${t.id}" ${teamsView.includes(t.id)?"checked":""}/> <span style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;display:inline-block"></span> ${esc(t.name)}</label>`).join("")||`<div style="font-size:12px;color:var(--tm)">Sin equipos todavía.</div>`}</div>
+    </div>
+    <button class="btn-p" onclick="saveCoachEdit(${c?`'${c.id}'`:"null"})">Guardar</button>
+    <button class="btn-s" onclick="document.getElementById('m-coach-edit').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function saveCoachEdit(id){
+  if(!_isSuperadmin()){toast("🔒 Solo el superadmin gestiona entrenadores y permisos");return;}
+  const name=document.getElementById("coach-edit-name")?.value.trim();
+  if(!name){toast("⚠️ Pon un nombre");return;}
+  const role=document.getElementById("coach-edit-role")?.value||"entrenador";
+  const teamsEdit=[...document.querySelectorAll(".coach-edit-teamedit:checked")].map(cb=>cb.value);
+  const teamsView=[...document.querySelectorAll(".coach-edit-teamview:checked")].map(cb=>cb.value);
+  const coaches=[...(S.cfg.coaches||[])];
+  const entry={id:id||uid(),name,role,teamsEdit:role==="superadmin"?[]:teamsEdit,teamsView:role==="entrenador"?teamsView:[]};
+  const idx=coaches.findIndex(c=>c.id===entry.id);
+  // v3.0.0-dev.101 · B-ROLES1: nunca se guarda una lista sin NINGÚN
+  // superadmin -- si no, nadie podría volver a entrar a gestionar permisos
+  // (chicken-and-egg). _permissionsActive() exige coaches.length>0, así que
+  // esta comprobación solo se dispara cuando de verdad va a quedar activa.
+  const wouldBe=idx>=0?coaches.map((c,i)=>i===idx?entry:c):[...coaches,entry];
+  if(!wouldBe.some(c=>c.role==="superadmin")){
+    toast("⚠️ Tiene que haber al menos un superadmin -- si no, nadie podría volver a gestionar los permisos.");
+    return;
+  }
+  S.cfg.coaches=wouldBe;
+  save();
+  document.getElementById("m-coach-edit")?.remove();
+  openClubSettings();
+  toast(idx>=0?"✅ Entrenador actualizado":"✅ Entrenador añadido");
+}
+function confirmDeleteCoach(id){
+  if(!_isSuperadmin()){toast("🔒 Solo el superadmin gestiona entrenadores y permisos");return;}
+  const c=(S.cfg.coaches||[]).find(x=>x.id===id);
+  if(!c)return;
+  const isMe=c.id===_getCurrentCoachId();
+  _confirm(`¿Quitar a <b>${esc(c.name)}</b> de la lista de entrenadores?${isMe?"<br><span style=\"font-size:12px;color:var(--td)\">Es tu propia identidad en este dispositivo -- tendrás que elegir otra vez quién eres.</span>":""}`,"🗑 Quitar",()=>{
+    const remaining=(S.cfg.coaches||[]).filter(x=>x.id!==id);
+    // v3.0.0-dev.101 · B-ROLES1: igual que en saveCoachEdit -- nunca dejar
+    // una lista NO VACÍA sin ningún superadmin. Vaciarla del todo (apagar
+    // los permisos por completo) sí está permitido -- es la vía normal para
+    // desactivar el reparto de roles.
+    if(remaining.length&&!remaining.some(x=>x.role==="superadmin")){
+      toast("⚠️ No se puede quitar -- es el último superadmin y quedarían entrenadores sin nadie que gestione los permisos.");
+      return;
+    }
+    S.cfg.coaches=remaining;
+    save();
+    if(isMe)_setCurrentCoachId("");
+    openClubSettings();
+    toast("🗑 Entrenador quitado");
+    _maybeShowIdentityGate();
+  });
+}
 function saveClubSettings(){
   const coachNameInput=document.getElementById("cfg-coachname");
   if(coachNameInput){
@@ -8439,6 +9035,12 @@ function saveClubSettings(){
   if(dlsNameModeEl)S.cfg.dlsNameMode=dlsNameModeEl.value;
   save();clearDirty();document.getElementById("m-club-settings")?.remove();render();toast("✅ Configuración guardada");return true;}
 function saveTeam(mid,eid){
+  // v3.0.0-dev.101 · B-ROLES1: editar un equipo que ya existe es una acción
+  // de edición de ESE equipo (lo puede hacer su entrenador); crear uno nuevo
+  // es un cambio de estructura del club entero, reservado al superadmin
+  // (igual que el botón ＋ de equiposScreen -- ver _isSuperadmin() arriba).
+  if(eid){if(!_requireEdit(eid))return false;}
+  else if(!_isSuperadmin()){toast("🔒 Solo el superadmin puede crear equipos nuevos");return false;}
   // Normalización v1.6.9: los nombres de equipo se guardan siempre en MAYÚSCULAS
   // para coherencia con cómo se muestran en la UI y con la confirmación tipografiada de borrado.
   const name=document.getElementById(mid+"-n").value.trim().toUpperCase();if(!name)return false;
@@ -8457,6 +9059,7 @@ function saveTeam(mid,eid){
   return true;
 }
 function savePlayer(mid,eid){
+  if(!_requireEdit(S.teamId))return false;
   const name=document.getElementById(mid+"-n").value.trim();if(!name)return false;
   const numV=document.getElementById(mid+"-d").value.replace(/[^0-9]/g,"").slice(0,2);
   // v1.8.25 · B-ADV4: no había ninguna comprobación de dorsal duplicado —
@@ -8489,6 +9092,7 @@ function savePlayer(mid,eid){
   return true;
 }
 function delPlayer(id){
+  if(!_requireEdit(S.teamId))return;
   // v1.8.6 · B-NEW-2: nombre se inyectaba sin escapar en HTML del confirm,
   // y un apóstrofe rompía el onclick del caller. Resolvemos por id desde
   // pl(S.teamId) y escapamos para el render.
@@ -8953,6 +9557,9 @@ function _confirmMergeAllGuestDuplicates(){
   });
 }
 function delTeam(){
+  // v3.0.0-dev.101 · B-ROLES1: borrar un equipo entero es un cambio de
+  // estructura del club (afecta a todo su historial), reservado al superadmin.
+  if(!_isSuperadmin()){toast("🔒 Solo el superadmin puede eliminar equipos");return;}
   // v1.8.6 · B-NEW-2: nombre se resolvía desde el onclick (`delTeam('${esc(t.name)}')`),
   // pero el HTML decodifica `&#39;` antes de ejecutar el JS — un nombre con
   // apóstrofe ("L'Hospitalet") rompía el botón, y un nombre malicioso
@@ -8997,6 +9604,7 @@ function chgDate(d){
   });
 }
 function cycleAtt(pid){
+  if(!_requireEdit(S.teamId))return;
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   // Para lesionados (activa o archivada, ver isInjuredOn) el estado efectivo
@@ -9019,15 +9627,20 @@ function cycleAtt(pid){
   S.sessions[k]=sess;save();render();
 }
 function setAll(st){
+  if(!_requireEdit(S.teamId))return;
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
-  pl(S.teamId).forEach(p=>{
+  // v3.0.0-dev.100 · B-ATT8: solo jugadores que de verdad entrenan ESE día
+  // (ver _attRosterFor) -- antes escribía también sobre puntuales de
+  // partido/de otro día de entreno.
+  _attRosterFor(S.teamId,S.date).forEach(p=>{
     sess[p.id]=st;
     if(st!=="excused"){delete sess[p.id+"_jr"];delete sess[p.id+"_jn"];}
   });
   S.sessions[k]=sess;save();render();
 }
 function confirmResetAtt(){
+  if(!_requireEdit(S.teamId))return;
   _confirm("¿Resetear todo a <b>Presente</b>?<br><span style='font-size:12px;color:var(--td)'>Se borrarán los estados y justificaciones de esta sesión.</span>","↺ Resetear",()=>{
     setAll("present");
     toast("↺ Todos en presente");
@@ -9037,6 +9650,7 @@ function confirmResetAtt(){
 // jugadores (present por defecto, excused si están lesionados). Resuelve el
 // caso en que todos asisten y el coach no toca nada → antes no se guardaba nada.
 function confirmSession(){
+  if(!_requireEdit(S.teamId))return;
   _flushSess(); // crea sesión, marca todos explícitamente, guarda
   render();
   toast("✅ Sesión confirmada");
@@ -9149,17 +9763,20 @@ function openPlayerNoteModal(pid){
   document.body.appendChild(el);
 }
 function savePlayerNote(){
+  if(!_requireEdit(S.teamId))return;
   const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};
   const v=document.getElementById("plnote-text")?.value.trim()||"";
   if(v)sess[_plNotePid+"_note"]=v;else delete sess[_plNotePid+"_note"];
   S.sessions[k]=sess;save();document.getElementById("m-plnote")?.remove();render();
 }
 function clearPlayerNote(){
+  if(!_requireEdit(S.teamId))return;
   const k=sk(S.teamId,S.date);const sess={...S.sessions[k]||{}};
   delete sess[_plNotePid+"_note"];
   S.sessions[k]=sess;save();document.getElementById("m-plnote")?.remove();render();
 }
 function _flushSess(){
+  if(!_canEditTeam(S.teamId))return; // v3.0.0-dev.101 · B-ROLES1: nunca escribe en un equipo de solo lectura (sin toast -- esto se llama también desde flujos de salida/autoguardado, no solo desde un botón)
   const k=sk(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   // Auto-justifica lesionados cuando no hay estado explícito. Persiste
@@ -9170,7 +9787,10 @@ function _flushSess(){
   // una sesión de un día ATRASADO en el que el jugador ya estaba lesionado
   // (aunque hoy ya esté recuperado) también se auto-justifica bien, en vez
   // de quedar como "present" por defecto.
-  pl(S.teamId).forEach(p=>{
+  // v3.0.0-dev.100 · B-ATT8: solo jugadores que de verdad entrenan ESE día
+  // (ver _attRosterFor) -- antes auto-marcaba "present"/"excused" también a
+  // puntuales de partido o de otro día de entreno.
+  _attRosterFor(S.teamId,S.date).forEach(p=>{
     if(!sess[p.id]){
       if(isInjuredOn(p,S.date)){
         sess[p.id]="excused";
@@ -9245,13 +9865,14 @@ function setTeamTLMakes(n){
   });
 }
 function saveAtt(){
+  if(!_requireEdit(S.teamId))return;
   _flushSess();
   S._attDraft=null;
   clearDirty();
   toast("✅ Guardado");
   return true;
 }
-function saveAttAndShare(){_attFlushDraft();_flushSess();S._attDraft=null;clearDirty();S.screen="share";render();}
+function saveAttAndShare(){if(!_requireEdit(S.teamId))return;_attFlushDraft();_flushSess();S._attDraft=null;clearDirty();S.screen="share";render();}
 /* ═══════════════════════════════════════
    AUTOGUARDADO DEL PASE DE LISTA (v1.6.11)
    Las notas del entrenador y los ejercicios se autoguardan con debounce
@@ -9278,6 +9899,7 @@ function _attFlushDraft(){
   if(_attSaveTimer){clearTimeout(_attSaveTimer);_attSaveTimer=null;}
   const d=S._attDraft;
   if(!d)return;
+  if(!_canEditTeam(d.teamId)){S._attDraft=null;return;} // v3.0.0-dev.101 · B-ROLES1: ver _flushSess
   const k=sk(d.teamId,d.date);
   // v1.8.11 · B-5: no crear sesión vacía si no se ha pasado lista y las notas/ejercicios
   // están vacíos. Evita "fantasmas" al navegar entre días sin registrar nada.
@@ -9865,6 +10487,15 @@ function openHoyAddSheet(){
     toast("⚠️ Crea primero un equipo en EQUIPOS");
     return;
   }
+  // v3.0.0-dev.101 · B-ROLES1: añadir una actividad (entreno/partido
+  // sorpresa, voluntario, tecnificación) es una acción de EDICIÓN -- con
+  // permisos activos, solo tiene sentido para equipos que este entrenador
+  // puede editar. Si no puede editar ninguno (p.ej. solo tiene acceso de
+  // solo lectura), no se le ofrece el sheet.
+  if(!_editableTeams().length){
+    toast("🔒 No tienes equipos para editar");
+    return;
+  }
   const el=document.createElement("div");
   el.id="m-hoy-add";
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
@@ -9880,17 +10511,27 @@ function openHoyAddSheet(){
       <div style="flex:1"><div style="font-weight:900;font-size:15px">Entrenamiento sorpresa</div>
       <div style="font-size:11.5px;opacity:.92;font-weight:600;margin-top:2px">Pasar lista hoy fuera del horario</div></div>
     </button>
-    <button onclick="_hoyAddPick('match')" style="display:flex;align-items:center;gap:14px;justify-content:flex-start;padding:16px;text-align:left;width:100%;border:1px solid var(--border);background:var(--s2);color:var(--tx);border-radius:12px;cursor:pointer;margin-bottom:14px;font-family:inherit">
+    <button onclick="_hoyAddPick('match')" style="display:flex;align-items:center;gap:14px;justify-content:flex-start;padding:16px;text-align:left;width:100%;border:1px solid var(--border);background:var(--s2);color:var(--tx);border-radius:12px;cursor:pointer;margin-bottom:10px;font-family:inherit">
       <span style="font-size:30px;line-height:1">🏆</span>
       <div style="flex:1"><div style="font-weight:900;font-size:15px">Partido sorpresa</div>
       <div style="font-size:11.5px;color:var(--td);font-weight:600;margin-top:2px">Crear un partido para hoy (amistoso, copa…)</div></div>
+    </button>
+    <button onclick="_hoyAddPickOptional('voluntario')" style="display:flex;align-items:center;gap:14px;justify-content:flex-start;padding:16px;text-align:left;width:100%;border:1px solid var(--border);background:var(--s2);color:var(--tx);border-radius:12px;cursor:pointer;margin-bottom:10px;font-family:inherit">
+      <span style="font-size:30px;line-height:1">🙋</span>
+      <div style="flex:1"><div style="font-weight:900;font-size:15px">Entrenamiento voluntario</div>
+      <div style="font-size:11.5px;color:var(--td);font-weight:600;margin-top:2px">No obligatorio -- las ausencias no cuentan para el % oficial</div></div>
+    </button>
+    <button onclick="_hoyAddPickOptional('tecnificacion')" style="display:flex;align-items:center;gap:14px;justify-content:flex-start;padding:16px;text-align:left;width:100%;border:1px solid var(--border);background:var(--s2);color:var(--tx);border-radius:12px;cursor:pointer;margin-bottom:14px;font-family:inherit">
+      <span style="font-size:30px;line-height:1">🎯</span>
+      <div style="flex:1"><div style="font-weight:900;font-size:15px">Tecnificación</div>
+      <div style="font-size:11.5px;color:var(--td);font-weight:600;margin-top:2px">Elige qué equipo(s) asisten -- se puede pasar lista igual que un entreno</div></div>
     </button>
     <button class="btn-s" onclick="document.getElementById('m-hoy-add')?.remove()">Cancelar</button>
   </div>`;
   document.body.appendChild(el);
 }
 function _hoyAddPick(kind){
-  const teams=S.teams||[];
+  const teams=_editableTeams();
   if(teams.length===1){
     document.getElementById("m-hoy-add")?.remove();
     _hoyAddCommit(teams[0].id,kind);
@@ -9923,6 +10564,7 @@ function _hoyAddPick(kind){
     <button class="btn-s" onclick="document.getElementById('m-hoy-add')?.remove()" style="margin-top:6px">Cancelar</button>`;
 }
 function _hoyAddCommit(teamId,kind){
+  if(!_requireEdit(teamId))return;
   document.getElementById("m-hoy-add")?.remove();
   S.teamId=teamId;
   if(kind==="training"){
@@ -9932,6 +10574,79 @@ function _hoyAddCommit(teamId,kind){
     // y rellena fecha=hoy por defecto. Lo abrimos directamente.
     openMatchModal();
   }
+}
+// v3.0.0-dev.100 · B-VOLTECH1: entrenamientos voluntarios/tecnificaciones,
+// pedidos explícitamente por Mario ("quiero añadir una posibilidad de tener
+// entrenamientos voluntarios y tecnificaciones que las tecnificaciones
+// pongan qué equipo va a asistir"). Mecanismo de creación confirmado con
+// AskUserQuestion: "evento suelto de un día, eligiendo equipo(s)" -- igual
+// que el entrenamiento/partido sorpresa de arriba, pero con selección
+// MÚLTIPLE de equipo (una tecnificación suele juntar a varias categorías a
+// la vez) y marcando la sesión con `_optType` en vez de abrir directamente
+// el pase de lista de un único equipo.
+function _hoyAddPickOptional(kind){
+  const teams=_editableTeams();
+  const wrap=document.getElementById("m-hoy-add");
+  if(!wrap)return;
+  const inner=wrap.querySelector(".modal");
+  if(!inner)return;
+  const titleIc=kind==="tecnificacion"?"🎯":"🙋";
+  const titleTx=kind==="tecnificacion"?"Tecnificación":"Entrenamiento voluntario";
+  inner.innerHTML=`
+    <div class="mhandle"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <button onclick="openHoyAddSheet()" style="background:var(--s2);border:1px solid var(--border);color:var(--td);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:16px;flex-shrink:0">←</button>
+      <div style="flex:1;text-align:center">
+        <div style="font-family:var(--font-d);font-weight:900;font-size:17px">${titleIc} ${titleTx}</div>
+        <div style="font-size:12px;color:var(--td);margin-top:2px">¿Qué equipo(s) asisten hoy?</div>
+      </div>
+      <div style="width:32px;flex-shrink:0"></div>
+    </div>
+    <div id="hoy-opt-teams" style="margin-bottom:12px;max-height:46vh;overflow-y:auto">${teams.map(t=>`<label style="display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border:1px solid var(--border);background:var(--s2);color:var(--tx);border-radius:10px;cursor:pointer;margin-bottom:8px">
+      <input type="checkbox" value="${t.id}" style="accent-color:#a855f7;width:18px;height:18px;flex-shrink:0"/>
+      <div style="width:6px;height:38px;border-radius:3px;background:${t.color};flex-shrink:0"></div>
+      <div style="flex:1;min-width:0"><div style="font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name)}</div>${t.category?`<div style="font-size:11px;color:var(--td);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.category)}</div>`:""}</div>
+    </label>`).join("")}</div>
+    <div style="font-size:11.5px;color:var(--tm);margin-bottom:10px;line-height:1.5">Podrás pasar lista con normalidad en cada equipo, pero las ausencias aquí nunca contarán para el % oficial.</div>
+    <button class="btn-p" onclick="_hoyAddCommitOptional('${kind}')" style="background:linear-gradient(135deg,#a855f7,#7e22ce)">${titleIc} Crear ${titleTx.toLowerCase()}</button>
+    <button class="btn-s" onclick="document.getElementById('m-hoy-add')?.remove()" style="margin-top:6px">Cancelar</button>`;
+}
+function _hoyAddCommitOptional(kind){
+  const checked=[...document.querySelectorAll("#hoy-opt-teams input[type=checkbox]:checked")].map(c=>c.value);
+  if(!checked.length){toast("⚠️ Elige al menos un equipo");return;}
+  // v3.0.0-dev.101 · B-ROLES1: defensa en profundidad -- el picker ya solo
+  // lista equipos editables, pero por si se llega aquí de otra forma nunca
+  // se crea una sesión en un equipo que este entrenador no puede editar.
+  if(checked.some(tid=>!_canEditTeam(tid))){toast("🔒 No tienes permiso para editar alguno de esos equipos");return;}
+  document.getElementById("m-hoy-add")?.remove();
+  const date=td();
+  // v3.0.0-dev.100 · B-VOLTECH1: nunca convertir en voluntario/tecnificación
+  // una sesión que YA tiene asistencia real tomada hoy (marcas de jugador
+  // explícitas) -- eso cambiaría en silencio el significado de datos ya
+  // guardados (de "cuenta para el % oficial" a "no cuenta"), justo lo que
+  // Mario pide evitar siempre ("nada que ya existe debe desaparecer o
+  // cambiar de sitio sin que él lo vea"). Si ya es opcional (de antes, mismo
+  // día), se deja cambiar de tipo sin problema -- no afecta a ningún cálculo.
+  const skipped=[];
+  checked.forEach(tid=>{
+    const k=sk(tid,date);
+    const existing=S.sessions[k]||{};
+    const hasRealAttendance=Object.keys(existing).some(key=>!key.startsWith("_"));
+    if(hasRealAttendance&&!existing._optType){
+      const tname=S.teams.find(x=>x.id===tid)?.name||tid;
+      skipped.push(tname);
+      return;
+    }
+    S.sessions[k]={...existing,_optType:kind};
+  });
+  save();
+  const created=checked.filter(tid=>{const s=S.sessions[sk(tid,date)];return s&&s._optType===kind;});
+  if(created.length){
+    S.teamId=created[0];
+    navTo("att",{teamId:created[0],date});
+  } else { render(); }
+  if(skipped.length)toast(`⚠️ ${skipped.join(", ")} ya tenía entrenamiento normal hoy -- no se ha tocado`);
+  else toast(created.length>1?`✅ Creado para ${created.length} equipos -- cambia de equipo para pasar lista a cada uno`:"✅ Creado -- ya puedes pasar lista");
 }
 /* ═══════════════════════════════════════
    PWA INSTALL
@@ -10266,6 +10981,42 @@ function matchDetail(){
     :mode==="live"
       ?`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="startLiveGameConfirm()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:14px;cursor:pointer">🔴 Empezar en directo</button></div>`
       :`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="startLiveGameConfirm()" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.08);color:#fca5a5;font-weight:700;font-size:12.5px;cursor:pointer">🔴 Cambiar a seguimiento en vivo</button></div>`;
+  // v3.0.0-dev.101 · B-MANUALSTATS1: "casi lo más importante" pedido por
+  // Mario -- poder anotar estadísticas completas por jugador y por cuarto en
+  // partidos SIN seguimiento en vivo (los que hoy apunta a mano o en Swish),
+  // y que alimenten las mismas pantallas de Stats/exportación de siempre
+  // (ver _matchPlayerStats arriba). Solo tiene sentido sin live -- en cuanto
+  // el partido tiene seguimiento en directo, live.stats es la única fuente.
+  const manualStatsSectionHtml=hasLive?"":(()=>{
+    const nQ=m.quarters||4;
+    const otCount=(m.manualStats&&m.manualStats.otCount)||0;
+    const totalQ=nQ+otCount;
+    const qLbl=i=>i<nQ?(nQ===4?"Q":"P")+(i+1):"OT"+(i-nQ+1);
+    const chips=Array.from({length:totalQ},(_,i)=>{
+      const has=!!(m.manualStats&&m.manualStats.byQuarter&&m.manualStats.byQuarter[i]&&Object.keys(m.manualStats.byQuarter[i]).length>0);
+      return`<button onclick="openManualStatsModal(${i})" style="padding:7px 12px;border-radius:8px;border:1px solid ${has?"rgba(34,197,94,.4)":"var(--border)"};background:${has?"rgba(34,197,94,.1)":"var(--s2)"};color:${has?"#22c55e":"var(--td)"};font-size:12.5px;font-weight:700;cursor:pointer">${has?"✓ ":""}${qLbl(i)}</button>`;
+    }).join("");
+    // v3.0.0-dev.101 · B-MIN1: "minutaje" pedido por Mario -- confirmado con
+    // AskUserQuestion "Solo mostrar el dato: minutos jugados por jugador y
+    // partido (recomendado)", sin alertas ni sugerencias todavía. Resumen de
+    // solo lectura de puntos y minutos de ESTE partido, por jugador --
+    // _getMinSec() ya lee de m.manualStats para partidos sin directo (ver
+    // junto a computeTeamKPIs), así que esto se rellena solo en cuanto hay
+    // algún cuarto guardado.
+    const pst=_matchPlayerStats(m);
+    const summaryHtml=pst?(()=>{
+      const roster2=pl(S.teamId).filter(p=>Object.prototype.hasOwnProperty.call(pst,p.id)).sort((a,b)=>_msPts(pst[b.id])-_msPts(pst[a.id])||(a.number||99)-(b.number||99));
+      if(!roster2.length)return"";
+      const rowsHtml2=roster2.map(p=>`<tr><td style="padding:6px 8px;font-size:12.5px;font-weight:700;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</td><td style="padding:6px 8px;text-align:center;font-size:12.5px;font-weight:800;color:var(--orange)">${_msPts(pst[p.id])}</td><td style="padding:6px 8px;text-align:center;font-size:12.5px;color:var(--td)">${_fmtMin(_getMinSec(m,p.id))}</td></tr>`).join("");
+      return`<div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-top:10px"><table style="border-collapse:collapse;width:100%"><thead><tr><th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--td)">Jugador</th><th style="padding:6px 8px;font-size:10px;color:var(--td)">PTS</th><th style="padding:6px 8px;font-size:10px;color:var(--td)">MIN</th></tr></thead><tbody>${rowsHtml2}</tbody></table></div>`;
+    })():"";
+    return`<div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:8px">📊 Estadísticas por jugador</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${chips}</div>
+      <div style="font-size:11px;color:var(--tm)">Anota lo que tengas en papel o en Swish, cuarto a cuarto -- se suma solo a Stats y a los exports, igual que un partido en directo.</div>
+      ${summaryHtml}
+    </div>`;
+  })();
   // Convocatoria
   const convIds=m.convocados||[];
   const titIds=m.titulares||[];
@@ -10299,6 +11050,7 @@ function matchDetail(){
     </div>
     ${scoreEntryHtml}
     ${liveActionHtml}
+    ${manualStatsSectionHtml}
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
       ${m.finished&&hasLive?`<button onclick="navTo('matchSummary',{teamId:S.teamId,matchId:S.matchId,_fromDetail:true})" style="width:48px;height:48px;border-radius:8px;background:rgba(240,99,24,.15);border:1px solid rgba(240,99,24,.4);color:var(--orange);cursor:pointer;font-size:20px" title="Estadísticas y PDF">📊</button>`:""}
       <button onclick="shareMatchResult()" style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px" title="Compartir resultado">📤</button>
@@ -10449,6 +11201,117 @@ function openMatchModal(init){
 }
 function setLocBtn(mid,loc){
   ["home","away","neutral"].forEach(l=>{const b=document.getElementById(mid+"-loc-"+l);if(b)b.classList.toggle("on",l===loc);});
+}
+/* ═══════════════════════════════════════
+   ESTADÍSTICAS DE PARTIDO A MANO, POR CUARTO (v3.0.0-dev.101 · B-MANUALSTATS1)
+   Pedido explícito de Mario, "casi lo más importante": poder anotar las
+   estadísticas de un partido NO seguido en vivo (por cuartos), igual que ya
+   hace a mano o en Swish, y que esos datos alimenten las MISMAS pantallas
+   de Stats/exportación que ya existen para partidos en directo -- sin
+   montar ninguna pantalla nueva aparte. Confirmado con AskUserQuestion:
+   "Formulario por cuarto, estadística completa (recomendado)".
+   Estructura: m.manualStats = {byQuarter:{[qi]:{[pid]:statObj}}, otCount}.
+   statObj = {min,p1m,p1a,p2m,p2a,p3m,p3a,ro,rd,ast,stl,blk,to,foul} -- mismo
+   vocabulario de campos que live.stats[pid] (sin los contadores de falta
+   técnica/antideportiva/descalificante que solo tienen sentido en directo)
+   para poder normalizar ambas fuentes juntas en _matchPlayerStats() (ver
+   junto a _hasMatchStats, arriba). "min" son minutos jugados ESE cuarto
+   (0..qMins), la fuente de minutaje para Stats (ver _getMinSec) cuando el
+   partido no tuvo seguimiento en vivo.
+   SOLO para partidos SIN seguimiento en vivo -- en cuanto un partido
+   empieza en directo, live.stats pasa a ser la única fuente de verdad
+   (igual que el marcador por cuartos, ver B-LIVESYNC1) y esta sección deja
+   de ofrecerse (ver manualStatsSectionHtml en matchDetail, hasLive?"":...).
+═══════════════════════════════════════ */
+function _msEmpty(){return{min:0,p1m:0,p1a:0,p2m:0,p2a:0,p3m:0,p3a:0,ro:0,rd:0,ast:0,stl:0,blk:0,to:0,foul:0};}
+function _msGet(m,qi,pid){
+  const qd=m.manualStats&&m.manualStats.byQuarter&&m.manualStats.byQuarter[qi];
+  return(qd&&qd[pid])?{..._msEmpty(),...qd[pid]}:_msEmpty();
+}
+function _msAddOT(){
+  if(!_requireEdit(S.teamId))return;
+  const m=mById(S.teamId,S.matchId);if(!m)return;
+  if(!m.manualStats)m.manualStats={byQuarter:{},otCount:0};
+  m.manualStats.otCount=(m.manualStats.otCount||0)+1;
+  save();
+}
+function openManualStatsModal(qi){
+  const t=S.teams.find(x=>x.id===S.teamId);const m=mById(S.teamId,S.matchId);
+  if(!t||!m)return;
+  if(m.live){toast("🔒 Este partido tiene seguimiento en vivo -- las estadísticas se anotan desde ahí");return;}
+  const nQ=m.quarters||4;
+  const otCount=(m.manualStats&&m.manualStats.otCount)||0;
+  const qLbl=i=>i<nQ?(nQ===4?"Q":"P")+(i+1):"OT"+(i-nQ+1);
+  const curQi=qi!=null?qi:0;
+  const convIds=(m.convocados||[]).length?m.convocados:pl(S.teamId).map(p=>p.id);
+  const roster=pl(S.teamId).filter(p=>convIds.includes(p.id)).sort((a,b)=>(a.number||99)-(b.number||99));
+  if(!roster.length){toast("⚠️ Convoca primero a algún jugador para poder anotarle estadísticas");return;}
+  document.getElementById("m-manual-stats")?.remove();
+  const el=document.createElement("div");el.id="m-manual-stats";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const totalQ=nQ+otCount;
+  const tabsHtml=Array.from({length:totalQ},(_,i)=>i).map(i=>`<button onclick="document.getElementById('m-manual-stats').remove();openManualStatsModal(${i})" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-weight:800;font-size:12.5px;cursor:pointer;background:${i===curQi?"linear-gradient(135deg,var(--orange),var(--orange2))":"var(--s2)"};color:${i===curQi?"white":"var(--td)"}">${qLbl(i)}</button>`).join("");
+  const addOtBtn=(!m.live&&otCount<4)?`<button onclick="_msAddOT();document.getElementById('m-manual-stats').remove();openManualStatsModal(${totalQ})" style="padding:8px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">＋OT</button>`:"";
+  const cols=[["min","MIN"],["p1m","T1 M"],["p1a","T1 I"],["p2m","T2 M"],["p2a","T2 I"],["p3m","T3 M"],["p3a","T3 I"],["ro","R-O"],["rd","R-D"],["ast","AST"],["stl","REC"],["blk","TAP"],["to","PÉR"],["foul","FAL"]];
+  const headerRow=`<tr><th style="position:sticky;left:0;background:var(--s);text-align:left;padding:6px 8px;font-size:10px;color:var(--td)">Jugador</th>${cols.map(([,l])=>`<th style="padding:6px 4px;font-size:9.5px;color:var(--td);min-width:40px">${l}</th>`).join("")}</tr>`;
+  const bodyRows=roster.map(p=>{
+    const s=_msGet(m,curQi,p.id);
+    return`<tr data-ms-pid="${p.id}"><td style="position:sticky;left:0;background:var(--s);padding:6px 8px;font-size:12px;font-weight:700;white-space:nowrap">#${p.number||"?"} ${esc(_shortName(p.name))}</td>${cols.map(([k])=>`<td style="padding:3px"><input type="number" min="0" class="fi ms-inp" data-k="${k}" value="${s[k]||0}" style="width:42px;padding:5px 2px;text-align:center;font-size:12px"/></td>`).join("")}</tr>`;
+  }).join("");
+  // v3.0.0-dev.101: "nuestro" marcador de este cuarto, misma convención que
+  // mOurScore() -- a fuera (away), el índice de "nuestro" equipo es el
+  // segundo (ai), si no (casa o neutral) es el primero (hi).
+  const hi=curQi*2,ai=curQi*2+1;
+  const isAway=m.location==="away";
+  const ourRaw=(m.q||[])[isAway?ai:hi];
+  const officialOur=(ourRaw!==null&&ourRaw!==undefined&&ourRaw!=="")?parseInt(ourRaw)||0:null;
+  el.innerHTML=`<div class="modal" style="max-height:92vh;overflow-y:auto;max-width:96vw">
+    <div class="mhandle"></div>
+    <div class="mtitle">📊 Estadísticas por jugador</div>
+    <div style="font-size:12px;color:var(--td);margin:-4px 0 12px">${esc(t.name)} vs ${esc(m.rival||"Rival")} · completa un cuarto cada vez</div>
+    <div style="display:flex;gap:6px;margin-bottom:12px">${tabsHtml}${addOtBtn}</div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px"><table style="border-collapse:collapse;width:100%"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table></div>
+    <div id="ms-check" style="font-size:11.5px;color:var(--tm);margin-bottom:12px"></div>
+    <button class="btn-p" onclick="saveManualStatsQuarter(${curQi})">💾 Guardar ${qLbl(curQi)}</button>
+    <button class="btn-s" onclick="document.getElementById('m-manual-stats').remove()">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+  _msRefreshCheck(officialOur);
+  el.querySelectorAll(".ms-inp").forEach(inp=>inp.addEventListener("input",()=>_msRefreshCheck(officialOur)));
+}
+function _msRefreshCheck(officialOur){
+  const el=document.getElementById("ms-check");if(!el)return;
+  let sum=0;
+  document.querySelectorAll('#m-manual-stats tr[data-ms-pid]').forEach(tr=>{
+    const get=k=>parseInt(tr.querySelector(`[data-k="${k}"]`)?.value)||0;
+    sum+=get("p1m")+get("p2m")*2+get("p3m")*3;
+  });
+  if(officialOur==null){el.textContent=`Puntos sumados en este cuarto: ${sum}`;el.style.color="var(--tm)";}
+  else if(sum===officialOur){el.textContent=`✅ Puntos sumados: ${sum} -- coincide con el marcador de este cuarto`;el.style.color="#22c55e";}
+  else{el.textContent=`⚠️ Puntos sumados: ${sum} -- el marcador de este cuarto dice ${officialOur}. Revisa antes de guardar (o guarda igual si es una entrada parcial).`;el.style.color="#f59e0b";}
+}
+function saveManualStatsQuarter(qi){
+  if(!_requireEdit(S.teamId))return;
+  const m=mById(S.teamId,S.matchId);if(!m)return;
+  if(m.live){toast("🔒 Este partido tiene seguimiento en vivo -- las estadísticas se anotan desde ahí");return;}
+  if(!m.manualStats)m.manualStats={byQuarter:{},otCount:0};
+  if(!m.manualStats.byQuarter[qi])m.manualStats.byQuarter[qi]={};
+  document.querySelectorAll('#m-manual-stats tr[data-ms-pid]').forEach(tr=>{
+    const pid=tr.dataset.msPid;
+    const s=_msEmpty();
+    tr.querySelectorAll(".ms-inp").forEach(inp=>{s[inp.dataset.k]=Math.max(0,parseInt(inp.value)||0);});
+    // v3.0.0-dev.101: una fila totalmente a cero no aporta nada -- se quita
+    // en vez de dejar un objeto vacío colgado (mismo criterio que otras
+    // partes de la app que evitan "sesiones fantasma").
+    const hasAny=Object.values(s).some(v=>v>0);
+    if(hasAny)m.manualStats.byQuarter[qi][pid]=s;
+    else delete m.manualStats.byQuarter[qi][pid];
+  });
+  save();
+  document.getElementById("m-manual-stats")?.remove();
+  render();
+  toast("✅ Estadísticas del cuarto guardadas");
 }
 // v3.0.0-dev.82 · B-MATCHMODE1: marca el botón de modo elegido (quarters/
 // final/live) como .sel y actualiza su estilo -- igual que setLocBtn pero
@@ -10870,6 +11733,7 @@ function _convValidationModal({icon,title,msg,primaryLabel,onContinue}){
   document.body.appendChild(el);
 }
 function saveMatchMeta(mid,eid){
+  if(!_requireEdit(S.teamId))return false;
   const rival=document.getElementById(mid+"-rival")?.value.trim();if(!rival){toast("⚠️ Escribe el nombre del rival");return false;}
   const date=document.getElementById(mid+"-date")?.value||"";
   const time=document.getElementById(mid+"-time")?.value||"";
@@ -11056,6 +11920,7 @@ function autoSaveQ(){
   save();
 }
 function saveMatchScore(){
+  if(!_requireEdit(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m)return;
   // Los datos ya están en m.q via _qStep — sincronizar live si existe
   if(m.live){
@@ -11072,6 +11937,7 @@ function saveMatchScore(){
   save();toast("✅ Marcador guardado");render();
 }
 function saveMatchNotes(){
+  if(!_requireEdit(S.teamId))return false;
   const m=mById(S.teamId,S.matchId);if(!m)return false;
   m.notes=document.getElementById("match-notes")?.value.trim()||"";
   save();
@@ -11083,6 +11949,7 @@ function saveMatchNotes(){
   return true;
 }
 function toggleConvocado(pid){
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.convocados)m.convocados=[];
   if(m.convocados.includes(pid)){
@@ -11107,6 +11974,7 @@ function toggleConvocado(pid){
   save();render();
 }
 function toggleTitular(pid){
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.titulares)m.titulares=[];
   if(m.titulares.includes(pid)){m.titulares=m.titulares.filter(x=>x!==pid);}
@@ -11190,6 +12058,7 @@ function _mdConvRefreshSubtitle(){
   el.innerHTML=`👥 ${convCnt} convocados${titCnt?` · ⭐ ${titCnt} titulares`:""}`;
 }
 function setCapitan(pid){
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m)return;
   const prev=m.capitan;
   m.capitan=m.capitan===pid?null:pid;
@@ -11198,6 +12067,7 @@ function setCapitan(pid){
   if(prev&&prev!==pid)_mdConvRefreshRow(prev);
 }
 function deleteMatchConfirm(mid){
+  if(!_requireEdit(S.teamId))return;
   _confirm("¿Eliminar este partido?<br><span style='font-size:12px;color:var(--td)'>Se perderán convocatoria, resultado y estadísticas.</span>","🗑 Eliminar partido",()=>{
     S.matches[S.teamId]=(S.matches[S.teamId]||[]).filter(m=>m.id!==mid);
     save();S.screen="matchList";render();toast("🗑 Partido eliminado");
@@ -11343,6 +12213,45 @@ function _confirmCoachNamePrompt(){
 function _skipCoachNamePrompt(){
   lsSet("cbj:coachname_skipped",true,true);
   document.getElementById("m-coachname")?.remove();
+}
+/* ═══════════════════════════════════════
+   SELECTOR DE IDENTIDAD (v3.0.0-dev.101 · B-ROLES1)
+   A diferencia de _maybeShowCoachNamePrompt (puramente informativo, se
+   puede saltar con "Ahora no"), este selector es OBLIGATORIO en cuanto
+   S.cfg.coaches tiene algún entrenador dado de alta (_permissionsActive())
+   y este dispositivo todavía no tiene una identidad válida -- es el punto
+   de entrada real de los permisos, así que no se puede cerrar sin elegir.
+   Vive en su propio overlay a nivel de body (igual que m-pin-gate), no
+   dentro de #root, para que sobreviva a cualquier render() mientras está
+   abierto.
+═══════════════════════════════════════ */
+function _roleLabel(r){return r==="superadmin"?"Superadmin":r==="director_deportivo"?"Director deportivo":"Entrenador/a";}
+function _maybeShowIdentityGate(){
+  if(_needsIdentityPick())_showIdentityGate();
+  else document.getElementById("m-identity-gate")?.remove();
+}
+function _showIdentityGate(){
+  document.getElementById("m-identity-gate")?.remove();
+  const el=document.createElement("div");
+  el.id="m-identity-gate";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:#070f1e;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;";
+  const coaches=S.cfg.coaches||[];
+  el.innerHTML=`<div style="width:100%;max-width:340px;text-align:center">
+    <div style="font-size:22px;font-weight:900;color:#f0f4ff;margin-bottom:6px">🏀 Kortline</div>
+    <div style="font-size:13px;color:#7a9cc8;margin-bottom:20px">¿Quién eres? Elige tu nombre para entrar con tus permisos.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto">
+      ${coaches.map(c=>`<button onclick="_pickIdentity('${c.id}')" style="width:100%;padding:14px;border:1.5px solid #1e3a5f;border-radius:10px;background:#0d1a2e;color:#f0f4ff;font-size:15px;font-weight:700;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</span><span style="font-size:10.5px;color:#7a9cc8;font-weight:600;white-space:nowrap">${_roleLabel(c.role)}</span></button>`).join("")}
+    </div>
+    <div style="font-size:11px;color:#3a5a80;margin-top:16px;line-height:1.5">¿No apareces en la lista? Pide al superadmin del club que te añada desde Ajustes → Entrenadores y permisos.</div>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _pickIdentity(id){
+  _setCurrentCoachId(id);
+  document.getElementById("m-identity-gate")?.remove();
+  const c=_currentCoach();
+  render();
+  toast(c?`✅ Hola, ${c.name}`:"✅ Identidad guardada");
 }
 /* ═══════════════════════════════════════
    TOUR GUIADO (v3.0.0-dev.94 · B-TOUR1)
@@ -11521,6 +12430,10 @@ function startLiveGameConfirm(mid){
   const m=mById(S.teamId,mid||S.matchId);
   if(!m){navTo("liveGame",mid?{matchId:mid}:undefined);return;}
   if(m.live){navTo("liveGame",{matchId:m.id});return;}
+  // v3.0.0-dev.101 · B-ROLES1: EMPEZAR un partido en directo es una acción de
+  // edición -- seguir viendo uno que ya está en marcha (rama de arriba) no lo
+  // es, así que esa sigue abierta en solo lectura para un director deportivo.
+  if(!_requireEdit(S.teamId))return;
   _confirm(
     "¿Seguro que quieres empezar el <b>seguimiento en vivo</b> de este partido?<br/><br/>Una vez empieces, el marcador por cuartos quedará <b>bloqueado</b> y ya no podrás volver a anotarlo a mano -- si solo quieres anotar por cuartos o el resultado final, usa esa opción en el modo de partido en vez de esta.",
     "🔴 Sí, empezar en directo",
@@ -13640,6 +14553,7 @@ function _foulTroubleMsg(st){
   return"4 faltas en total (a una de la descalificación)";
 }
 function liveAction(pid,action,pts){
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // v1.7.0 · Shot Chart: si está activo y es tiro de campo, derivar al modal de captura
   // (a menos que ya venga del propio shot chart, marcado con _scSkipCapture).
@@ -13942,6 +14856,7 @@ function saveTLResults(rpid, total, foulerPid){
 }
 // ── Team-only mode actions (no individual player) ──
 function liveTeamAction(action, pts){
+  if(!_canEditTeam(S.teamId))return;
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // v1.8.35 . B-SHOTMAP1: antes se llamaba a isRivalSide DESPUES de la rama del
   // shot chart, asi que un tiro anotado con la pestana "Rival" activa se
@@ -15179,6 +16094,7 @@ window.addEventListener('orientationchange',()=>{
   },200);
 });
 function confirmFinishMatch(teamId, matchId){
+  if(!_requireEdit(teamId))return;
   const m=mById(teamId,matchId);if(!m)return;
   const live=m.live||{};
   const qs=(live.qScores||[]).map(s=>s||[0,0]);
@@ -15214,6 +16130,7 @@ function confirmFinishMatch(teamId, matchId){
   document.body.appendChild(el);
 }
 function finishMatch(teamId, matchId){
+  if(!_canEditTeam(teamId))return;
   const m=mById(teamId,matchId);if(!m)return;
   if(m.live){m.live.clockRunning=false;clearInterval(_liveTimer);_liveTimer=null;}
   m.finished=true;
