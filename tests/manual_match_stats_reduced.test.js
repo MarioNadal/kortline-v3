@@ -80,8 +80,12 @@ async function run() {
   win.saveManualStatsQuarter(0);
   const mInf = win.mById("inf", "m_inf");
   const savedP1 = mInf.manualStats.byQuarter[0].p1;
-  assert(savedP1.min === 8 && savedP1.p2m === 2 && savedP1.p3m === 1 && savedP1.p1m === 3 && savedP1.p1a === 4,
-    "Infantil: guarda exactamente los 5 campos del formulario reducido");
+  // v3.0.0-dev.103 · B-MANUALSTATS3: el "4" tecleado en TL I es intentos
+  // TOTALES (3 anotados de 4 intentados) -- se guarda como 1 fallo
+  // (4-3), no como "4" tal cual, para que el %TL de Stats/exports salga
+  // bien (ver saveManualStatsQuarter).
+  assert(savedP1.min === 8 && savedP1.p2m === 2 && savedP1.p3m === 1 && savedP1.p1m === 3 && savedP1.p1a === 1,
+    "Infantil: guarda minutos/2P/3P tal cual, y el TL convertido a fallos reales (3 de 4 intentos -> p1a=1)");
   assert(savedP1.p2a === 0 && savedP1.ro === 0 && savedP1.ast === 0 && savedP1.foul === 0,
     "Infantil: los campos que el formulario reducido no muestra se guardan en 0 (nunca basura ni undefined)");
   document.getElementById("m-manual-stats")?.remove();
@@ -105,8 +109,27 @@ async function run() {
   setInput("s1", "min", 15); setInput("s1", "p2m", 4); setInput("s1", "p2a", 7); setInput("s1", "ast", 3);
   win.saveManualStatsQuarter(0);
   const savedS1 = win.mById("sen", "m_sen").manualStats.byQuarter[0].s1;
-  assert(savedS1.p2a === 7 && savedS1.ast === 3, "Senior: sigue guardando intentos/rebotes/asistencias tal cual, sin recortar el formulario");
+  // v3.0.0-dev.103 · B-MANUALSTATS3: el "7" tecleado en T2 I son intentos
+  // TOTALES (4 anotados de 7 intentados) -- se guarda como 3 fallos (7-4),
+  // mismo criterio que el formulario reducido; asistencias no se tocan.
+  assert(savedS1.p2a === 3 && savedS1.ast === 3, "Senior: también convierte intentos totales a fallos reales (4 de 7 -> p2a=3); el resto (asistencias) sin tocar");
   document.getElementById("m-manual-stats")?.remove();
+
+  // ── 3b) Cierre del círculo: el %TL que se ve en vivo en el modal (paso 1,
+  // 75%) debe ser EXACTAMENTE el mismo que acaba mostrando la pantalla real
+  // de Stats ("Partidos") para ese jugador -- confirma que la conversión a
+  // fallos al guardar no solo cuadra en bruto, sino que el % final que ve
+  // Mario en la app es el correcto de principio a fin (y no, por ejemplo,
+  // 3/(3+4)=43% si se hubiera guardado "tal cual" lo tecleado). stats()
+  // exige al menos un entrenamiento pasado lista para no quedarse en su
+  // estado vacío ("Pasa lista primero") -- Infantil en este test solo tiene
+  // partidos, así que se crea uno mínimo.
+  win.S.teamId = "inf"; win.S.date = win.td();
+  win.cycleAtt("p1");
+  win.S.statsMonth = ""; win.S.screen = "stats";
+  const statsHtmlInf = win.stats();
+  assert(statsHtmlInf.includes("75%"), "Infantil: la pantalla real de Stats ('Partidos') muestra el %TL correcto (75%) para p1, igual que la vista previa en vivo del modal");
+  assert(!statsHtmlInf.includes("43%"), "Infantil: la pantalla de Stats NO muestra el % equivocado que saldría de no convertir intentos a fallos al guardar (43%)");
 
   // ── 4) +/- final del partido -- columna en matchDetail(), reducido sí / Senior no ──
   win.S.teamId = "inf"; win.S.matchId = "m_inf"; win.S.screen = "matchDetail";

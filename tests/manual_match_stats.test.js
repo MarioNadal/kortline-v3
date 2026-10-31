@@ -106,6 +106,15 @@ async function run() {
   assert(q0.p2 && q0.p2.p1m === 3 && q0.p2.to === 2,
     "saveManualStatsQuarter(): guarda los valores tecleados para p2");
   assert(!q0.p3, "saveManualStatsQuarter(): NO guarda una fila para p3 (todo a cero -- sin 'fantasmas')");
+  // v3.0.0-dev.103 · B-MANUALSTATS3: "I" es INTENTOS TOTALES tecleados (3
+  // intentos de 2 para p1, de los cuales 2 entraron), pero se guarda como
+  // FALLOS (intentos-anotados = 1), igual que hace toda la app ya existente
+  // (botones "Fallo 2/3/TL" del directo, Stats, exports) -- si se guardara
+  // tal cual lo tecleado, el resto del código leería "2 anotados + 3
+  // fallados = 5 intentos" en vez de los 3 reales, duplicando aciertos.
+  assert(q0.p1.p2a === 1, "saveManualStatsQuarter(): convierte 'intentos totales' (3) a fallos reales (1 = 3-2) para p1.p2a, no los guarda tal cual");
+  assert(q0.p1.p3a === 2, "saveManualStatsQuarter(): igual para los triples de p1 (4 intentos, 2 anotados -> 2 fallos guardados en p3a)");
+  assert(q0.p2.p1a === 1, "saveManualStatsQuarter(): igual para los tiros libres de p2 (4 intentos, 3 anotados -> 1 fallo guardado en p1a)");
 
   // ════════════════════════════════════════════════════════════════
   // 3) _hasMatchStats / _matchPlayerStats tras guardar el Q1
@@ -165,11 +174,16 @@ async function run() {
 
   const kpis = win.computeTeamKPIs([match]);
   // computeTeamKPIs() no devuelve p2m/p2a sueltos -- los pliega en "fga"
-  // (tiros de campo intentados: p2m+p2a+p3m+p3a). p1 aporta p2m=5,p2a=8 (Q1:
-  // 2/3 + Q2: 3/5) y p3m=2,p3a=4 (solo Q1) -> fga=5+8+2+4=19; los tiros
+  // (tiros de campo intentados: p2m+p2a+p3m+p3a). v3.0.0-dev.103 ·
+  // B-MANUALSTATS3: lo tecleado en "I" son INTENTOS TOTALES, no fallos --
+  // saveManualStatsQuarter() los convierte a fallos (intentos-anotados) al
+  // guardar, para que esta fórmula (ya existente en el resto de la app)
+  // siga siendo correcta. p1: Q1 2/3 (2 anotados, 1 fallo real) + Q2 3/5 (3
+  // anotados, 2 fallos reales) -> p2m=5,p2a(fallos)=3; p1 triples Q1 2/4 (2
+  // anotados, 2 fallos) -> p3m=2,p3a(fallos)=2 -> fga=5+3+2+2=12. Los tiros
   // libres de p2 (p1m/p1a) no cuentan como tiro de campo, correctamente.
-  assert(kpis.fga === 19, "computeTeamKPIs(): incluye los tiros de campo del partido manual en 'fga' (19)");
-  assert(kpis.p3m === 2 && kpis.p3a === 4, "computeTeamKPIs(): triples del partido manual correctos (2 de 4)");
+  assert(kpis.fga === 12, "computeTeamKPIs(): incluye los tiros de campo del partido manual en 'fga', ya convertidos a fallos reales (12)");
+  assert(kpis.p3m === 2 && kpis.p3a === 2, "computeTeamKPIs(): triples del partido manual correctos (2 anotados, 2 fallados de 4 intentados)");
   assert(kpis.to === 2 && kpis.ro === 1 && kpis.rd === 2 && kpis.stl === 1,
     "computeTeamKPIs(): resto de KPIs del partido manual correctos (pérdidas, rebotes, robos)");
 

@@ -56,6 +56,44 @@ async function run() {
   const { rows } = win._matchAggRows();
   report.assert(rows.length === 1 && rows[0].p.id === "p1" && rows[0].a.pj === 1, "el partido normal (m1) sigue agregándose por jugador; el 'solo equipo' (m2) se salta sin más");
 
+  // ── v3.0.0-dev.103 · B-MANUALSTATS3: regresión específica para la
+  // exportación PDF/Excel con un partido de estadísticas MANUALES (sin
+  // seguimiento en vivo) en categoría NO Senior (formulario reducido). El
+  // bug real: openManualStatsModal() pedía al entrenador "intentos TOTALES"
+  // (p.ej. "3 de 4 tiros libres"), pero saveManualStatsQuarter() guardaba
+  // ese 4 tal cual en p1a -- y TODO el resto de la app (incluida esta misma
+  // exportación, vía _matchAggRows -> _matchPlayerStats) interpreta p1a como
+  // FALLOS, no intentos totales. Antes del fix de dev.103 esto daba
+  // tlpct=Math.round(3/(3+4)*100)=43% en vez del 75% real (3/4). El fix
+  // convierte a fallos en el momento de guardar (p1a=intentos-anotados), así
+  // que aquí comprobamos que la fila que alimenta a exportMatchesPDF/Excel
+  // ya llega con el % correcto -- no solo que las funciones "no lancen".
+  win.S.teams = [{ id: "t1", name: "CB Jaca Infantil", category: "Infantil", coaches: [], color: "#f06318" }];
+  win.S.players = { t1: [{ id: "p1", name: "Jugadora Uno", number: 4 }] };
+  win.S.matches = {
+    t1: [
+      {
+        id: "mManual",
+        date: "2026-08-15",
+        quarters: 4,
+        manualStats: {
+          byQuarter: { 0: { p1: { p1m: 3, p1a: 1, p2m: 0, p2a: 0, p3m: 0, p3a: 0 } } },
+          otCount: 0,
+        },
+      },
+    ],
+  };
+  win.S.statsMonth = null;
+  noThrow("exportMatchesPDF no lanza con un partido de estadísticas MANUALES (formulario reducido, sin live.stats)", () => win.exportMatchesPDF());
+  noThrow("exportMatchesExcel no lanza con un partido de estadísticas MANUALES (formulario reducido, sin live.stats)", () => win.exportMatchesExcel());
+  const { rows: manualRows } = win._matchAggRows();
+  const p1row = manualRows.find((r) => r.p.id === "p1");
+  report.assert(
+    !!p1row && p1row.tlpct === 75,
+    "B-MANUALSTATS3 (export): la fila que alimenta a exportMatchesPDF/Excel calcula TL% = 75% (3 de 4 intentos reales), no 43% -- confirma que el fix de conversión a fallos en saveManualStatsQuarter() llega hasta la exportación, no solo a la pantalla de Stats"
+  );
+  report.assert(p1row && p1row.a.p1a === 1, "B-MANUALSTATS3 (export): _matchAggRows agrega p1a=1 (fallos), heredado tal cual de manualStats ya convertido -- no 4 (intentos sin convertir)");
+
   // ── Caso: TODOS los partidos con stats son "solo equipo" (ninguna fila por jugador).
   win.S.matches = { t1: [{ id: "m2", date: "2026-08-08", teamOnlyStats: true, live: { teamAgg: { p2m: 10, p2a: 5 } } }] };
   noThrow("exportMatchesPDF con toast de aviso cuando NO hay filas por jugador (todos son 'solo equipo')", () => win.exportMatchesPDF());
