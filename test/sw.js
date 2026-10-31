@@ -2,7 +2,7 @@
 // Cache-first para los assets de la app shell, network-first para el resto.
 // Bump CACHE_VERSION en cada release para invalidar caché vieja en clientes.
 
-const CACHE_VERSION = "kortline-v3-test-dev.95";
+const CACHE_VERSION = "kortline-v3-test-dev.98";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -61,6 +61,8 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
+  if (url.hostname.includes("google-analytics.com") ||
+      url.hostname.includes("googletagmanager.com")) return;
   const isNavigate = req.mode === "navigate" || (req.destination === "document");
 
   // Network-first para navegaciones (que el usuario vea siempre la última versión)

@@ -2157,13 +2157,18 @@ const FEATURE_LIVE_GAME = true;
 /* ═══════════════════════════════════════
    STATE
 ═══════════════════════════════════════ */
-let S={screen:"hoy",teamId:null,date:td(),teams:[],players:{},sessions:{},matches:{},events:{},drills:{},trainingNotes:{},sf:"all",histMonth:null,statsMonth:null,clubLogo:null,clubName:"Kortline",clubAbrev:"",clubLema:"",cfg:{...DEFAULT_CFG},statsView:"table",matchId:null,eventId:null,navStack:[],tnWeekStart:null};
+let S={screen:"hoy",teamId:null,date:td(),teams:[],players:{},sessions:{},matches:{},events:{},drills:{},trainingNotes:{},sf:"all",histMonth:null,statsMonth:null,clubLogo:null,clubName:"Kortline",clubAbrev:"",clubLema:"",cfg:{...DEFAULT_CFG},statsView:"table",matchId:null,eventId:null,navStack:[],tnWeekStart:null,hoyDate:null};
 let shareOpen={parents:true,internal:false};
 /* ═══════════════════════════════════════
    UTILS
 ═══════════════════════════════════════ */
 function td(){return new Date().toISOString().split("T")[0];}
 function todayIdx(){const d=new Date().getDay();return d===0?6:d-1;}
+// v3.0.0-dev.98 · B-HOY3: igual que todayIdx() pero para una fecha CUALQUIERA
+// (día de la semana, 0=lunes..6=domingo) -- necesario para que "Hoy" pueda
+// navegar a días pasados/futuros y seguir mirando el horario semanal correcto
+// de ESE día, no siempre el de hoy.
+function _weekdayIdxForDate(dateStr){const d=new Date(dateStr+"T12:00:00").getDay();return d===0?6:d-1;}
 function fd(d,short){try{return new Date(d+"T12:00:00").toLocaleDateString("es-ES",short?{weekday:"short",day:"numeric",month:"short"}:{weekday:"long",day:"numeric",month:"long",year:"numeric"});}catch{return d;}}
 function fMonth(ym){try{const[y,m]=ym.split("-");return new Date(y,parseInt(m)-1,1).toLocaleDateString("es-ES",{month:"long",year:"numeric"});}catch{return ym;}}
 function pc(a,b){return b===0?0:Math.round(a/b*100);}
@@ -2202,7 +2207,7 @@ const FIREBASE_CONFIG = {
   projectId: "kortline-v3",
   storageBucket: "kortline-v3.firebasestorage.app",
   messagingSenderId: "1073570899301",
-  appId: "1:1073570899301:web:b1af40b12563bce9016d8c"
+  appId: "1:1073570899301:web:b1af40b12563bce9016d8c",
 };
 const CLUB_ID = "cbjaca-test";
 const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
@@ -2211,7 +2216,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.95";
+const APP_VERSION = "3.0.0-dev.98";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3466,12 +3471,21 @@ function applyInjuryToSessions(tid,pid,startDate,endDate,noteText){
       if(sess[pid]==="excused")delete sess[pid];
       changed=true;
     }
-    // 2) Aplica backfill dentro del rango
+    // 2) Aplica backfill dentro del rango — pero SOLO si ese día no tiene ya
+    // una marca explícita distinta (p.ej. "present" porque el jugador sí
+    // asistió a entrenar estando de baja). No pisamos nunca un estado
+    // explícito que no sea el propio auto-marcado de esta misma lesión
+    // (bug reportado: alta de lesión sobreescribía "asistido" con
+    // "justificado" en días donde el jugador SÍ había ido a entrenar).
     if(inRange){
-      if(sess[pid]!=="excused"){sess[pid]="excused";changed=true;}
-      if(sess[pid+"_jr"]!=="injury"){sess[pid+"_jr"]="injury";changed=true;}
-      if(noteText){
-        if(sess[pid+"_jn"]!==noteText){sess[pid+"_jn"]=noteText;changed=true;}
+      const already=sess[pid];
+      const safeToOverwrite=already===undefined||(already==="excused"&&sess[pid+"_jr"]==="injury");
+      if(safeToOverwrite){
+        if(sess[pid]!=="excused"){sess[pid]="excused";changed=true;}
+        if(sess[pid+"_jr"]!=="injury"){sess[pid+"_jr"]="injury";changed=true;}
+        if(noteText){
+          if(sess[pid+"_jn"]!==noteText){sess[pid+"_jn"]=noteText;changed=true;}
+        }
       }
     }
     if(changed)S.sessions[k]=sess;
@@ -4094,7 +4108,7 @@ function navTo(screen,opts={}){
     S.navStack=[...(S.navStack||[]).slice(-20),{
       screen:S.screen,teamId:S.teamId,matchId:S.matchId,
       date:S.date,eventId:S.eventId,histMonth:S.histMonth,
-      statsView:S.statsView,sf:S.sf
+      statsView:S.statsView,sf:S.sf,hoyDate:S.hoyDate
     }];
     // Filtro de asistencia es efímero: solo vive mientras estás en "att"
     if(screen!=="att")S.attFilter="";
@@ -4122,12 +4136,15 @@ function navBack(){
     S.navStack=stack.slice(0,-1);
     S.screen=prev.screen;S.teamId=prev.teamId;S.matchId=prev.matchId;
     S.date=prev.date;S.eventId=prev.eventId;S.histMonth=prev.histMonth;
-    S.statsView=prev.statsView;S.sf=prev.sf;
+    S.statsView=prev.statsView;S.sf=prev.sf;S.hoyDate=prev.hoyDate;
     render();
   });
 }
 // Navegación raíz (navbar) — limpia la pila
-function navRoot(screen){_guardedExit(()=>{if(S.screen==="att")_attFlushDraft();S.navStack=[];S.screen=screen;render();});}
+// v3.0.0-dev.98 · B-HOY3: al pulsar el icono "Hoy" de la barra inferior,
+// siempre se vuelve al día de HOY, aunque se hubiera quedado navegando por
+// un día distinto -- "Hoy" es el sitio por defecto, nunca donde te quedaste.
+function navRoot(screen){_guardedExit(()=>{if(S.screen==="att")_attFlushDraft();if(screen==="hoy")S.hoyDate=null;S.navStack=[];S.screen=screen;render();});}
 function logoHtml(size=42,r=10){if(S.clubLogo)return`<div style="width:${size}px;height:${size}px;border-radius:${r}px;overflow:hidden;flex-shrink:0;background:var(--s2);border:1px solid var(--border)"><img src="${S.clubLogo}" style="width:100%;height:100%;object-fit:cover"/></div>`;return`<div style="width:${size}px;height:${size}px;border-radius:${r}px;overflow:hidden;flex-shrink:0"><img src="${_ICON_SVG_URL}" style="width:100%;height:100%;display:block"/></div>`;}
 function scheduleChips(sc){if(!sc||!Object.keys(sc).length)return`<span style="font-size:12px;color:var(--tm)">Sin días</span>`;return Object.entries(sc).sort((a,b)=>+a[0]-+b[0]).map(([i,t])=>`<span class="schedule-chip">${DAYS[i]}${t?" · "+t:""}</span>`).join("");}
 function toggleHtml(key,title,desc){const on=S.cfg.features[key];return`<div class="toggle-row"><div class="toggle-info"><div class="toggle-title">${title}</div><div class="toggle-desc">${desc}</div></div><button class="tswitch ${on?"on":""}" onclick="toggleFeat('${key}')"></button></div>`;}
@@ -4258,9 +4275,36 @@ function navBar(){
 /* ═══════════════════════════════════════
    HOY SCREEN
 ═══════════════════════════════════════ */
+// v3.0.0-dev.98 · B-HOY3: Mario -- "en lo de el día de hoy en esa pestaña
+// poder ir para adelante y hacia atrás, sobretodo me importa hacia atrás
+// para comprobar que todos los entrenamientos han sido pasado lista [...]
+// lo importante es hoy y tiene que aparecer siempre lo primero". Hacia
+// adelante se topa en el propio día de hoy (confirmado con Mario): un día
+// futuro no tiene nada que comprobar todavía (nadie ha pasado lista ni
+// jugado el partido), así que no tiene sentido navegar más allá.
+// S.hoyDate es la fecha que se está VIENDO (null = hoy, el valor por
+// defecto); S.hoyDate SIEMPRE vuelve a null al pulsar el icono "Hoy" de la
+// barra inferior (ver navRoot) -- "hoy" es el sitio por defecto, nunca donde
+// te quedaste navegando la última vez.
+function _hoyShiftDay(delta){
+  const cur=S.hoyDate||td();
+  const next=_addDaysISO(cur,delta);
+  S.hoyDate=(next>=td())?null:next; // nunca pasa de hoy hacia el futuro
+  render();
+}
+function _hoyGoToday(){S.hoyDate=null;render();}
 function hoy(){
-  const ti=todayIdx();
-  const today=td();
+  // v3.0.0-dev.98 · B-HOY3: `today` pasa a ser el DÍA QUE SE ESTÁ VIENDO
+  // (S.hoyDate, o el propio día real si no se ha navegado) -- todo lo que
+  // depende del día concreto (horario, asistencia, partidos de ese día)
+  // sigue usando esta misma variable sin más cambios. `realToday` es
+  // SIEMPRE el día real de hoy, para lo que no tiene sentido ver en un día
+  // distinto (cumpleaños de hoy, aviso de próximo entreno, añadir una
+  // actividad sorpresa "de hoy").
+  const realToday=td();
+  const today=S.hoyDate||realToday;
+  const isToday=today===realToday;
+  const ti=_weekdayIdxForDate(today);
   const scheduledToday=S.teams.filter(t=>t.schedule&&t.schedule.hasOwnProperty(ti));
   // v3.0.0-dev.73 · B-HOY2: un "Entrenamiento sorpresa" (openHoyAddSheet,
   // fuera del horario semanal fijo) guarda su asistencia exactamente igual
@@ -4278,7 +4322,10 @@ function hoy(){
   // van al final -- un entrenamiento sorpresa nunca tiene hora fija, así que
   // siempre cae al final del todo, junto a los programados sin hora puesta.
   const todayTeams_sorted=[...todayTeams].sort((a,b)=>((a.schedule&&a.schedule[ti])||"99:99").localeCompare((b.schedule&&b.schedule[ti])||"99:99"));
-  const dateStr=new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
+  // v3.0.0-dev.98 · B-HOY3: antes `new Date()` (siempre HOY real) -- ahora
+  // refleja el día que se está viendo, para que el título de arriba no diga
+  // "jueves 29" mientras se navega al miércoles 28.
+  const dateStr=new Date(today+"T12:00:00").toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
   // ── Today's matches ──
   // Deduplicate matches by id (in case same match indexed under multiple keys)
   const _allMatchMap={};
@@ -4387,8 +4434,8 @@ function hoy(){
           ${[["✓",pr,"#22c55e","Pres"],["✗",ab,"#ef4444","Aus"],["⏱",la,"#f59e0b","Tard"],["◎",ex,"#6b7280","Just"]].map(([ic,v,col,l])=>`<div style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:16px;color:${col}">${v}</div><div style="font-size:10px;color:var(--td)">${l}</div></div>`).join("")}
         </div>`:""}
         <div style="display:flex;gap:8px">
-          <button onclick="navTo('att',{teamId:'${t.id}',date:td()})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
-          ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:td()})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
+          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
+          ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:'${today}'})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
     </div>`;
@@ -4399,16 +4446,21 @@ function hoy(){
   // en orden cronologico). Si ya paso su hora se marca como urgente ("toca
   // ahora"); si aun no ha llegado, como aviso normal.
   const _nowHM=new Date().toTimeString().slice(0,5);
-  const _nextTrainingPending=todayTeams_sorted.find(t=>{
+  // v3.0.0-dev.98 · B-HOY3: este aviso ("toca pasar lista ahora" / "próximo
+  // entrenamiento") solo tiene sentido mirando el día real de hoy -- un día
+  // pasado no tiene un "próximo" que esperar (ya pasó, o ya se le pasó
+  // lista), y un día futuro tampoco (aún no ha llegado su hora). Se calcula
+  // solo cuando isToday para no hacer trabajo de más en los demás días.
+  const _nextTrainingPending=isToday?todayTeams_sorted.find(t=>{
     const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija, nunca cuenta como "pendiente por hora"
     if(!time)return false;
     const sess=so(t.id,today);
     return pl(t.id).filter(p=>sess[p.id]).length===0;
-  });
+  }):null;
   const nextTrainingBar=_nextTrainingPending?(()=>{
     const time=_nextTrainingPending.schedule[ti];
     const isNow=time<=_nowHM;
-    return`<div onclick="navTo('att',{teamId:'${_nextTrainingPending.id}',date:td()})" style="display:flex;align-items:center;gap:10px;background:${isNow?"rgba(239,68,68,.12)":"rgba(249,115,22,.1)"};border:1px solid ${isNow?"rgba(239,68,68,.35)":"rgba(249,115,22,.3)"};border-radius:12px;padding:10px 14px;margin-bottom:14px;cursor:pointer">
+    return`<div onclick="navTo('att',{teamId:'${_nextTrainingPending.id}',date:'${today}'})" style="display:flex;align-items:center;gap:10px;background:${isNow?"rgba(239,68,68,.12)":"rgba(249,115,22,.1)"};border:1px solid ${isNow?"rgba(239,68,68,.35)":"rgba(249,115,22,.3)"};border-radius:12px;padding:10px 14px;margin-bottom:14px;cursor:pointer">
       <div style="font-size:20px">${isNow?"🔴":"⏰"}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;font-weight:800;color:${isNow?"#ef4444":"var(--orange)"};letter-spacing:.5px;text-transform:uppercase">${isNow?"Toca pasar lista ahora":"Próximo entrenamiento"}</div>
@@ -4417,14 +4469,20 @@ function hoy(){
       <div style="font-size:18px;color:var(--td)">›</div>
     </div>`;
   })():"";
+  // v3.0.0-dev.98 · B-HOY3: el mensaje decía siempre "hoy" aunque se
+  // estuviera viendo otro día navegado hacia atrás/adelante -- confuso
+  // precisamente en el caso que le importa a Mario (comprobar un día pasado).
   const emptyState=totalToday===0
-    ?`<div class="empty"><div style="font-size:56px;margin-bottom:16px">😴</div><div style="font-family:var(--font-d);font-weight:900;font-size:20px;margin-bottom:8px">Sin actividad hoy</div><div style="font-size:14px;color:var(--tm);line-height:1.6">No hay entrenamientos ni partidos<br/>programados para hoy.</div></div>`
+    ?`<div class="empty"><div style="font-size:56px;margin-bottom:16px">😴</div><div style="font-family:var(--font-d);font-weight:900;font-size:20px;margin-bottom:8px">Sin actividad${isToday?" hoy":" ese día"}</div><div style="font-size:14px;color:var(--tm);line-height:1.6">No hay entrenamientos ni partidos<br/>programados para ${isToday?"hoy":"ese día"}.</div></div>`
     :"";
   // v3.0.0-dev.62 · B-BDAY1: cumpleaños de HOY de cualquier equipo del club.
   // Va FUERA del if/else de emptyState a propósito: si el cumpleaños cae en
   // un día sin entreno ni partido, es precisamente cuando más falta hace que
   // salga aquí (en el pase de lista de ese equipo nunca se vería ese día).
-  const bdayToday=_todaysBirthdays();
+  // v3.0.0-dev.98 · B-HOY3: _todaysBirthdays() mira el día real de hoy, así
+  // que solo se muestra viendo isToday -- en un día pasado/futuro no sería
+  // más que ruido (el cumpleaños de "hoy" no tiene nada que ver con ese día).
+  const bdayToday=isToday?_todaysBirthdays():[];
   const bdayBannerHoy=bdayToday.length?`<div style="background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px">
     ${bdayToday.map(({player,team})=>{
       const age=playerBirthdayAge(player);
@@ -4435,24 +4493,42 @@ function hoy(){
       </div>`;
     }).join("")}
   </div>`:"";
-  const content=bdayBannerHoy+(emptyState
+  // v3.0.0-dev.98 · B-HOY3: fila de navegación de día -- Mario: "poder ir
+  // para adelante y hacia atrás, sobretodo me importa hacia atrás para
+  // comprobar que todos los entrenamientos han sido pasado lista". ‹ siempre
+  // activo (sin límite hacia atrás); › se desactiva en el propio día de hoy
+  // (confirmado con Mario: "Topar en hoy" -- un día futuro no tiene nada que
+  // comprobar todavía). Cuando no se está viendo hoy, aparece además un
+  // botón "Hoy" para volver de un toque, sin tener que darle a › varias veces.
+  const hoyNavHtml=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <button onclick="_hoyShiftDay(-1)" aria-label="Día anterior" style="width:40px;height:40px;flex-shrink:0;border-radius:9px;background:var(--s2);border:1px solid var(--border);color:var(--tx);font-size:18px;font-weight:700;cursor:pointer">‹</button>
+    <div style="flex:1;min-width:0;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px">
+      <span style="font-size:13px;font-weight:700;color:${isToday?"var(--td)":"var(--orange)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${isToday?"Viendo hoy":cap(dateStr)}</span>
+      ${!isToday?`<button onclick="_hoyGoToday()" style="flex-shrink:0;background:rgba(240,99,24,.12);border:1px solid rgba(240,99,24,.3);color:var(--orange);font-size:11px;font-weight:800;border-radius:8px;padding:4px 10px;cursor:pointer">Hoy</button>`:""}
+    </div>
+    <button onclick="_hoyShiftDay(1)" aria-label="Día siguiente" ${isToday?"disabled":""} style="width:40px;height:40px;flex-shrink:0;border-radius:9px;background:var(--s2);border:1px solid var(--border);color:var(--tx);font-size:18px;font-weight:700;cursor:${isToday?"default":"pointer"};opacity:${isToday?".35":"1"}">›</button>
+  </div>`;
+  const content=hoyNavHtml+bdayBannerHoy+(emptyState
     ||nextTrainingBar
     +(todayMatches.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin-bottom:10px">🏀 PARTIDOS</div>${matchCards}`:"")
     +(todayTeams.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin:${todayMatches.length>0?"14px 0":"0 0"} 10px">🏋️ ENTRENAMIENTOS</div>${trainingCards}`:""));
   // v1.6.12: el título del header usa el nombre del club si está configurado
   const _hasClub=S.clubName&&S.clubName.trim()&&S.clubName!=="Kortline";
   const _title=_hasClub?esc(S.clubName):"Hoy";
-  const _subtitle=_hasClub?`Hoy · <span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`:`<span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`;
+  // v3.0.0-dev.98 · B-HOY3: el "Hoy ·" literal de delante de la fecha solo
+  // tiene sentido viendo isToday -- de lo contrario diría p.ej. "Hoy ·
+  // miércoles 28" mientras se navega al día anterior, que es contradictorio.
+  const _subtitle=(_hasClub&&isToday)?`Hoy · <span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`:`<span style="color:var(--orange);font-weight:700">${cap(dateStr)}</span>`;
   return`<header class="header"><div class="hrow">
     <div onclick="openClubSettings()" style="cursor:pointer">${logoHtml(42,10)}</div>
     <div style="flex:1;min-width:0">
       <div style="font-family:var(--font-d);font-weight:900;font-size:19px;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_title}</div>
       <div style="font-size:12px;color:var(--td);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_subtitle}</div>
     </div>
-    ${totalToday>0?`<div style="background:var(--orangeG);color:white;font-size:12px;font-weight:800;padding:4px 10px;border-radius:10px;font-family:var(--font-d);letter-spacing:.5px">${totalToday} HOY</div>`:""}
+    ${totalToday>0?`<div style="background:var(--orangeG);color:white;font-size:12px;font-weight:800;padding:4px 10px;border-radius:10px;font-family:var(--font-d);letter-spacing:.5px">${totalToday}${isToday?" HOY":""}</div>`:""}
   </div></header>
   <div class="content">${content}</div>
-  <button class="fab-add" onclick="openHoyAddSheet()" title="Añadir actividad sorpresa" aria-label="Añadir actividad">＋</button>
+  ${isToday?`<button class="fab-add" onclick="openHoyAddSheet()" title="Añadir actividad sorpresa" aria-label="Añadir actividad">＋</button>`:""}
   ${navBar()}`;
 }
 // v3.0.0-dev.95 · B-DLS11: extraído de la función att() (el cálculo de
@@ -7265,6 +7341,16 @@ function _dlsRenderSessionSummary(b,targetId){
   // botones están siempre disponibles ("por si acaso"), ocultar la columna
   // escondería estadísticas que sí se llegaron a registrar.
   const missPenalty=!!b.checklist.missPenalty;
+  // v3.0.0-dev.97 · B-DLS12: columna "Quitar" (solo en una sesión ya
+  // TERMINADA) -- Mario: "en la sesión [...] te he añadido un puntual pero
+  // no puedo quitarlo [...] hay que hacer algo para que si pasa eso se pueda
+  // borrar". Antes solo se podía quitar a un puntual/invitado durante la
+  // CONFIGURACIÓN (_dlsRemoveTemp, antes de arrancar el ejercicio) -- una vez
+  // guardada la sesión no había ningún botón para corregir un jugador
+  // añadido por error (puntual o no), y arreglarlo exigía tocar Firestore a
+  // mano. Igual que "🗑 Borrar esta sesión" ya hacía, se restringe a sesiones
+  // TERMINADAS para no interferir con una sesión en curso.
+  const canRemovePlayers=b.status==="finished";
   const rows=[...b.players].map(p=>({p,st:b.stats[p.id]||_dlsEmptyStats()}))
     .map(x=>({...x,val:_dlsValoracion(x.st,missPenalty)}))
     .sort((a,b2)=>b2.val-a.val)
@@ -7278,6 +7364,7 @@ function _dlsRenderSessionSummary(b,targetId){
       <td style="text-align:center;font-size:12px">${st.ast}</td>
       <td style="text-align:center;font-size:12px">${st.blk}</td>
       <td style="text-align:center;font-size:12px;font-weight:800;color:var(--orange)">${val}</td>
+      ${canRemovePlayers?`<td style="text-align:center"><button onclick="_dlsConfirmRemovePlayer('${targetId}','${b.id}','${p.id}')" title="Quitar de esta sesión" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;padding:2px 4px">✕</button></td>`:""}
     </tr>`;
   }).join("");
   const playedMin=Math.round((b.durationSec-b.remainingSec)/60);
@@ -7295,6 +7382,7 @@ function _dlsRenderSessionSummary(b,targetId){
       <th style="font-size:10px;color:var(--tm)">Reb</th><th style="font-size:10px;color:var(--tm)">Pérd</th><th style="font-size:10px;color:var(--tm)">Rob</th>
       <th style="font-size:10px;color:var(--tm)">Ast</th><th style="font-size:10px;color:var(--tm)">Tap</th>
       <th style="font-size:10px;color:var(--orange)">Val</th>
+      ${canRemovePlayers?`<th style="font-size:10px;color:var(--tm)"></th>`:""}
     </tr></thead><tbody>${rows}</tbody></table></div>
     ${b.status!=="finished"?`<button class="btn-p" onclick="document.getElementById('m-dls-summary').remove();S._dlsDrillId='${targetId}';navTo('dlsLive');startDlsTimer();" style="margin-top:12px">▶ Volver al ejercicio</button>`:""}
     <button class="btn-s" onclick="document.getElementById('m-dls-summary').remove()" style="margin-top:8px">Cerrar</button>
@@ -7503,6 +7591,36 @@ function _dlsDeleteSession(drillId,sessionId,from){
   document.getElementById("m-dls-summary")?.remove();
   if(document.getElementById("m-dls-history"))_refreshDlsHistoryBody(drillId);
   render();
+}
+// v3.0.0-dev.97 · B-DLS12: quitar a UN jugador concreto de una sesión de
+// "Ejercicio en vivo" ya TERMINADA -- bug real reportado por Mario: añadió
+// sin querer a un puntual ("Kilian Pérez") a una sesión de Pichi del
+// Infantil Masculino y no había ninguna forma de corregirlo una vez guardada
+// (el único botón para quitar puntuales, _dlsRemoveTemp, solo existe durante
+// la CONFIGURACIÓN, antes de arrancar -- ver openDlsSetupModal). Se queda al
+// mismo nivel de "destructivo pero deliberado" que "🗑 Borrar esta sesión"
+// (mismo sitio, mismo estilo de confirmación): quita al jugador de
+// `players`, borra su entrada en `stats`, y limpia cualquier entrada suelta
+// en `log` que lo mencionara -- el resto de la sesión (otros jugadores,
+// marcador, duración...) no se toca para nada.
+function _dlsConfirmRemovePlayer(drillId,sessionId,pid){
+  const b=_dlsList(S.teamId,drillId).find(s=>s.id===sessionId);
+  const p=b&&(b.players||[]).find(x=>x.id===pid);
+  if(!p)return;
+  _confirm(`¿Quitar a "${esc(_dlsPlayerLabel(p))}" de esta sesión? Sus estadísticas de este ejercicio concreto se perderán. El resto de la sesión no se toca.`,"🗑 Quitar",()=>_dlsRemovePlayerFromSession(drillId,sessionId,pid));
+}
+function _dlsRemovePlayerFromSession(drillId,sessionId,pid){
+  const b=_dlsList(S.teamId,drillId).find(s=>s.id===sessionId);
+  if(!b)return;
+  b.players=(b.players||[]).filter(p=>p.id!==pid);
+  if(b.stats)delete b.stats[pid];
+  if(b.log)b.log=b.log.filter(l=>l.pid!==pid);
+  save();
+  toast("🗑 Jugador quitado de la sesión");
+  document.getElementById("m-dls-summary")?.remove();
+  if(document.getElementById("m-dls-history"))_refreshDlsHistoryBody(drillId);
+  render();
+  _dlsOpenHistorySession(drillId,sessionId); // reabre el resumen ya sin ese jugador
 }
 function dayScheduleRows(mid,initSched){
   const sc=initSched||{};
