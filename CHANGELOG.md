@@ -3,6 +3,27 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix CRÍTICO: el tutorial guiado podía borrar datos reales de la nube (B-TOURSYNC1, dev.104, 2026-11-01)
+
+Este bloque **no lo pidió Mario como funcionalidad nueva** -- es la causa raíz, encontrada e investigada tras un incidente real de pérdida de datos en producción el 1 de noviembre de 2026, confirmado directamente por Mario mirando en la consola de Firestore ("se ha borrado en real todo lo que no es escuela mixto"). Pidió expresamente: *"revisa cual fue el fallo porque fue al crear un entrenador llamado Mario Nadal y meterme que cambio las cosas de la base de datos"*.
+
+**El bug, en una frase**: el tutorial guiado (B-TOUR1, dev.94) arranca solo en un dispositivo nuevo sin equipos cargados todavía -- justo el momento en que los datos reales del club están llegando de Firestore en segundo plano. Mientras el tutorial estaba abierto, sustituía `S.teams/players/sessions/matches/events` enteros por los del "Equipo Demo", pero los oyentes de Firestore "siempre activos" (jugadoras/partidos/asistencia/notas de TODOS los equipos) nunca se pausaban y seguían escribiendo los datos reales que iban llegando. Al terminar el tutorial, se restauraba a ciegas una foto de "antes" tomada ANTES de que esos datos reales llegaran -- borrándolos de la memoria. El sistema de sincronización, sin embargo, sí se había quedado con el recuerdo de esos datos reales (por eso el nombre de entrenador "Mario Nadal" no tuvo nada que ver: fue solo el guardado normal que, por casualidad, disparó la sincronización justo después). Esa sincronización comparó una memoria "vaciada" contra un recuerdo con datos reales, interpretó la diferencia como un borrado, y lo ejecutó de verdad en la nube -- para todos los equipos excepto Escuela Mixto.
+
+Recuperación de los datos reales perdidos: gestionada aparte con Mario, en directo (herramienta de recuperación dedicada desde el backup de `/test/`), no es parte de este cambio de código.
+
+### Corregido
+
+- **`startTour()`**: el equipo de demo ahora se **añade** a `S.teams/players/matches/events` sin tocar lo que ya hubiera (real o todavía vacío) -- antes los reemplazaba por completo. `S.sessions` ya no se vacía (no hacía falta: `cycleAtt()`/`setAll()` leen y escriben por clave, sin necesitar que esté vacío antes).
+- **`_tourEnd()`**: ya no restaura una foto de "antes del tour" para los datos (`teams/players/sessions/matches/events`) -- solo quita las entradas del equipo de demo (`tour-demo-team`), dejando intacto cualquier dato real que haya llegado de la nube mientras el tutorial estaba abierto. Solo se sigue recordando/restaurando la navegación (pantalla/equipo/partido/fecha), que nunca fue el problema.
+- **`_runCloudSync()`**: cerrojo extra de última línea -- `if(window._tourActive)return;` al principio de la función, para que ninguna sincronización hacia la nube pueda salir mientras el tutorial tiene datos de demo cargados, sea lo que sea lo que la dispare (un guardado normal ya se cortaba antes en `save()`, pero los listeners de `online`/`visibilitychange` llaman a `_scheduleCloudSync()` directamente, sin pasar por `save()`, y no tenían ningún guarda).
+
+### Probado (jsdom)
+
+- `tour.test.js` (reescrito, 37 aserciones): además de las comprobaciones de siempre (swap de demo, 8 pasos del tour, `_maybeStartTour()`), añade el escenario exacto del incidente real -- un dispositivo nuevo arranca el tour, mientras está abierto "llegan" datos reales (simulando lo que haría un oyente de Firestore: equipo, jugadoras, partido y asistencia escritos directamente en `S`), y se comprueba que esos datos **sobreviven** a `_tourEnd()`. También comprueba que el tutorial replicado manualmente desde Ajustes (club ya en marcha, con datos reales) convive con el de demo sin tocarlos, y que `_runCloudSync()` no escribe nada en la nube mientras `_tourActive` es `true` aunque la memoria y el último estado sincronizado difieran radicalmente.
+- Revert-sanity-check: con `index.html` vuelto a la versión anterior al fix (mediante `git stash`) y el `tour.test.js` nuevo aplicado encima, fallan exactamente las 9 aserciones que dependen del arreglo (ninguna otra) -- reproduciendo el bug real de forma controlada. Restaurado el fix y reconfirmada la suite entera en verde.
+- Suite completa: **1925/1925 OK** (más el mismo fallo preexistente y ajeno a todo esto, `matchDetail() en modo 'live' sin iniciar`), verificada contra la raíz y regenerada en `/test/`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.104` / `kortline-v3.0.0-dev.104` (raíz), regenerado también en `/test/`. Entregado solo a `/test/`, encima de todo lo anterior.
+
 ## [Sin publicar] · kortline-v3 · Fix: las estadísticas manuales guardaban mal el %TL/%T2/%T3 (B-MANUALSTATS3, dev.103, 2026-10-31)
 
 Este bloque **no lo pidió Mario** -- salió de la auditoría exhaustiva que él mismo autorizó sobre dev.102 ("hazle pruebas de manera exhaustiva... antes de que pruebe yo"). Es el hallazgo más importante de esa auditoría, así que va primero en este changelog aunque cronológicamente las pruebas que lo encontraron vinieran después del resto.

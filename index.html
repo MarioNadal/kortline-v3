@@ -2365,7 +2365,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.103";
+const APP_VERSION = "3.0.0-dev.104";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2650,6 +2650,13 @@ function _diffSessions(batch, curSess, prevSess, colName){
   return n;
 }
 async function _runCloudSync(){
+  // v3.0.0-dev.104 · B-TOURSYNC1: cerrojo extra -- ninguna sincronización
+  // hacia la nube puede salir mientras el tutorial guiado tiene datos de
+  // demo cargados en S, sea lo que sea lo que la haya disparado (un
+  // guardado normal ya se corta en save(), pero "online"/"visibilitychange"
+  // llaman a _scheduleCloudSync() directamente, sin pasar por save()). Ver
+  // la cabecera de startTour() para el incidente real que motivó esto.
+  if(window._tourActive) return;
   if(!_cloudEnabled || !_fbReady || !_fbUser) return;
   const cur=_snapshotState();
   const prev=_lastSyncedSnapshot;
@@ -12353,9 +12360,13 @@ function _pickIdentity(id){
    propio S global, igual que haría un entrenador, resaltando con Driver.js
    (MIT, sin dependencias -- ver <head>) el elemento concreto de cada paso.
 ═══════════════════════════════════════ */
+// v3.0.0-dev.104 · B-TOURSYNC1: id fijo del equipo de demo del tutorial,
+// extraído a constante para poder limpiarlo de forma segura al terminar
+// (ver _tourEnd) sin depender de reconstruir todo el bundle de demo otra vez.
+const TOUR_DEMO_TID="tour-demo-team";
 let _tourDriver=null,_tourBackup=null,_tourStepIdx=0;
 function _tourDemoBundle(){
-  const tid="tour-demo-team",mid="tour-demo-match";
+  const tid=TOUR_DEMO_TID,mid="tour-demo-match";
   const names=["Ana García","Clara Pérez","Elena Ruiz","Lucía Gómez","Marta Soto","Sara Díaz","Nora Vidal","Irene León"];
   const players=names.map((name,i)=>({id:"tour-p"+i,addedAt:td(),name,nickname:"",number:String(i+4),position:["Base","Alero","Pívot"][i%3],notes:"",photo:"",birthDate:""}));
   const onCourt=players.slice(0,5).map(p=>p.id);
@@ -12415,12 +12426,37 @@ function startTour(){
   if(typeof window.driver==="undefined"){toast("⚠️ No se pudo cargar el tutorial (sin conexión)");return;}
   document.getElementById("m-club-settings")?.remove();
   document.getElementById("m-coachname")?.remove();
-  _tourBackup={screen:S.screen,teamId:S.teamId,matchId:S.matchId,date:S.date,
-    teams:S.teams,players:S.players,sessions:S.sessions,matches:S.matches,events:S.events};
+  // v3.0.0-dev.104 · B-TOURSYNC1 (fallo real, 2026-11-01): ANTES, aquí se
+  // guardaba una foto de S.teams/players/sessions/matches/events de justo
+  // antes del tutorial, y se REEMPLAZABAN esos campos enteros por los del
+  // equipo de demo. El problema: los "oyentes" de Firestore siempre activos
+  // (jugadoras/partidos/asistencia/notas de TODOS los equipos, ver
+  // _attachClubListeners/_attachGlobalTeamListeners) NUNCA se pausan
+  // durante el tutorial -- si en ese momento llegan los datos reales del
+  // club (lo normal: el tutorial arranca solo justo cuando un dispositivo
+  // nuevo todavía no tiene ningún equipo cargado, que es exactamente cuando
+  // esos datos reales están en camino), se escribían con normalidad en S...
+  // y al terminar el tutorial, restaurar a ciegas la foto de ANTES (vacía
+  // o incompleta) los borraba de la memoria otra vez -- mientras que
+  // _lastSyncedSnapshot sí se había quedado con el recuerdo de esos datos
+  // reales (los oyentes lo actualizan en cada cambio). El siguiente
+  // guardado normal después del tutorial (p.ej. dar de alta un entrenador
+  // en Ajustes) disparaba una sincronización que, al comparar una S
+  // "vaciada" contra un recuerdo con datos reales, los interpretaba como
+  // borrados y los borraba de verdad en la nube. Esto fue la causa real del
+  // incidente de pérdida de datos de producción del 1 de noviembre de 2026.
+  // AHORA: el equipo de demo se AÑADE sin tocar lo que ya hubiera (real o
+  // todavía vacío) en vez de reemplazarlo, así que cualquier dato real que
+  // llegue de la nube mientras el tutorial está abierto se queda tal cual
+  // en S. Solo se recuerda la PANTALLA (navegación, nunca datos) de antes,
+  // para volver ahí al terminar -- ver _tourEnd().
+  _tourBackup={screen:S.screen,teamId:S.teamId,matchId:S.matchId,date:S.date};
   window._tourActive=true;
   const demo=_tourDemoBundle();
-  S.teams=[demo.team];S.players={[demo.tid]:demo.players};S.sessions={};
-  S.matches={[demo.tid]:[demo.match]};S.events={[demo.tid]:[]};
+  S.teams=[...S.teams.filter(t=>t.id!==demo.tid),demo.team];
+  S.players={...S.players,[demo.tid]:demo.players};
+  S.matches={...S.matches,[demo.tid]:[demo.match]};
+  S.events={...S.events,[demo.tid]:[]};
   _tourDriver=window.driver.js.driver({overlayOpacity:.65,stagePadding:6,animate:true,allowClose:true,disableActiveInteraction:true});
   _tourGoTo(demo,0);
 }
@@ -12452,10 +12488,18 @@ function _tourEnd(){
   window._tourActive=false;
   if(_tourBackup){
     S.screen=_tourBackup.screen;S.teamId=_tourBackup.teamId;S.matchId=_tourBackup.matchId;S.date=_tourBackup.date;
-    S.teams=_tourBackup.teams;S.players=_tourBackup.players;S.sessions=_tourBackup.sessions;
-    S.matches=_tourBackup.matches;S.events=_tourBackup.events;
     _tourBackup=null;
   }
+  // v3.0.0-dev.104 · B-TOURSYNC1: solo se quita lo del equipo de demo --
+  // nunca se restaura una foto vieja de teams/players/matches/events/
+  // sessions (ver el porqué en startTour), así que cualquier dato real que
+  // haya llegado de la nube mientras el tutorial estaba abierto se queda
+  // intacto en S exactamente igual que si el tutorial no se hubiera abierto.
+  S.teams=S.teams.filter(t=>t.id!==TOUR_DEMO_TID);
+  delete S.players[TOUR_DEMO_TID];
+  delete S.matches[TOUR_DEMO_TID];
+  delete S.events[TOUR_DEMO_TID];
+  for(const key in S.sessions){ if(key.startsWith(TOUR_DEMO_TID+"_")) delete S.sessions[key]; }
   lsSet("cbj:tour_seen",true,true);
   render();
   _maybeShowCoachNamePrompt();
