@@ -13,6 +13,15 @@
 // Fix: _evtAutoSuggest ahora construye su lista con
 // _teamSessionEntries(tid) (que excluye _optType por defecto) en vez de leer
 // S.sessions directamente.
+//
+// v3.0.0-dev.106 · B-VOLTECH3: las sesiones opcionales ya NO comparten la
+// clave de la sesión oficial (eso era justo el bug reportado por Mario --
+// "sustituye la tecnificación a entrenamientos de ese día del mismo
+// equipo"). Ahora viven bajo su propia clave con sufijo "_opt" (skO()), y
+// _teamSessionEntries() decide isOpt por el sufijo de la clave, no por el
+// campo _optType. Este test se actualiza para crear las sesiones
+// voluntarias bajo esa clave separada -- el fondo de lo que comprueba (que
+// nunca desempatan el % oficial) no cambia.
 const { loadApp, newReporter } = require("./harness");
 
 async function run() {
@@ -44,7 +53,7 @@ async function run() {
   // y las ausencias/presencias ahí NUNCA deben tocar el % oficial.
   for (let i = 1; i <= 5; i++) {
     const d = win._addDaysISO(today, -i);
-    win.S.sessions[`t1_${d}`] = { p1: "absent", p2: "present", _optType: "voluntario" };
+    win.S.sessions[win.skO("t1", d)] = { p1: "absent", p2: "present", _optType: "voluntario" };
   }
 
   win.S.events = { t1: [{ id: "e1", tipo: "partido", rival: "Rival CB", fecha: today, convocados: [] }] };

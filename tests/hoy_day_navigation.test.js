@@ -109,10 +109,10 @@ async function run() {
   // (bug que el feature debía evitar: antes el botón llevaba siempre date:td())
   win._hoyShiftDay(-1); // ayer
   html = win.document.getElementById("root").innerHTML;
-  assert(html.includes(`navTo('att',{teamId:'tY',date:'${yesterday}'})`), "el botón de pasar/editar lista de 'Equipo Ayer' navega con la fecha de AYER, no la de hoy");
-  assert(!html.includes(`navTo('att',{teamId:'tY',date:'${today}'})`), "y en ningún caso con la fecha de hoy real");
+  assert(html.includes(`navTo('att',{teamId:'tY',date:'${yesterday}',attOpt:false})`), "el botón de pasar/editar lista de 'Equipo Ayer' navega con la fecha de AYER, no la de hoy");
+  assert(!html.includes(`navTo('att',{teamId:'tY',date:'${today}',attOpt:false})`), "y en ningún caso con la fecha de hoy real");
   // el botón de compartir (📤) también, solo aparece cuando done=true (Equipo Ayer ya tiene lista pasada)
-  assert(html.includes(`navTo('share',{date:'${yesterday}'})`), "el botón de compartir de un día pasado comparte la fecha de ESE día, no la de hoy");
+  assert(html.includes(`navTo('share',{date:'${yesterday}',attOpt:false})`), "el botón de compartir de un día pasado comparte la fecha de ESE día, no la de hoy");
 
   // ── Test J: el título/fecha del header refleja el día navegado, no siempre hoy, y usa el azul discreto (no naranja) ──
   assert(!/>HOY<\/span>/.test(html), "viendo un día pasado, la píldora de navegación ya no muestra 'HOY'");

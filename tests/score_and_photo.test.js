@@ -71,7 +71,7 @@ async function run() {
 
   let htmlPhotoOn = winP.att();
   assert(htmlPhotoOn.includes(fakeDataUri), "con el flag activado, la foto ya guardada se muestra en att()");
-  assert(htmlPhotoOn.includes("openPhotoPreview('t1','2026-08-03')"), "att() ofrece abrir la vista previa a tamaño completo");
+  assert(htmlPhotoOn.includes("openPhotoPreview('t1','2026-08-03',false)"), "att() ofrece abrir la vista previa a tamaño completo");
 
   // Desactivar el flag DESPUÉS de tener la foto guardada
   winP.S.cfg.features.photos = false;
@@ -79,7 +79,7 @@ async function run() {
   assert(htmlPhotoOff.includes(fakeDataUri), "B-PHOTO1: la foto sigue viéndose en att() aunque se desactive el flag 'photos' -- ANTES desaparecía por completo");
   assert(!htmlPhotoOff.includes('id="att-photo-input"'), "con el flag desactivado ya no se ofrece subir/cambiar foto, solo verla");
   assert(!htmlPhotoOff.includes("Quitar foto"), "con el flag desactivado tampoco se ofrece borrar la foto desde aquí");
-  assert(htmlPhotoOff.includes("openPhotoPreview('t1','2026-08-03')"), "con el flag desactivado, tocar la foto abre la vista previa (no un selector de archivo)");
+  assert(htmlPhotoOff.includes("openPhotoPreview('t1','2026-08-03',false)"), "con el flag desactivado, tocar la foto abre la vista previa (no un selector de archivo)");
 
   // ── openPhotoPreview() abre el lightbox con la imagen correcta ──
   winP.S.cfg.features.photos = true;
@@ -97,7 +97,7 @@ async function run() {
   winP.S.screen = "hist";
   const histHtml = winP.hist();
   assert(histHtml.includes(`<img src="${fakeDataUri}"`), "hist() muestra una miniatura real de la foto (no solo un icono 📷 sin vista previa)");
-  assert(histHtml.includes("openPhotoPreview('t1','2026-08-01')"), "la miniatura del Historial abre la vista previa a tamaño completo al tocarla");
+  assert(histHtml.includes("openPhotoPreview('t1','2026-08-01',false)"), "la miniatura del Historial abre la vista previa a tamaño completo al tocarla");
 
   return report.summary();
 }
