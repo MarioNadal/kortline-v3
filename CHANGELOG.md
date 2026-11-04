@@ -3,6 +3,24 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Añadido: borrar entrenamientos voluntarios/tecnificación desde el Historial (B-VOLTECH4, dev.107, 2026-11-04)
+
+Pedido directo de Mario: *"Se tienen que poder eliminar entrenamientos voluntarios o tecnificaciones desde el historial al igual que el entrenamiento normal, hay que hacer al usuario como debe ser que puede cometer errores siempre, y muchos"*.
+
+**El hueco, en una frase**: desde que B-VOLTECH3 (dev.106) separó las sesiones opcionales en su propia clave (`skO()`), borrar una sesión seguía existiendo solo para el entrenamiento OFICIAL -- `openDeleteConfirm()`/`execDelete()` solo sabían operar sobre `sk()`, y la fila de voluntario/tecnificación en `hist()` no tenía ningún botón de borrar. Una tecnificación creada por error (equipo equivocado, día equivocado, tipo equivocado...) se quedaba ahí para siempre, sin forma de quitarla desde la app.
+
+### Añadido
+
+- **`openDeleteConfirm(teamId,date,isOpt)`** / **`execDelete(teamId,date,isOpt)`**: nuevo 3er parámetro `isOpt` (igual que el resto de la familia de funciones de B-VOLTECH3 -- `_sessKeyFor`, `S.attOpt`), que decide si se borra la clave normal o la opcional. El modal de confirmación (mismo de siempre: doble check + aviso de irreversible) muestra ahora una insignia morada 🙋/🎯 cuando la sesión es voluntaria/tecnificación, para que quede claro qué se va a borrar.
+- **`hist()`**: la fila de cada sesión del bloque "🙋 Voluntarios / tecnificación" tiene ahora su propio botón 🗑, igual que las filas del listado oficial de arriba.
+
+### Probado (jsdom)
+
+- `voluntary_trainings.test.js` (ampliado, +9 aserciones): el botón de borrar aparece en ambos listados con el `isOpt` correcto; `openDeleteConfirm(isOpt=true)` identifica la sesión como voluntaria en el modal y pasa `isOpt=true` al botón de confirmar; `execDelete(isOpt=true)` borra solo la clave opcional sin tocar una sesión normal del mismo equipo y día (y viceversa con `isOpt=false`); el guarda de permisos de siempre (`_requireEdit`) sigue aplicando igual para la opcional.
+- Revert-sanity-check: con `execDelete()` vuelto a borrar siempre `sk()` sin mirar `isOpt`, fallan exactamente las 2 aserciones que dependen del arreglo (ninguna otra) -- restaurado y reconfirmada la suite entera en verde, también contra `/test/` regenerado.
+- Suite completa: **1964/1964 OK** (más el mismo fallo preexistente y ajeno a todo esto, `matchDetail() en modo 'live' sin iniciar`), verificada contra la raíz y regenerada en `/test/`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.107` / `kortline-v3.0.0-dev.107` (raíz), regenerado también en `/test/`. Entregado solo a `/test/`, encima de todo lo anterior.
+
 ## [Sin publicar] · kortline-v3 · Fix: la tecnificación/voluntario sustituía el entrenamiento normal del día + hora + horario fijo semanal (B-VOLTECH3, dev.106, 2026-11-03)
 
 Bug real reportado por Mario: *"Susituye la tecnificación a entrenamientos de ese día del mismo equipo, eso está mal. Son aparte y estaría bien poder poner la hora y mirar una opción de tenificación o entrenamiento voluntario fijos de algunos equipos"*. Dos decisiones confirmadas con `AskUserQuestion` antes de tocar nada: como mucho **una** sesión opcional aparte del entrenamiento normal por equipo y día (no varias), y sí querer un **horario semanal fijo** (día+hora) para que aparezcan solas en "Hoy" cada semana, igual que el horario normal.

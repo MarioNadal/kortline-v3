@@ -2387,7 +2387,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.106";
+const APP_VERSION = "3.0.0-dev.107";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5671,7 +5671,7 @@ function hist(){
             ${e.data._photo?`<img src="${e.data._photo}" onclick="event.stopPropagation();openPhotoPreview('${S.teamId}','${e.date}',false)" style="width:36px;height:36px;border-radius:8px;object-fit:cover;cursor:pointer;border:1px solid var(--border)" title="Ver foto"/>`:""}
           </div>
           <button onclick="navTo('share',{date:'${e.date}',attOpt:false})" style="background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.3);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">📤</button>
-          <button onclick="openDeleteConfirm('${S.teamId}','${e.date}')" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
+          <button onclick="openDeleteConfirm('${S.teamId}','${e.date}',false)" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
         </div>
       </div>`;
     }).join("")}</div>`;
@@ -5696,6 +5696,7 @@ function hist(){
             <div style="display:flex;align-items:center;gap:6px"><div style="font-family:var(--font-d);font-weight:700;font-size:16px">${fd(e.date,true)}</div><span style="font-size:11px;font-weight:800;color:#a855f7;background:rgba(168,85,247,.12);border-radius:5px;padding:1px 6px">${typeLabel}</span></div>
             <div style="font-size:12px;color:var(--td);margin-top:4px">✓ ${pr} asistieron de ${activeP.length}</div>
           </div>
+          <button onclick="openDeleteConfirm('${S.teamId}','${e.date}',true)" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
         </div>
       </div>`;
     }).join("")}</div>`;
@@ -8983,19 +8984,34 @@ function deleteIncident(pid,incId){
     toast("🗑 Incidencia borrada");
   });
 }
-function openDeleteConfirm(teamId,date){
+// v3.0.0-dev.107 · B-VOLTECH4: Mario, pedido directo -- "Se tienen que poder
+// eliminar entrenamientos voluntarios o tecnificaciones desde el historial
+// al igual que el entrenamiento normal, hay que hacer al usuario como debe
+// ser que puede cometer errores siempre, y muchos". Antes de este cambio,
+// borrar una sesión solo existía para el entrenamiento OFICIAL (único punto
+// de llamada: la fila de arriba en hist()) -- una tecnificación/voluntario
+// creada por error (equipo equivocado, día equivocado, tipo equivocado...)
+// no se podía quitar de ningún sitio. Nuevo 3er parámetro `isOpt` (por
+// defecto false/sin tocar, igual que el resto de funciones de esta familia
+// -- ver S.attOpt/_sessKeyFor): decide si se borra la clave normal (sk) o
+// la opcional (skO), reutilizando el mismo modal de confirmación de
+// siempre (doble check + irreversible) sin duplicar nada.
+function openDeleteConfirm(teamId,date,isOpt){
   document.getElementById("m-del")?.remove();
-  const players=pl(teamId);const sess=so(teamId,date);
+  const players=pl(teamId);const sess=isOpt?soO(teamId,date):so(teamId,date);
   const pr=players.filter(p=>_effAttState(p,date,sess[p.id])==="present").length;
   const p2=pc(pr,players.length);
+  const t=S.teams.find(x=>x.id===teamId);
+  const optType=isOpt?(sess._optType||(t&&t.optSchedule&&t.optSchedule.type)||"voluntario"):null;
+  const optBadge=isOpt?`<span style="font-size:11px;font-weight:800;color:#a855f7;background:rgba(168,85,247,.12);border-radius:5px;padding:1px 6px;margin-left:6px">${optType==="tecnificacion"?"🎯 Tecnificación":"🙋 Voluntario"}</span>`:"";
   const el=document.createElement("div");el.id="m-del";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
   el.innerHTML=`<div class="modal">
     <div class="mhandle"></div>
     <div class="mtitle" style="color:#ef4444">⚠️ Borrar sesión</div>
     <div class="danger-box">
-      <div style="font-family:var(--font-d);font-weight:700;font-size:16px;margin-bottom:6px">📅 ${fd(date,false)}</div>
-      <div style="font-size:13px;color:var(--td)">Asistencia: ${p2}% · ${pr}/${players.length} jugadores</div>
+      <div style="font-family:var(--font-d);font-weight:700;font-size:16px;margin-bottom:6px">📅 ${fd(date,false)}${optBadge}</div>
+      <div style="font-size:13px;color:var(--td)">${isOpt?"Asistencia (no oficial)":"Asistencia"}: ${p2}% · ${pr}/${players.length} jugadores</div>
       ${sess._notes?`<div style="font-size:12px;color:var(--tm);margin-top:2px">📝 ${esc(sess._notes.slice(0,60))}</div>`:""}
     </div>
     <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px;margin-bottom:16px">
@@ -9006,14 +9022,14 @@ function openDeleteConfirm(teamId,date){
       <input type="checkbox" id="del-check" style="width:24px;height:24px;margin-top:1px;accent-color:#ef4444;flex-shrink:0;-webkit-appearance:auto;appearance:auto" onchange="document.getElementById('del-btn').disabled=!this.checked"/>
       <span style="font-size:14px;color:var(--tx);line-height:1.5">Entiendo que esta acción es <b>irreversible</b> y quiero borrar este entrenamiento definitivamente</span>
     </label>
-    <button id="del-btn" class="btn-d" disabled onclick="execDelete('${teamId}','${date}')">🗑 Borrar definitivamente</button>
+    <button id="del-btn" class="btn-d" disabled onclick="execDelete('${teamId}','${date}',${!!isOpt})">🗑 Borrar definitivamente</button>
     <button class="btn-s" onclick="document.getElementById('m-del').remove()">Cancelar, no borrar</button>
   </div>`;
   document.body.appendChild(el);
 }
-function execDelete(teamId,date){
+function execDelete(teamId,date,isOpt){
   if(!_requireEdit(teamId))return;
-  delete S.sessions[sk(teamId,date)];save();document.getElementById("m-del")?.remove();render();toast("🗑 Sesión eliminada");}
+  delete S.sessions[_sessKeyFor(teamId,date,isOpt)];save();document.getElementById("m-del")?.remove();render();toast("🗑 Sesión eliminada");}
 let _justPid="";
 function openJustModal(pid,name){
   _justPid=pid;const sess=soAtt(S.teamId,S.date);const jr=getJR(sess,pid),jn=getJN(sess,pid);
