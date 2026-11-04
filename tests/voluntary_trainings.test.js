@@ -25,6 +25,14 @@
 //  - Como mucho UNA sesión opcional aparte del entrenamiento normal por
 //    equipo y día (no varias).
 //  - Horario semanal fijo (día+hora) para que aparezcan solas en "Hoy".
+//
+// v3.0.0-dev.107 · B-VOLTECH4: Mario, pedido directo -- "Se tienen que poder
+// eliminar entrenamientos voluntarios o tecnificaciones desde el historial
+// al igual que el entrenamiento normal, hay que hacer al usuario como debe
+// ser que puede cometer errores siempre, y muchos". openDeleteConfirm()/
+// execDelete() ganan un 3er parámetro isOpt (igual que el resto de esta
+// familia de funciones) para poder borrar también la sesión opcional, y
+// hist() añade su propio botón 🗑 en el bloque de voluntarios/tecnificación.
 const { loadApp, newReporter } = require("./harness");
 
 async function run() {
@@ -277,6 +285,63 @@ async function run() {
   win.S.screen = "team";
   const teamHtml = win.team();
   assert(!/Invalid Date/i.test(teamHtml), "team(): tampoco muestra 'Invalid Date' en su propia pantalla");
+
+  // ═══ 10) B-VOLTECH4: borrar una sesión opcional desde el Historial, igual
+  // que ya se podía borrar la normal -- pedido directo de Mario ("hay que
+  // hacer al usuario como debe ser que puede cometer errores siempre, y
+  // muchos"). ═══
+  freshTeams();
+  win.S.sessions[win.sk("t1", win._addDaysISO(today, -2))] = { p1: "present", p2: "present" };
+  win.S.sessions[win.skO("t1", win._addDaysISO(today, -1))] = { _optType: "voluntario", p1: "present" };
+  win.S.teamId = "t1";
+  win.S.screen = "hist";
+  const histHtmlDel = win.hist();
+  assert(histHtmlDel.includes(`openDeleteConfirm('t1','${win._addDaysISO(today, -2)}',false)`),
+    "hist(): la fila OFICIAL sigue teniendo su botón de borrar, con isOpt=false explícito");
+  assert(histHtmlDel.includes(`openDeleteConfirm('t1','${win._addDaysISO(today, -1)}',true)`),
+    "B-VOLTECH4: la fila OPCIONAL ahora también tiene su propio botón de borrar, con isOpt=true");
+
+  // openDeleteConfirm(...,true) construye el modal sobre la sesión OPCIONAL
+  // (no la normal), con su propia insignia morada, y pasa isOpt=true al
+  // botón de confirmar.
+  win.openDeleteConfirm("t1", win._addDaysISO(today, -1), true);
+  const delModalHtml = win.document.getElementById("m-del")?.innerHTML || "";
+  assert(delModalHtml.includes("🙋 Voluntario"), "openDeleteConfirm(isOpt=true): el modal identifica la sesión como voluntaria, no como un entrenamiento oficial");
+  assert(delModalHtml.includes("execDelete('t1','" + win._addDaysISO(today, -1) + "',true)"),
+    "openDeleteConfirm(isOpt=true): el botón de confirmar pasa isOpt=true a execDelete()");
+  win.document.getElementById("m-del")?.remove();
+
+  // execDelete(...,true) borra SOLO la clave opcional (skO) -- la sesión
+  // normal de otro día (y, sobre todo, una normal del MISMO equipo que
+  // existiera el mismo día) debe sobrevivir intacta.
+  win.S.sessions[win.sk("t1", win._addDaysISO(today, -1))] = { p3: "present" }; // normal del MISMO día, para comprobar que no se toca
+  win.execDelete("t1", win._addDaysISO(today, -1), true);
+  assert(win.S.sessions[win.skO("t1", win._addDaysISO(today, -1))] === undefined,
+    "execDelete(isOpt=true): borra la sesión opcional de ese día");
+  assert(win.S.sessions[win.sk("t1", win._addDaysISO(today, -1))] && win.S.sessions[win.sk("t1", win._addDaysISO(today, -1))].p3 === "present",
+    "B-VOLTECH4 (separación conservada): borrar la sesión OPCIONAL de un día NUNCA toca la sesión NORMAL de ese mismo día y equipo");
+
+  // Y al revés: execDelete(...,false) (comportamiento de siempre, sin
+  // cambios) borra solo la normal, deja la opcional intacta si la hay.
+  const dOther = win._addDaysISO(today, -7);
+  win.S.sessions[win.sk("t1", dOther)] = { p1: "present" };
+  win.S.sessions[win.skO("t1", dOther)] = { _optType: "tecnificacion", p2: "present" };
+  win.execDelete("t1", dOther, false);
+  assert(win.S.sessions[win.sk("t1", dOther)] === undefined, "execDelete(isOpt=false): borra la sesión normal de ese día");
+  assert(win.S.sessions[win.skO("t1", dOther)] && win.S.sessions[win.skO("t1", dOther)]._optType === "tecnificacion",
+    "execDelete(isOpt=false): no toca la sesión opcional de ese mismo día");
+
+  // Mismo guarda de permisos de siempre (_requireEdit), también para la
+  // opcional -- un entrenador sin permiso de edición sobre ese equipo no
+  // puede borrar ninguna de las dos.
+  win.S.cfg.coaches = [{ id: "c1", role: "entrenador", teamsEdit: [] }];
+  win._setCurrentCoachId("c1");
+  const dGuard = win._addDaysISO(today, -9);
+  win.S.sessions[win.skO("t1", dGuard)] = { _optType: "voluntario", p1: "present" };
+  win.execDelete("t1", dGuard, true);
+  assert(!!win.S.sessions[win.skO("t1", dGuard)], "execDelete(isOpt=true): respeta _requireEdit() -- un entrenador sin permiso sobre t1 no puede borrar su sesión opcional");
+  win.S.cfg.coaches = [];
+  win._setCurrentCoachId("");
 
   return report.summary();
 }
