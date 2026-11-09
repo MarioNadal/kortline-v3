@@ -2387,7 +2387,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.108";
+const APP_VERSION = "3.0.0-dev.109";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2582,7 +2582,8 @@ _resetSyncState();
 function _clone(v){ return v===undefined?undefined:JSON.parse(JSON.stringify(v)); }
 // Apunta lo que la nube dice de un trozo completo (kind=club/teams, o
 // kind+tid para colecciones por equipo) y lo marca como conocido.
-function _markSynced(kind,tid,value){
+function _markSynced(kind,tid,value,snap){
+  if(snap && !_fromServer(snap)) return; // caché local: no es la verdad de la nube
   const wasKnown = tid===undefined ? _syncKnown[kind] : !!_syncKnown[kind][tid];
   if(kind==="sessions"||kind==="trainingNotes"){
     // value = {fecha: datos} de ese equipo, tal y como está en la nube
@@ -2596,6 +2597,17 @@ function _markSynced(kind,tid,value){
   // esperando justo a esto para poder subirse.
   if(!wasKnown){ try{_scheduleCloudSync();}catch(e){} }
 }
+// v3.0.0-dev.109 · B-SYNCSAFE2 (crítico, encontrado probando dev.108 en
+// /test/): con la persistencia offline activada, Firestore entrega PRIMERO
+// lo que tenga en la caché del dispositivo (metadata.fromCache=true) --
+// que en un móvil nuevo o con caché vacía puede ser "el club no existe" o
+// "no hay equipos". dev.108 tomaba eso como la verdad de la nube y subía la
+// configuración por defecto (lista de entrenadores vacía) encima de la real.
+// Ahora un trozo solo pasa a "conocido" con un snapshot confirmado por el
+// SERVIDOR. Se escucha con includeMetadataChanges para que llegue ese aviso
+// aunque los datos del servidor sean idénticos a los de la caché.
+function _fromServer(snap){ return !(snap && snap.metadata && snap.metadata.fromCache); }
+function _listen(ref, cb){ return ref.onSnapshot({includeMetadataChanges:true}, cb); }
 function _tidOfSessKey(key){ const us=key.indexOf("_"); return us<0?key:key.slice(0,us); }
 // Freno de emergencia de borrados: un save() normal borra 0-3 documentos
 // (una sesión, un partido, una jugadora). Si un único envío quiere borrar
@@ -2776,6 +2788,17 @@ async function _runCloudSync(){
       delete(ref,prevData){ ops.push({op:"delete",ref,prevData}); }
     };
     const synced=[]; // trozos que, si todo va bien, pasan a valer `cur`
+    // B-SYNCSAFE2: la lista de entrenadores/permisos nunca se vacía en la
+    // nube salvo que el superadmin quite al último a mano
+    // (confirmDeleteCoach → _allowBulkDelete()).
+    const prevCoaches=((prev.club||{}).cfg||{}).coaches||[];
+    const curCoaches=((cur.club||{}).cfg||{}).coaches||[];
+    if(K.club && prevCoaches.length>0 && curCoaches.length===0 && Date.now()>_bulkDeleteUntil){
+      _syncBlockedInfo={at:new Date().toISOString(), reason:"coaches-wipe", deletes:prevCoaches.length};
+      _logClientError({message:"Sync bloqueada: se iba a vaciar la lista de entrenadores ("+prevCoaches.length+")",stack:""},"B-SYNCSAFE2 coaches guard");
+      if(Date.now()-_syncBlockedNotifiedAt>60000){ _syncBlockedNotifiedAt=Date.now(); try{toast("🛡️ Sincronización detenida: se iba a vaciar la lista de entrenadores. No se ha cambiado nada. Cierra y vuelve a abrir la app.");}catch(e){} }
+      return;
+    }
     if(K.club && JSON.stringify(cur.club)!==JSON.stringify(prev.club)){ col.set(_clubDocRef(), _fsSanitize(cur.club), {merge:true}); }
     if(K.club) synced.push(["club"]);
     if(K.teams){ _diffArrayById(col, _clubDocRef().collection("teams"), cur.teams, prev.teams); synced.push(["teams"]); }
@@ -2909,8 +2932,8 @@ function _attachClubListeners(){
   // caché haría que ese snapshot saliera "igual que ya teníamos" y nunca
   // llegásemos a conectar los listeners siempre-activos.
   _syncGlobalTeamListeners();
-  _clubUnsubs.push(_clubDocRef().onSnapshot(snap=>{
-    if(!snap.exists){ _markSynced("club",undefined,{}); return; }
+  _clubUnsubs.push(_listen(_clubDocRef(),snap=>{
+    if(!snap.exists){ _markSynced("club",undefined,{},snap); return; }
     const rd=_fsRestore(snap.data()||{});
     const fresh={
       clubLogo:("clubLogo" in rd)?rd.clubLogo:S.clubLogo,
@@ -2921,7 +2944,7 @@ function _attachClubListeners(){
     };
     const cur={clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg};
     // Lo que hay en la nube = `fresh` (mismo formato que _snapshotState().club)
-    _markSynced("club",undefined,fresh);
+    _markSynced("club",undefined,fresh,snap);
     if(JSON.stringify(fresh)===JSON.stringify(cur))return; // eco de nuestro propio guardado
     _applyingRemote=true;
     S.clubLogo=fresh.clubLogo;S.clubName=fresh.clubName;S.clubAbrev=fresh.clubAbrev;S.clubLema=fresh.clubLema;S.cfg=fresh.cfg;
@@ -2936,9 +2959,9 @@ function _attachClubListeners(){
     // (p.ej. alguien desactivó los roles por completo), quita el overlay.
     _maybeShowIdentityGate();
   }));
-  _clubUnsubs.push(_clubDocRef().collection("teams").onSnapshot(snap=>{
+  _clubUnsubs.push(_listen(_clubDocRef().collection("teams"),snap=>{
     const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
-    _markSynced("teams",undefined,fresh);
+    _markSynced("teams",undefined,fresh,snap);
     if(JSON.stringify(fresh)===JSON.stringify(S.teams))return;
     _applyingRemote=true;S.teams=fresh;
     const needsBackfill=_sortTeams();
@@ -3013,7 +3036,7 @@ function _markLsNamespaceMigrated(){ if(!lsGet("cbj:lsns1"))lsSet("cbj:lsns1",ne
 function _attachGlobalTeamListeners(tid){
   const unsubs=[];
   const teamRef=_teamDocRef(tid);
-  unsubs.push(teamRef.collection("sessions").onSnapshot(snap=>{
+  unsubs.push(_listen(teamRef.collection("sessions"),snap=>{
     let changed=false;
     _applyingRemote=true;
     snap.docChanges().forEach(ch=>{
@@ -3025,7 +3048,7 @@ function _attachGlobalTeamListeners(tid){
       if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=fresh;
     });
     _applyingRemote=false;
-    if(!_syncKnown.sessions[tid]){
+    if(!_syncKnown.sessions[tid] && _fromServer(snap)){
       if(_reconcileLocalOnlySessKeys("sessions",tid,snap)) changed=true;
       _syncKnown.sessions[tid]=true;
       try{_scheduleCloudSync();}catch(e){}
@@ -3033,7 +3056,7 @@ function _attachGlobalTeamListeners(tid){
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
-  unsubs.push(teamRef.collection("trainingNotes").onSnapshot(snap=>{
+  unsubs.push(_listen(teamRef.collection("trainingNotes"),snap=>{
     let changed=false;
     _applyingRemote=true;
     if(!S.trainingNotes)S.trainingNotes={};
@@ -3046,7 +3069,7 @@ function _attachGlobalTeamListeners(tid){
       if(ch.type==="removed")delete S.trainingNotes[key]; else S.trainingNotes[key]=fresh;
     });
     _applyingRemote=false;
-    if(!_syncKnown.trainingNotes[tid]){
+    if(!_syncKnown.trainingNotes[tid] && _fromServer(snap)){
       if(_reconcileLocalOnlySessKeys("trainingNotes",tid,snap)) changed=true;
       _syncKnown.trainingNotes[tid]=true;
       try{_scheduleCloudSync();}catch(e){}
@@ -3055,16 +3078,16 @@ function _attachGlobalTeamListeners(tid){
     _persistLocalCacheOnly();render();
   }));
   // v3.0.0-dev.75 · B-SYNC2 (ver comentario de arriba).
-  unsubs.push(teamRef.collection("players").onSnapshot(snap=>{
+  unsubs.push(_listen(teamRef.collection("players"),snap=>{
     const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
-    _markSynced("players",tid,fresh);
+    _markSynced("players",tid,fresh,snap);
     if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
     _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
-  unsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
+  unsubs.push(_listen(teamRef.collection("matches"),snap=>{
     const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
-    _markSynced("matches",tid,fresh);
+    _markSynced("matches",tid,fresh,snap);
     if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
     _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
@@ -3092,16 +3115,16 @@ function _attachTeamListeners(tid){
   _teardown(_teamUnsubs);
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
-  _teamUnsubs.push(teamRef.collection("events").onSnapshot(snap=>{
+  _teamUnsubs.push(_listen(teamRef.collection("events"),snap=>{
     const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
-    _markSynced("events",tid,fresh);
+    _markSynced("events",tid,fresh,snap);
     if(JSON.stringify(fresh)===JSON.stringify(S.events[tid]||[]))return;
     _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
-  _teamUnsubs.push(teamRef.collection("drills").onSnapshot(snap=>{
+  _teamUnsubs.push(_listen(teamRef.collection("drills"),snap=>{
     const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
-    _markSynced("drills",tid,fresh);
+    _markSynced("drills",tid,fresh,snap);
     if(JSON.stringify(fresh)===JSON.stringify(S.drills[tid]||[]))return;
     _applyingRemote=true;if(!S.drills)S.drills={};S.drills[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
@@ -3110,10 +3133,10 @@ function _attachTeamListeners(tid){
   // (b11/endgame) -- ver _flattenDrillLive/_unflattenDrillLiveTeam más
   // arriba para el porqué de ir y volver de la forma plana de Firestore a
   // la forma anidada {drillId:[sesión,...]} que usa el resto de la app.
-  _teamUnsubs.push(teamRef.collection("drillLive").onSnapshot(snap=>{
+  _teamUnsubs.push(_listen(teamRef.collection("drillLive"),snap=>{
     const freshFlat=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
     const fresh=_unflattenDrillLiveTeam(freshFlat);
-    _markSynced("drillLive",tid,freshFlat);
+    _markSynced("drillLive",tid,freshFlat,snap);
     if(JSON.stringify(fresh)===JSON.stringify(S.drillLive[tid]||{}))return;
     _applyingRemote=true;if(!S.drillLive)S.drillLive={};S.drillLive[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
@@ -9425,6 +9448,7 @@ function confirmDeleteCoach(id){
       toast("⚠️ No se puede quitar -- es el último superadmin y quedarían entrenadores sin nadie que gestione los permisos.");
       return;
     }
+    if(!remaining.length)_allowBulkDelete(); // B-SYNCSAFE2: quitar al último es intencionado
     S.cfg.coaches=remaining;
     save();
     if(isMe)_setCurrentCoachId("");

@@ -3,6 +3,24 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Fix CRÍTICO: la caché local de Firestore se tomaba como la verdad de la nube (B-SYNCSAFE2, dev.109, 2026-11-09)
+
+Reportado por Mario probando dev.108 en `/test/`: *"no me sale nadie en entrenadores"*.
+
+**El bug, en una frase**: con la persistencia offline activada, Firestore entrega primero lo que tenga en la caché del dispositivo (`metadata.fromCache`), que en un móvil nuevo -- o en `/test/`, que con B-LSNS1 empezó con su caché local vacía -- puede ser "el club no existe". dev.108 marcaba ese trozo como conocido y el siguiente envío subía la configuración POR DEFECTO (lista de entrenadores vacía) encima de la real. (dev.107 y anteriores hacían lo mismo en cualquier móvil nuevo, a ciegas.)
+
+### Corregido
+
+- **`_fromServer(snap)` / `_listen(ref,cb)`**: todos los listeners escuchan con `includeMetadataChanges:true` y un trozo solo pasa a "conocido" (`_markSynced`, asistencia/notas) con un snapshot confirmado por el servidor -- nunca con uno de caché.
+- **Freno de la lista de entrenadores**: un envío que vacíe `cfg.coaches` en la nube cuando allí había entrenadores se bloquea, salvo que el superadmin quite al último a mano (`confirmDeleteCoach` → `_allowBulkDelete()`).
+
+### Probado (jsdom)
+
+- `sync_safety.test.js` (+5): snapshot de caché "club inexistente" → no se sube nada; respuesta del servidor → llega la lista real sin reenvíos; vaciado por bug bloqueado; vaciado manual autorizado sí se guarda. Contraprueba: contra dev.108 fallan exactamente esas 3 aserciones.
+- Mocks de Firestore de 6 tests aceptan `onSnapshot(opciones, cb)`.
+- Suite completa: **1996/1996 OK** en raíz y en `/test/`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.109` / `kortline-v3.0.0-dev.109`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Seguridad CRÍTICA: blindaje de la sincronización, aislamiento /test/, XSS, reglas y backups (B-SYNCSAFE1 + B-LSNS1 + B-XSS2 + B-RULES1 + B-BKP2, dev.108, 2026-11-09)
 
 Auditoría pedida por Mario tras la pérdida de datos del 1-nov: *"revisión muy profesional... hacer muchas pruebas e intentar hackearte"*. B-TOURSYNC1 (dev.104) arregló el disparador concreto de aquel día (el tutorial), pero el motor de sincronización seguía teniendo la misma debilidad de fondo: **cualquier bug que vaciara la memoria se traducía en borrados reales en la nube**, y había otras vías de pérdida/pisado de datos. Todas reproducidas contra dev.107 antes de arreglarlas.
