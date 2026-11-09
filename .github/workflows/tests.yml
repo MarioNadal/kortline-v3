@@ -30,6 +30,9 @@ jobs:
       - name: Instalar dependencias (jsdom)
         run: npm ci
 
+      - name: Instalar copia local de librerias CDN (tests sin red)
+        run: npm ci --prefix cdn-mirror --no-audit --no-fund
+
       - name: Correr suite de regresion
         # v3.0.0-dev.63 · B-CI1: valida test/index.html (lo realmente
         # desplegado y probado en /test/), no la raiz -- la raiz se queda

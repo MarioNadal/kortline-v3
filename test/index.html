@@ -2385,7 +2385,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.107";
+const APP_VERSION = "3.0.0-dev.108";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2409,9 +2409,24 @@ function _fsSanitize(val){
   if(val && typeof val==="object"){ const out={}; for(const k in val) out[k]=_fsSanitize(val[k]); return out; }
   return val;
 }
-function _fsRestore(val){
-  if(Array.isArray(val)) return val.map(v=>(v&&typeof v==="object"&&v.__na)?_fsRestore(v.v):_fsRestore(v));
-  if(val && typeof val==="object"){ const out={}; for(const k in val) out[k]=_fsRestore(val[k]); return out; }
+// v3.0.0-dev.108 · B-XSS2: los ids se meten tal cual dentro de cientos de
+// onclick="fn('${id}')". Un id normal (uid(), fechas, "dls_..."), nunca
+// lleva comillas -- pero quien tenga el código del club puede escribir en
+// Firestore un documento con id o campo "id" como  x');robar();('  y ese
+// código se ejecutaría al pulsar en el móvil de OTRO entrenador. Todo lo que
+// llega de la nube pasa por aquí: los ids con caracteres raros se
+// neutralizan (los ids reales de la app no cambian).
+const _SAFE_ID_RE=/^[A-Za-z0-9_.\-]*$/;
+function _safeDocId(id){ return (typeof id!=="string"||_SAFE_ID_RE.test(id))?id:id.replace(/[^A-Za-z0-9_.\-]/g,"_"); }
+const _ID_KEYS=new Set(["id","pid","capitan","drillId","teamId","matchId"]);
+const _ID_LIST_KEYS=new Set(["convocados","titulares","teamsEdit","teamsView","attDates"]);
+function _fsRestore(val,key){
+  if(Array.isArray(val)){
+    const arr=val.map(v=>(v&&typeof v==="object"&&v.__na)?_fsRestore(v.v):_fsRestore(v));
+    return _ID_LIST_KEYS.has(key)?arr.map(_safeDocId):arr;
+  }
+  if(val && typeof val==="object"){ const out={}; for(const k in val) out[_safeDocId(k)]=_fsRestore(val[k],k); return out; }
+  if(_ID_KEYS.has(key)) return _safeDocId(val);
   return val;
 }
 function _clubDocRef(){ return firebase.firestore().collection("clubs").doc(CLUB_ID); }
@@ -2502,6 +2517,12 @@ function _initCloudGate(){
   firebase.auth().onAuthStateChanged(user=>{
     if(user && user.email===CLUB_AUTH_EMAIL){
       _fbUser=user; _fbReady=true;
+      // Los primeros snapshots de cada equipo llegan en los primeros
+      // segundos (desde la caché de Firestore incluso sin red). Pasado ese
+      // margen, cualquier clave local que no esté en la nube ya es un cambio
+      // pendiente legítimo, no contaminación de /test/ (ver
+      // _reconcileLocalOnlySessKeys).
+      setTimeout(_markLsNamespaceMigrated, 20000);
       document.getElementById("m-pin-gate")?.remove();
       _attachClubListeners();
       // v3.0.0-dev.94 · B-TOUR1: para un club genuinamente nuevo (sin ningún
@@ -2531,7 +2552,65 @@ function _initCloudGate(){
 
 /* ── Salida: S → Firestore, con diff por documento para no reescribir todo
    en cada guardado (evita pisar cambios de otro entrenador) ── */
+// v3.0.0-dev.108 · B-SYNCSAFE1 (crítico, tras el incidente del 1-nov):
+// _lastSyncedSnapshot ya NO es "una foto de todo S en algún momento", sino
+// "lo último que sabemos que hay en la NUBE", pieza a pieza. Cada listener
+// de Firestore apunta aquí lo que el servidor le ha dicho para SU trozo
+// (club, lista de equipos, jugadoras del equipo X, asistencia del equipo
+// Y...), y _syncKnown recuerda qué trozos ya se han oído al menos una vez.
+// _runCloudSync() SOLO compara y sube los trozos conocidos. Antes:
+//   - Un móvil recién instalado (o con caché vieja, o con caché de /test/)
+//     arrancaba con _lastSyncedSnapshot=null y en el primer save() subía
+//     TODO lo que tuviera en memoria a ciegas -- incluido el documento del
+//     club con la configuración por defecto (lista de entrenadores/roles
+//     vacía, temporadas...) si el snapshot del club aún no había llegado.
+//   - Cualquier cambio remoto recibido hacía _lastSyncedSnapshot=S entero,
+//     marcando como "ya subido" cualquier cambio local todavía pendiente
+//     (p.ej. asistencia pasada sin cobertura) -- que ya nunca se subía.
+//   - Si la memoria se vaciaba por un bug (B-TOURSYNC1), el diff contra la
+//     foto vieja se traducía en borrar de verdad en la nube.
 let _lastSyncedSnapshot=null;
+let _syncKnown=null;
+function _resetSyncState(){
+  _lastSyncedSnapshot={club:undefined,teams:undefined,players:{},matches:{},events:{},drills:{},drillLive:{},sessions:{},trainingNotes:{}};
+  _syncKnown={club:false,teams:false,players:{},matches:{},events:{},drills:{},drillLive:{},sessions:{},trainingNotes:{}};
+}
+_resetSyncState();
+function _clone(v){ return v===undefined?undefined:JSON.parse(JSON.stringify(v)); }
+// Apunta lo que la nube dice de un trozo completo (kind=club/teams, o
+// kind+tid para colecciones por equipo) y lo marca como conocido.
+function _markSynced(kind,tid,value){
+  const wasKnown = tid===undefined ? _syncKnown[kind] : !!_syncKnown[kind][tid];
+  if(kind==="sessions"||kind==="trainingNotes"){
+    // value = {fecha: datos} de ese equipo, tal y como está en la nube
+    const pre=tid+"_", bucket=_lastSyncedSnapshot[kind];
+    Object.keys(bucket).forEach(k=>{ if(k.startsWith(pre)) delete bucket[k]; });
+    Object.keys(value||{}).forEach(d=>{ bucket[sk(tid,d)]=_clone(value[d]); });
+    _syncKnown[kind][tid]=true;
+  } else if(tid===undefined){ _lastSyncedSnapshot[kind]=_clone(value); _syncKnown[kind]=true; }
+  else { _lastSyncedSnapshot[kind][tid]=_clone(value); _syncKnown[kind][tid]=true; }
+  // Primera vez que se conoce este trozo: puede haber cambios locales
+  // esperando justo a esto para poder subirse.
+  if(!wasKnown){ try{_scheduleCloudSync();}catch(e){} }
+}
+function _tidOfSessKey(key){ const us=key.indexOf("_"); return us<0?key:key.slice(0,us); }
+// Freno de emergencia de borrados: un save() normal borra 0-3 documentos
+// (una sesión, un partido, una jugadora). Si un único envío quiere borrar
+// más de esto en la nube, casi seguro es que la memoria se ha vaciado por un
+// bug -- se bloquea el envío en vez de ejecutarlo. Borrar un equipo entero
+// (que sí borra muchos documentos de golpe) lo autoriza explícitamente con
+// _allowBulkDelete() justo antes, tras la confirmación escrita del usuario.
+const MASS_DELETE_LIMIT=10;
+let _bulkDeleteUntil=0;
+function _allowBulkDelete(){ _bulkDeleteUntil=Date.now()+120000; }
+let _syncBlockedNotifiedAt=0;
+let _syncBlockedInfo=null;
+function _syncDebugState(){ return {prev:_clone(_lastSyncedSnapshot), known:_clone(_syncKnown), blocked:_syncBlockedInfo}; }
+// Firestore rechaza un batch de más de 500 operaciones: antes, si una sola
+// sincronización tenía más (p.ej. la primera de un móvil con toda la
+// temporada en caché), commit() fallaba SIEMPRE, se reintentaba cada 3s
+// para siempre, y ese móvil dejaba de subir nada.
+const SYNC_BATCH_MAX_OPS=400;
 let _cloudSyncTimer=null;
 let _lastCloudSyncAt=0;
 // v3 · B-live-sync: mientras el reloj de un partido corre, save() se llama
@@ -2615,6 +2694,9 @@ function _matchCmpView(m){
   const {clockSec, trackedBy, trackedAt, trackedByName, ...restLive} = m.live;
   return {...m, live: restLive};
 }
+// `batch` puede ser un batch real de Firestore (set/delete) o el colector
+// de operaciones de _runCloudSync (misma interfaz + prevData para la
+// papelera) -- así las pruebas y cualquier llamada externa siguen igual.
 function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
   cmpFn = cmpFn || (x=>x);
   let n=0;
@@ -2626,7 +2708,7 @@ function _diffArrayById(batch, colRef, curArr, prevArr, cmpFn){
       batch.set(colRef.doc(id), _fsSanitize(data));n++;
     }
   }
-  for(const id in prevById){ if(!curById[id]){ batch.delete(colRef.doc(id));n++; } }
+  for(const id in prevById){ if(!curById[id]){ batch.delete(colRef.doc(id), prevById[id]);n++; } }
   return n;
 }
 // v3 · B-TNOTES1: generalizada para aceptar el nombre de colección --
@@ -2661,7 +2743,7 @@ function _diffSessions(batch, curSess, prevSess, colName){
   for(const key of keys){
     if(JSON.stringify(curSess[key])!==JSON.stringify(prevSess[key])){
       const us=key.indexOf("_");const tid=key.slice(0,us),date=key.slice(us+1);
-      if(curSess[key]===undefined) batch.delete(_teamDocRef(tid).collection(colName).doc(date));
+      if(curSess[key]===undefined) batch.delete(_teamDocRef(tid).collection(colName).doc(date), prevSess[key]);
       else batch.set(_teamDocRef(tid).collection(colName).doc(date), _fsSanitize(curSess[key]));
       n++;
     }
@@ -2679,29 +2761,80 @@ async function _runCloudSync(){
   if(!_cloudEnabled || !_fbReady || !_fbUser) return;
   const cur=_snapshotState();
   const prev=_lastSyncedSnapshot;
+  const K=_syncKnown;
   try{
     const db=firebase.firestore();
-    const batch=db.batch();
-    let n=0;
-    if(!prev || JSON.stringify(cur.club)!==JSON.stringify(prev.club)){ batch.set(_clubDocRef(), _fsSanitize(cur.club), {merge:true}); n++; }
-    n+=_diffArrayById(batch, _clubDocRef().collection("teams"), cur.teams, prev?.teams);
-    const teamIds1=new Set([...Object.keys(cur.players||{}), ...Object.keys(prev?.players||{})]);
-    for(const tid of teamIds1) n+=_diffArrayById(batch, _teamDocRef(tid).collection("players"), cur.players[tid]||[], prev?.players?.[tid]);
-    const teamIds2=new Set([...Object.keys(cur.matches||{}), ...Object.keys(prev?.matches||{})]);
-    for(const tid of teamIds2) n+=_diffArrayById(batch, _teamDocRef(tid).collection("matches"), cur.matches[tid]||[], prev?.matches?.[tid], _matchCmpView);
-    const teamIds3=new Set([...Object.keys(cur.events||{}), ...Object.keys(prev?.events||{})]);
-    for(const tid of teamIds3) n+=_diffArrayById(batch, _teamDocRef(tid).collection("events"), cur.events[tid]||[], prev?.events?.[tid]);
-    const teamIds4=new Set([...Object.keys(cur.drills||{}), ...Object.keys(prev?.drills||{})]);
-    for(const tid of teamIds4) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drills"), cur.drills[tid]||[], prev?.drills?.[tid]);
-    // v3.0.0-dev.69 · B-DLS4: ver _flattenDrillLive -- cada sesión de
-    // ejercicio en vivo (b11/endgame) se sincroniza como documento propio,
-    // igual que ya se hace con "drills"/"matches"/"events".
-    const teamIds6=new Set([...Object.keys(cur.drillLive||{}), ...Object.keys(prev?.drillLive||{})]);
-    for(const tid of teamIds6) n+=_diffArrayById(batch, _teamDocRef(tid).collection("drillLive"), cur.drillLive[tid]||[], prev?.drillLive?.[tid], _dlsCmpView);
-    n+=_diffSessions(batch, cur.sessions, prev?.sessions);
-    n+=_diffSessions(batch, cur.trainingNotes, prev?.trainingNotes, "trainingNotes");
-    if(n>0) await batch.commit();
-    _lastSyncedSnapshot=cur;
+    // Colector de operaciones: misma interfaz que un batch (set/delete), para
+    // poder contarlas, revisar los borrados ANTES de mandar nada y partirlas
+    // en lotes que Firestore acepte.
+    const ops=[];
+    const col={
+      set(ref,data,opts){ ops.push({op:"set",ref,data,opts}); },
+      delete(ref,prevData){ ops.push({op:"delete",ref,prevData}); }
+    };
+    const synced=[]; // trozos que, si todo va bien, pasan a valer `cur`
+    if(K.club && JSON.stringify(cur.club)!==JSON.stringify(prev.club)){ col.set(_clubDocRef(), _fsSanitize(cur.club), {merge:true}); }
+    if(K.club) synced.push(["club"]);
+    if(K.teams){ _diffArrayById(col, _clubDocRef().collection("teams"), cur.teams, prev.teams); synced.push(["teams"]); }
+    const perTeam=[["players",null],["matches",_matchCmpView],["events",null],["drills",null],["drillLive",_dlsCmpView]];
+    for(const [kind,cmp] of perTeam){
+      const tids=new Set([...Object.keys(cur[kind]||{}), ...Object.keys(prev[kind]||{})]);
+      for(const tid of tids){
+        if(!K[kind][tid]) continue; // la nube aún no nos ha dicho qué hay aquí: no tocar
+        _diffArrayById(col, _teamDocRef(tid).collection(kind), (cur[kind]||{})[tid]||[], prev[kind][tid], cmp||undefined);
+        synced.push([kind,tid]);
+      }
+    }
+    for(const kind of ["sessions","trainingNotes"]){
+      const curK={}, prevK={};
+      for(const key in (cur[kind]||{})) if(K[kind][_tidOfSessKey(key)]) curK[key]=cur[kind][key];
+      for(const key in (prev[kind]||{})) if(K[kind][_tidOfSessKey(key)]) prevK[key]=prev[kind][key];
+      _diffSessions(col, curK, prevK, kind);
+      synced.push([kind,null,curK,prevK]);
+    }
+    const deletes=ops.filter(o=>o.op==="delete");
+    if(deletes.length>MASS_DELETE_LIMIT && Date.now()>_bulkDeleteUntil){
+      _syncBlockedInfo={at:new Date().toISOString(), deletes:deletes.length, sample:deletes.slice(0,5).map(o=>o.ref&&o.ref.path)};
+      _logClientError({message:"Sync bloqueada: se iban a borrar "+deletes.length+" documentos de golpe", stack:JSON.stringify(_syncBlockedInfo.sample)}, "B-SYNCSAFE1 mass-delete guard");
+      if(Date.now()-_syncBlockedNotifiedAt>60000){
+        _syncBlockedNotifiedAt=Date.now();
+        try{ toast("🛡️ Sincronización detenida: se iban a borrar "+deletes.length+" elementos de la nube de golpe. No se ha borrado nada. Cierra y vuelve a abrir la app."); }catch(e){}
+      }
+      return; // sin reintento automático: el próximo save() lo vuelve a evaluar
+    }
+    _syncBlockedInfo=null;
+    // Papelera: antes de borrar cualquier documento, se guarda una copia
+    // en clubs/{club}/trash (las reglas de Firestore la hacen de solo-añadir:
+    // nadie puede modificarla ni borrarla desde la app). Va en el MISMO lote
+    // que su borrado, así nunca hay un borrado sin su copia.
+    const chunks=[[]];
+    for(const o of ops){
+      const group=[];
+      if(o.op==="delete" && o.prevData!==undefined){
+        const tid="del_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,10);
+        group.push({op:"set", ref:_clubDocRef().collection("trash").doc(tid), data:_fsSanitize({
+          path:(o.ref&&o.ref.path)||"", data:_clone(o.prevData), deletedAt:new Date().toISOString(),
+          by:(typeof _getCoachName==="function"&&_getCoachName())||"", device:(typeof _getDeviceId==="function"&&_getDeviceId())||"", appVersion:APP_VERSION
+        })});
+      }
+      group.push(o);
+      if(chunks[chunks.length-1].length+group.length>SYNC_BATCH_MAX_OPS) chunks.push([]);
+      chunks[chunks.length-1].push(...group);
+    }
+    for(const ch of chunks){
+      if(!ch.length) continue;
+      const batch=db.batch();
+      ch.forEach(o=>{ if(o.op==="set"){ if(o.opts) batch.set(o.ref,o.data,o.opts); else batch.set(o.ref,o.data); } else batch.delete(o.ref); });
+      await batch.commit();
+    }
+    // Todo subido: los trozos conocidos pasan a valer lo que acabamos de subir.
+    for(const [kind,tid,curK,prevK] of synced){
+      if(kind==="sessions"||kind==="trainingNotes"){
+        for(const key in prevK) delete prev[kind][key];
+        for(const key in curK) prev[kind][key]=_clone(curK[key]);
+      } else if(tid===null||tid===undefined) prev[kind]=_clone(cur[kind]);
+      else prev[kind][tid]=_clone((cur[kind]||{})[tid]);
+    }
   }catch(e){
     console.warn("⚠️ Sync con la nube falló, los datos siguen a salvo en este dispositivo -- reintentando", e);
     // v3.0.0-dev.75 · B-SYNC3: antes, si ESTE intento de sincronización
@@ -2749,9 +2882,11 @@ function _persistLocalCacheOnly(){
   lsSet("cbj:t",S.teams);lsSet("cbj:p",S.players);lsSet("cbj:s",S.sessions);
   lsSet("cbj:m",S.matches);lsSet("cbj:ev",S.events);lsSet("cbj:drills",S.drills);lsSet("cbj:dl",S.drillLive);lsSet("cbj:tn",S.trainingNotes);lsSet("cbj:logo",S.clubLogo);
   lsSet("cbj:name",S.clubName);lsSet("cbj:cabrev",S.clubAbrev);lsSet("cbj:clema",S.clubLema);lsSet("cbj:cfg",S.cfg);
-  // Referencia al día para que el próximo sync saliente no reenvíe lo que
-  // acabamos de recibir de otro entrenador.
-  _lastSyncedSnapshot=_snapshotState();
+  // v3.0.0-dev.108 · B-SYNCSAFE1: antes aquí se hacía
+  // _lastSyncedSnapshot=_snapshotState() -- marcaba TODO S como "ya está en
+  // la nube" cada vez que llegaba cualquier cambio remoto, incluidos cambios
+  // locales que todavía no se habían subido (que ya nunca se subían). Ahora
+  // cada listener apunta solo SU trozo con _markSynced().
 }
 // v3 · Firestore reenvía a nuestro propio listener cada escritura que
 // hacemos (eco local), y en un partido en vivo save() se llama cada
@@ -2772,7 +2907,7 @@ function _attachClubListeners(){
   // llegásemos a conectar los listeners siempre-activos.
   _syncGlobalTeamListeners();
   _clubUnsubs.push(_clubDocRef().onSnapshot(snap=>{
-    if(!snap.exists)return;
+    if(!snap.exists){ _markSynced("club",undefined,{}); return; }
     const rd=_fsRestore(snap.data()||{});
     const fresh={
       clubLogo:("clubLogo" in rd)?rd.clubLogo:S.clubLogo,
@@ -2782,6 +2917,8 @@ function _attachClubListeners(){
       cfg: rd.cfg? {...DEFAULT_CFG,...rd.cfg,features:{...DEFAULT_CFG.features,...(rd.cfg.features||{})}} : S.cfg
     };
     const cur={clubLogo:S.clubLogo,clubName:S.clubName,clubAbrev:S.clubAbrev,clubLema:S.clubLema,cfg:S.cfg};
+    // Lo que hay en la nube = `fresh` (mismo formato que _snapshotState().club)
+    _markSynced("club",undefined,fresh);
     if(JSON.stringify(fresh)===JSON.stringify(cur))return; // eco de nuestro propio guardado
     _applyingRemote=true;
     S.clubLogo=fresh.clubLogo;S.clubName=fresh.clubName;S.clubAbrev=fresh.clubAbrev;S.clubLema=fresh.clubLema;S.cfg=fresh.cfg;
@@ -2797,7 +2934,8 @@ function _attachClubListeners(){
     _maybeShowIdentityGate();
   }));
   _clubUnsubs.push(_clubDocRef().collection("teams").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
+    _markSynced("teams",undefined,fresh);
     if(JSON.stringify(fresh)===JSON.stringify(S.teams))return;
     _applyingRemote=true;S.teams=fresh;
     const needsBackfill=_sortTeams();
@@ -2841,6 +2979,34 @@ function _attachClubListeners(){
 // "events"/"drills"/"drillLive" sí se quedan en _attachTeamListeners: nada
 // fuera de la propia pantalla del equipo los lee, así que no hace falta
 // pagar el coste de escucharlos para equipos que ni se han abierto.
+// v3.0.0-dev.108 · B-SYNCSAFE1: primer snapshot de asistencia/notas de un
+// equipo. Las claves de ese equipo que hay en la caché local pero NO en la
+// nube son, o bien cambios hechos sin cobertura que aún no se subieron (hay
+// que subirlos: se quedan en S y el diff las envía), o bien restos de una
+// caché contaminada por /test/ (B-LSNS1) en móviles que abrieron la copia
+// de pruebas antes de esta versión. Para distinguirlos: la PRIMERA vez que
+// se abre esta versión en un dispositivo, esas claves se apartan a
+// "cbj:orphans" (no se borran, se pueden recuperar) en vez de subirse; a
+// partir de ahí ya no hay contaminación posible y se suben como pendientes.
+function _reconcileLocalOnlySessKeys(kind,tid,snap){
+  // En el primer snapshot de Firestore, docChanges() trae TODOS los
+  // documentos como "added"; se unen con docs por si acaso.
+  const server=new Set((snap.docs||[]).map(d=>sk(tid,d.id)));
+  try{ (snap.docChanges?snap.docChanges():[]).forEach(ch=>{ if(ch.type!=="removed")server.add(sk(tid,ch.doc.id)); }); }catch(e){}
+  const store=kind==="sessions"?S.sessions:(S.trainingNotes||{});
+  const prefix=tid+"_";
+  if(lsGet("cbj:lsns1"))return false; // ya pasó la primera vez: son pendientes reales
+  let moved=0;const orphans=lsGet("cbj:orphans")||{};
+  for(const key of Object.keys(store)){
+    if(key.startsWith(prefix)&&!server.has(key)){
+      orphans[kind+"|"+key]={data:store[key],at:new Date().toISOString()};
+      delete store[key];moved++;
+    }
+  }
+  if(moved)lsSet("cbj:orphans",orphans,true);
+  return moved>0;
+}
+function _markLsNamespaceMigrated(){ if(!lsGet("cbj:lsns1"))lsSet("cbj:lsns1",new Date().toISOString(),true); }
 function _attachGlobalTeamListeners(tid){
   const unsubs=[];
   const teamRef=_teamDocRef(tid);
@@ -2848,13 +3014,19 @@ function _attachGlobalTeamListeners(tid){
     let changed=false;
     _applyingRemote=true;
     snap.docChanges().forEach(ch=>{
-      const key=sk(tid, ch.doc.id);
+      const key=sk(tid, _safeDocId(ch.doc.id));
       const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
+      if(fresh===undefined) delete _lastSyncedSnapshot.sessions[key]; else _lastSyncedSnapshot.sessions[key]=_clone(fresh);
       if(JSON.stringify(fresh)===JSON.stringify(S.sessions[key]))return; // eco de nuestro propio guardado
       changed=true;
       if(ch.type==="removed")delete S.sessions[key]; else S.sessions[key]=fresh;
     });
     _applyingRemote=false;
+    if(!_syncKnown.sessions[tid]){
+      if(_reconcileLocalOnlySessKeys("sessions",tid,snap)) changed=true;
+      _syncKnown.sessions[tid]=true;
+      try{_scheduleCloudSync();}catch(e){}
+    }
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
@@ -2863,25 +3035,33 @@ function _attachGlobalTeamListeners(tid){
     _applyingRemote=true;
     if(!S.trainingNotes)S.trainingNotes={};
     snap.docChanges().forEach(ch=>{
-      const key=sk(tid, ch.doc.id);
+      const key=sk(tid, _safeDocId(ch.doc.id));
       const fresh=ch.type==="removed"?undefined:_fsRestore(ch.doc.data());
+      if(fresh===undefined) delete _lastSyncedSnapshot.trainingNotes[key]; else _lastSyncedSnapshot.trainingNotes[key]=_clone(fresh);
       if(JSON.stringify(fresh)===JSON.stringify(S.trainingNotes[key]))return;
       changed=true;
       if(ch.type==="removed")delete S.trainingNotes[key]; else S.trainingNotes[key]=fresh;
     });
     _applyingRemote=false;
+    if(!_syncKnown.trainingNotes[tid]){
+      if(_reconcileLocalOnlySessKeys("trainingNotes",tid,snap)) changed=true;
+      _syncKnown.trainingNotes[tid]=true;
+      try{_scheduleCloudSync();}catch(e){}
+    }
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
   // v3.0.0-dev.75 · B-SYNC2 (ver comentario de arriba).
   unsubs.push(teamRef.collection("players").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
+    _markSynced("players",tid,fresh);
     if(JSON.stringify(fresh)===JSON.stringify(S.players[tid]||[]))return;
     _applyingRemote=true;S.players[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   unsubs.push(teamRef.collection("matches").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
+    _markSynced("matches",tid,fresh);
     if(JSON.stringify(fresh)===JSON.stringify(S.matches[tid]||[]))return;
     _applyingRemote=true;if(!S.matches)S.matches={};S.matches[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
@@ -2910,13 +3090,15 @@ function _attachTeamListeners(tid){
   if(!tid)return;
   const teamRef=_teamDocRef(tid);
   _teamUnsubs.push(teamRef.collection("events").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
+    _markSynced("events",tid,fresh);
     if(JSON.stringify(fresh)===JSON.stringify(S.events[tid]||[]))return;
     _applyingRemote=true;if(!S.events)S.events={};S.events[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
   }));
   _teamUnsubs.push(teamRef.collection("drills").onSnapshot(snap=>{
-    const fresh=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const fresh=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
+    _markSynced("drills",tid,fresh);
     if(JSON.stringify(fresh)===JSON.stringify(S.drills[tid]||[]))return;
     _applyingRemote=true;if(!S.drills)S.drills={};S.drills[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
@@ -2926,8 +3108,9 @@ function _attachTeamListeners(tid){
   // arriba para el porqué de ir y volver de la forma plana de Firestore a
   // la forma anidada {drillId:[sesión,...]} que usa el resto de la app.
   _teamUnsubs.push(teamRef.collection("drillLive").onSnapshot(snap=>{
-    const freshFlat=snap.docs.map(d=>({id:d.id,..._fsRestore(d.data())}));
+    const freshFlat=snap.docs.map(d=>({id:_safeDocId(d.id),..._fsRestore(d.data())}));
     const fresh=_unflattenDrillLiveTeam(freshFlat);
+    _markSynced("drillLive",tid,freshFlat);
     if(JSON.stringify(fresh)===JSON.stringify(S.drillLive[tid]||{}))return;
     _applyingRemote=true;if(!S.drillLive)S.drillLive={};S.drillLive[tid]=fresh;_applyingRemote=false;
     _persistLocalCacheOnly();render();
@@ -3054,8 +3237,25 @@ function save(){
   _scheduleCloudSync();
   return ok;
 }
-function lsGet(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}}
-function lsSet(k,v,silent){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){if(!silent)toast("⚠️ Almacenamiento lleno · Borra fotos antiguas para liberar espacio");return false;}}
+// v3.0.0-dev.108 · B-LSNS1 (crítico): producción (/kortline-v3/) y la copia
+// de pruebas (/kortline-v3/test/) viven en el MISMO origen
+// (marionadal.github.io) -- y localStorage es por origen, no por carpeta.
+// Las dos apps leían y escribían exactamente las mismas claves "cbj:t",
+// "cbj:p", "cbj:s"... Abrir /test/ en un móvil dejaba en la caché local los
+// datos del club de PRUEBAS; al abrir después la app real, esa caché se
+// cargaba en S y la primera sincronización (sin estado previo conocido)
+// podía subir datos de pruebas a clubs/cbjaca, pisando datos reales con los
+// mismos ids (copy-prod-to-test.js copia los ids tal cual). Ahora cualquier
+// club que no sea el de producción usa su propio espacio de claves. Las
+// claves de producción NO cambian (sin migración, sin perder caché).
+function _lsKey(k){
+  let cid="cbjaca";
+  try{ cid=CLUB_ID; }catch(e){}
+  if(cid==="cbjaca"||typeof k!=="string"||!k.startsWith("cbj:"))return k;
+  return "cbj@"+cid+":"+k.slice(4);
+}
+function lsGet(k){try{const v=localStorage.getItem(_lsKey(k));return v?JSON.parse(v):null;}catch{return null;}}
+function lsSet(k,v,silent){try{localStorage.setItem(_lsKey(k),JSON.stringify(v));return true;}catch(e){if(!silent)toast("⚠️ Almacenamiento lleno · Borra fotos antiguas para liberar espacio");return false;}}
 let _tt=null;
 /* ═══════════════════════════════════════
    DRAG-TO-DISMISS (bottom sheets)
@@ -5193,7 +5393,7 @@ function att(){
           <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:2px">
             <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:12px;font-weight:700;background:${v.bg};color:${v.c}">${v.i} ${v.l}</span>
             ${autoHint}
-            ${st==="excused"?`<button class="just-pill ${jLabel?"filled":""}" onclick="openJustModal('${p.id}','${esc(p.name)}')">${jLabel?esc(jLabel):"+ Motivo"}</button>`:""}
+            ${st==="excused"?`<button class="just-pill ${jLabel?"filled":""}" onclick="openJustModal('${p.id}')">${jLabel?esc(jLabel):"+ Motivo"}</button>`:""}
           </div>
           ${showScore?`<div class="score-picker score-picker-sm" style="margin-top:4px" onclick="event.stopPropagation()">
             <button class="score-picker-btn" onclick="stepPlayerScore('${p.id}',-1)">−</button>
@@ -6168,7 +6368,7 @@ function buildEventoText(tid,eid,opts){
 }
 function _coachToggleHtml(coaches,prefix,onChange){
   if(!coaches||!coaches.length)return"";
-  return coaches.map((c,i)=>`<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="${prefix+"-c-"+i}" onchange="${onChange}()"${i===0?" checked":""} style="accent-color:var(--orange);width:16px;height:16px"/><span style="font-size:13px">👟 ${c}</span></label></div>`).join("");
+  return coaches.map((c,i)=>`<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="${prefix+"-c-"+i}" onchange="${onChange}()"${i===0?" checked":""} style="accent-color:var(--orange);width:16px;height:16px"/><span style="font-size:13px">👟 ${esc(c)}</span></label></div>`).join("");
 }
 function _getSelectedCoaches(coaches,prefix){
   if(!coaches||!coaches.length)return[];
@@ -9029,6 +9229,11 @@ function execDelete(teamId,date,isOpt){
   delete S.sessions[_sessKeyFor(teamId,date,isOpt)];save();document.getElementById("m-del")?.remove();render();toast("🗑 Sesión eliminada");}
 let _justPid="";
 function openJustModal(pid,name){
+  // v3.0.0-dev.108 · B-XSS2: antes el nombre viajaba dentro del onclick
+  // (openJustModal('id','${esc(p.name)}')) -- el navegador decodifica &#39;
+  // a ' ANTES de ejecutar el JS, así que un nombre con comilla escrito desde
+  // otro móvil ejecutaba código al pulsar. Ahora se resuelve aquí por id.
+  if(name===undefined){ const _p=(S.players[S.teamId]||[]).find(x=>x.id===pid); name=_p?_p.name:""; }
   _justPid=pid;const sess=soAtt(S.teamId,S.date);const jr=getJR(sess,pid),jn=getJN(sess,pid);
   document.getElementById("m-just")?.remove();
   const el=document.createElement("div");el.id="m-just";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
@@ -9788,6 +9993,12 @@ function delTeam(){
     name.toUpperCase(),
     "🗑 Eliminar equipo definitivamente",
     ()=>{
+      // v3.0.0-dev.108 · B-SYNCSAFE1: borrar un equipo SÍ borra muchos
+      // documentos de golpe -- se autoriza explícitamente (tras la
+      // confirmación escrita del nombre) para que el freno de borrados
+      // masivos de _runCloudSync no lo bloquee. Todo va igualmente a la
+      // papelera antes de borrarse.
+      _allowBulkDelete();
       S.teams=S.teams.filter(t=>t.id!==S.teamId);
       delete S.players[S.teamId];
       Object.keys(S.sessions).filter(k=>k.startsWith(S.teamId+"_")).forEach(k=>delete S.sessions[k]);
@@ -12482,7 +12693,7 @@ function _showCoachNamePrompt(){
     <div class="mhandle"></div>
     <div class="mtitle">👋 ¿Quién eres?</div>
     <div class="msub">Solo para este móvil — así el resto del equipo sabe quién está anotando cuando coincidís siguiendo el mismo partido en directo. No es una cuenta ni hace falta contraseña.</div>
-    ${known.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${known.map(n=>`<button onclick="document.getElementById('coachname-input').value='${esc(n).replace(/'/g,"&#39;")}'" style="padding:7px 12px;border-radius:20px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-size:13px;cursor:pointer">${esc(n)}</button>`).join("")}</div>`:""}
+    ${known.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0">${known.map(n=>`<button onclick="document.getElementById('coachname-input').value=${esc(JSON.stringify(String(n)))}" style="padding:7px 12px;border-radius:20px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-size:13px;cursor:pointer">${esc(n)}</button>`).join("")}</div>`:""}
     <input id="coachname-input" class="fi" placeholder="Tu nombre" style="margin-top:6px" maxlength="40"/>
     <button class="btn-p" onclick="_confirmCoachNamePrompt()">Guardar</button>
     <button class="btn-s" onclick="_skipCoachNamePrompt()">Ahora no</button>

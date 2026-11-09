@@ -3,6 +3,34 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Seguridad CRÍTICA: blindaje de la sincronización, aislamiento /test/, XSS, reglas y backups (B-SYNCSAFE1 + B-LSNS1 + B-XSS2 + B-RULES1 + B-BKP2, dev.108, 2026-11-09)
+
+Auditoría pedida por Mario tras la pérdida de datos del 1-nov: *"revisión muy profesional... hacer muchas pruebas e intentar hackearte"*. B-TOURSYNC1 (dev.104) arregló el disparador concreto de aquel día (el tutorial), pero el motor de sincronización seguía teniendo la misma debilidad de fondo: **cualquier bug que vaciara la memoria se traducía en borrados reales en la nube**, y había otras vías de pérdida/pisado de datos. Todas reproducidas contra dev.107 antes de arreglarlas.
+
+### Corregido (datos)
+
+- **B-SYNCSAFE1 · móvil nuevo pisaba la configuración del club.** `_lastSyncedSnapshot` arrancaba a `null` y el primer `save()` subía TODO a ciegas -- incluido el documento del club con la configuración POR DEFECTO (lista de entrenadores/roles vacía, temporadas...) si el snapshot del club aún no había llegado. Reproducido en dev.107. Ahora la app solo sube un "trozo" (club, equipos, jugadoras de X, asistencia de Y...) después de que la nube le haya dicho qué hay en él (`_markSynced`, `_syncKnown`).
+- **B-SYNCSAFE1 · memoria vaciada = borrado en la nube.** Reproducido en dev.107: 15 jugadoras borradas de Firestore al vaciarse `S.players`. Nuevo freno de emergencia: un envío que quiera borrar más de 10 documentos de golpe se bloquea (aviso en pantalla + `errorLogs`), salvo borrar un equipo, que se autoriza explícitamente tras la confirmación escrita (`_allowBulkDelete`).
+- **B-SYNCSAFE1 · papelera.** Antes de borrar cualquier documento se guarda copia completa en `clubs/{club}/trash` (ruta, datos, fecha, quién, dispositivo, versión), en el mismo lote que el borrado. Las reglas nuevas la hacen de solo-añadir.
+- **B-SYNCSAFE1 · cambios pendientes marcados como subidos.** `_persistLocalCacheOnly()` hacía `_lastSyncedSnapshot=S` entero al recibir cualquier cambio remoto: una asistencia pasada sin cobertura se daba por subida si mientras tanto llegaba un cambio de otro entrenador, y ya nunca subía. Ahora cada listener apunta solo su propio trozo.
+- **B-SYNCSAFE1 · más de 500 operaciones.** Firestore rechaza lotes de >500; la sincronización fallaba siempre y se reintentaba en bucle. Ahora va en lotes de ≤400.
+- **B-LSNS1 · /test/ y producción compartían localStorage** (mismo origen `marionadal.github.io`, mismas claves `cbj:*`). Abrir la copia de pruebas dejaba sus datos en la caché que luego cargaba la app real (y con los mismos ids, por `copy-prod-to-test.js`). Ahora cualquier club que no sea `cbjaca` usa claves `cbj@<club>:*`; las de producción no cambian. Para los móviles ya contaminados, la primera vez que abren esta versión las sesiones locales que no están en la nube se apartan a `cbj:orphans` (recuperables) en vez de subirse.
+
+### Corregido (seguridad)
+
+- **B-XSS2 · XSS persistente.** Un nombre de jugadora con comilla ejecutaba código al pulsar "justificar" en el móvil de otro entrenador (`openJustModal('id','${esc(name)}')` -- el navegador decodifica `&#39;` antes de ejecutar el JS); lo mismo en los chips de nombre de entrenador; y los nombres de entrenadores del equipo se pintaban sin escapar en Compartir/convocatorias. Además, todo id que llega de Firestore (id de documento y campos `id/pid/capitan/convocados/...`) pasa por `_safeDocId` antes de llegar a ningún `onclick`.
+- **B-RULES1 · reglas de Firestore** (`firestore.rules`, **hay que publicarlas a mano**): rutas explícitas en vez de un comodín, solo clubs `cbjaca`/`cbjaca-test`, el documento del club no se puede borrar, `trash` y `errorLogs` de solo-añadir (y `errorLogs` con tamaño acotado).
+- **B-BKP2 · backups de menores públicos.** El repo es público y los artifacts de Actions los descarga cualquier usuario de GitHub: la copia JSON iba en claro. Ahora se cifra (AES-256, secreto `BACKUP_PASSPHRASE`; sin él el workflow falla en vez de subir en claro), se ejecuta sola cada día y también incluye la papelera. `scripts/.gitignore` evita commitear `scripts/backups/` (el comentario decía que estaba ignorada, pero no lo estaba).
+
+### Tests
+
+- `sync_safety.test.js` (nuevo, 22 aserciones): móvil nuevo, cambio pendiente + cambio remoto, freno de borrados, borrado de equipo + papelera, 950 documentos en lotes, caché contaminada por /test/, pendiente legítimo tras migrar, espacio de nombres.
+- `xss_fuzz.test.js` (nuevo): rellena todos los campos con HTML malicioso, recorre 16 pantallas + modales, y comprueba la neutralización de ids.
+- `harness.js`: las librerías CDN se sirven desde `tests/cdn-mirror` (paquete aparte para no mezclar su `npm audit`): sin red fallaban 12 aserciones y 2 archivos sin que hubiera bug. CI lo instala.
+- Actualizados a la nueva semántica (sin subida a ciegas): `cloud_sync_first_run`, `cloud_sync_retry`, `tour`. Arreglado el texto desfasado de `match_mode_and_attendance` (el único fallo "preexistente").
+- Suite completa: **todo en verde**.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.108` / `kortline-v3.0.0-dev.108`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Añadido: borrar entrenamientos voluntarios/tecnificación desde el Historial (B-VOLTECH4, dev.107, 2026-11-04)
 
 Pedido directo de Mario: *"Se tienen que poder eliminar entrenamientos voluntarios o tecnificaciones desde el historial al igual que el entrenamiento normal, hay que hacer al usuario como debe ser que puede cometer errores siempre, y muchos"*.

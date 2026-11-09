@@ -1,0 +1,14 @@
+{
+  "name": "kortline-cdn-mirror",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Copias exactas de las librerías que index.html carga por CDN, SOLO para que los tests de jsdom no dependan de la red (ver LOCAL_CDN_MAP en ../harness.js). Paquete aparte para que su npm audit (xlsx/firebase traen avisos de Node que no aplican al navegador) no se mezcle con el de la suite.",
+  "dependencies": {
+    "chart.js": "4.4.1",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.2",
+    "xlsx": "0.18.5",
+    "driver.js": "1.3.1",
+    "firebase": "10.14.1"
+  }
+}

@@ -121,7 +121,7 @@ async function run() {
 
   // ── 4) "Entrenador (quién la registra)" se rellena solo con _getCoachName() ──
   win.lsSet && win.lsSet; // noop, aseguramos que localStorage existe
-  win.localStorage.setItem("cbj:coachname", JSON.stringify("Mario")); // lsGet() hace JSON.parse
+  win.localStorage.setItem((win._lsKey?win._lsKey("cbj:coachname"):"cbj:coachname"), JSON.stringify("Mario")); // lsGet() hace JSON.parse
   win.S.trainingNotes = {};
   win._tnPatch("t1", "2026-08-12", { objetivo: "Tiro" });
   report.assert(win.tn("t1", "2026-08-12").coachName === "Mario", "la nota se atribuye automáticamente al entrenador del dispositivo (_getCoachName)");
@@ -193,7 +193,7 @@ async function run() {
   // ── 10) Persistencia local (localStorage) ──
   win.S.trainingNotes = {};
   win._tnPatch("t1", "2026-08-10", { objetivo: "Persistencia" });
-  const raw = win.localStorage.getItem("cbj:tn");
+  const raw = win.localStorage.getItem((win._lsKey?win._lsKey("cbj:tn"):"cbj:tn"));
   report.assert(!!raw && JSON.parse(raw)[win.sk("t1", "2026-08-10")].objetivo === "Persistencia", "las notas de entrenamiento persisten en localStorage (offline) bajo su propia clave 'cbj:tn'");
 
   // ── 11) Compartir (buildTrainingNoteText / _tnShare) ──

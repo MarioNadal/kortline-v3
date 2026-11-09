@@ -15,7 +15,27 @@ name: Copia de seguridad de un club
 # fotos...) -- descárgalo, guárdalo en un sitio tuyo privado y bórralo de
 # GitHub cuando ya no lo necesites (Actions → esta ejecución → 🗑).
 
+#
+# v3.0.0-dev.108 · B-BKP2 (IMPORTANTE -- el repositorio es PÚBLICO):
+#   · En un repo público, los "artifacts" de Actions los puede descargar
+#     cualquier persona con cuenta de GitHub. Antes la copia se subía en JSON
+#     plano: nombres, cumpleaños, lesiones y fotos de menores, accesibles a
+#     cualquiera. Ahora se CIFRA (AES-256, openssl) con el secreto
+#     BACKUP_PASSPHRASE antes de subirla, y si ese secreto no existe el
+#     workflow FALLA en vez de subir nada en claro.
+#   · Además se ejecuta solo todos los días (03:17 UTC), no solo a mano.
+#
+# Configurar una vez: Settings → Secrets and variables → Actions →
+#   New repository secret → BACKUP_PASSPHRASE (una frase larga, guárdala en
+#   tu gestor de contraseñas: sin ella la copia no se puede abrir).
+# Descifrar en tu ordenador:
+#   openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in backup.json.enc -out backup.json
+# Borra también los artifacts ANTIGUOS (sin cifrar) de ejecuciones previas:
+#   Actions → cada ejecución de "Copia de seguridad" → Artifacts → 🗑
+
 on:
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       club_id:
@@ -42,12 +62,27 @@ jobs:
       - name: Volcar club a JSON
         env:
           CLUB_PIN: ${{ secrets.CLUB_PIN }}
-          BACKUP_CLUB_ID: ${{ inputs.club_id }}
+          BACKUP_CLUB_ID: ${{ inputs.club_id || 'cbjaca' }}
         run: node backup-club.js
 
-      - name: Subir copia de seguridad como descarga de esta ejecución
+      - name: Cifrar copia (nunca se sube en claro)
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Falta el secreto BACKUP_PASSPHRASE -- no se sube la copia sin cifrar (repo público)."
+            exit 1
+          fi
+          for f in backups/*.json; do
+            openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$f" -out "$f.enc" -pass env:BACKUP_PASSPHRASE
+            rm -f "$f"
+          done
+          ls -la backups
+
+      - name: Subir copia CIFRADA como descarga de esta ejecución
         uses: actions/upload-artifact@v4
         with:
-          name: backup-${{ inputs.club_id }}
-          path: scripts/backups/*.json
+          name: backup-${{ inputs.club_id || 'cbjaca' }}-${{ github.run_id }}
+          path: scripts/backups/*.json.enc
           retention-days: 90
+          if-no-files-found: error

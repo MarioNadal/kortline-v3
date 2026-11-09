@@ -2,13 +2,70 @@ rules_version = '2';
 // Kortline v3 · CB Jaca
 // Toda la app comparte una única identidad de club (código/PIN compartido =
 // contraseña de una cuenta fija de Firebase Auth, ver CLUB_AUTH_EMAIL en
-// index.html). Solo esa cuenta puede leer/escribir, y solo dentro de su
-// propio club — nada es público.
+// index.html). Solo esa cuenta puede leer/escribir, y solo dentro de los
+// clubs conocidos -- nada es público.
+//
+// v3.0.0-dev.108 · B-RULES1: antes había UNA sola regla comodín
+// (clubs/{clubId}/{document=**} → read, write), así que cualquiera con el
+// código del club podía, desde la consola del navegador, crear clubs nuevos
+// con cualquier nombre, escribir colecciones inventadas o borrar el
+// documento raíz del club. Ahora cada ruta que usa la app está listada
+// explícitamente y:
+//   · la papelera (trash) y el registro de errores (errorLogs) son de SOLO
+//     AÑADIR: nadie puede modificarlos ni borrarlos desde la app -- así, pase
+//     lo que pase con un bug o con alguien que entre con el código, la copia
+//     de lo borrado sigue ahí (solo se gestiona desde la consola de Firebase).
+//   · el documento raíz del club nunca se puede borrar.
+//   · solo existen los clubs "cbjaca" (producción) y "cbjaca-test" (pruebas).
+//
+// PUBLICAR: Firebase Console → Firestore Database → Reglas → pegar este
+// archivo entero → Publicar (o `firebase deploy --only firestore:rules`).
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /clubs/{clubId}/{document=**} {
-      allow read, write: if request.auth != null
-                          && request.auth.token.email == "club-cbjaca@kortline.app";
+    function isClubAccount() {
+      return request.auth != null
+          && request.auth.token.email == "club-cbjaca@kortline.app";
+    }
+    function knownClub(clubId) {
+      return clubId in ["cbjaca", "cbjaca-test"];
+    }
+    function ok(clubId) {
+      return isClubAccount() && knownClub(clubId);
+    }
+
+    match /clubs/{clubId} {
+      allow read, create, update: if ok(clubId);
+      allow delete: if false;
+
+      match /teams/{teamId} {
+        allow read, write: if ok(clubId);
+
+        match /{sub}/{docId} {
+          allow read, write: if ok(clubId)
+            && sub in ["players", "matches", "events", "drills", "drillLive", "sessions", "trainingNotes"];
+        }
+      }
+
+      // Papelera: copia de cada documento antes de borrarse (ver
+      // _runCloudSync en index.html). Solo añadir + leer.
+      match /trash/{id} {
+        allow read: if ok(clubId);
+        allow create: if ok(clubId)
+          && request.resource.data.keys().hasAll(["path", "data", "deletedAt"]);
+        allow update, delete: if false;
+      }
+
+      // Errores de JS en producción (ver _logClientError). Solo añadir + leer,
+      // con tamaño acotado para que nadie pueda llenar la base de datos.
+      match /errorLogs/{id} {
+        allow read: if ok(clubId);
+        allow create: if ok(clubId)
+          && request.resource.data.message is string
+          && request.resource.data.message.size() <= 500
+          && request.resource.data.stack is string
+          && request.resource.data.stack.size() <= 2000;
+        allow update, delete: if false;
+      }
     }
   }
 }
