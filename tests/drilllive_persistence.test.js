@@ -29,11 +29,11 @@ async function run() {
   win.S.date = "2026-09-17";
 
   // ── save()/load(): el mismo round-trip que ya se arregló para S.drills en B-DRILLSAVE1 (dev.53) ──
-  win.localStorage.removeItem("cbj:dl");
+  win.localStorage.removeItem((win._lsKey?win._lsKey("cbj:dl"):"cbj:dl"));
   const fakeSession = { id: "dls_persist1", drillId: "d1", drillName: "Contraataque de 11", date: "2026-09-17", type: "b11", status: "finished", startedAt: 1, finishedAt: 2, checklist: { ast: true, missTrack: true, missPenalty: false }, durationSec: 720, remainingSec: 0, players: [{ id: "p1", name: "Ana García", number: 4 }], stats: { p1: { p2m: 3, p2a: 1, p3m: 1, p3a: 0, reb: 2, to: 0, stl: 1, ast: 0, blk: 0 } }, log: [{ pid: "p1", action: "p2m", ts: 1 }] };
   win.S.drillLive = { t1: { d1: [fakeSession] } };
   win.save();
-  const persistedDl = JSON.parse(win.localStorage.getItem("cbj:dl") || "null");
+  const persistedDl = JSON.parse(win.localStorage.getItem((win._lsKey?win._lsKey("cbj:dl"):"cbj:dl")) || "null");
   report.assert(!!persistedDl, "save() escribe la clave 'cbj:dl' en localStorage (antes NUNCA lo hacía -- este es el bug real reportado)");
   report.assert(!!(persistedDl && persistedDl.t1 && persistedDl.t1.d1 && persistedDl.t1.d1[0] && persistedDl.t1.d1[0].id === "dls_persist1"), "el contenido guardado en localStorage refleja el historial de ejercicios en vivo tal cual estaba en memoria");
   // Simula un refresco de página / cierre y reapertura de la app: load() reconstruye S.drillLive SOLO desde localStorage.
@@ -43,9 +43,9 @@ async function run() {
   report.assert(win.S.drillLive.t1.d1[0].stats.p1.p2m === 3, "las estadísticas concretas de la sesión (no solo su existencia) sobreviven íntegras al ciclo guardar/recargar");
 
   // ── _persistLocalCacheOnly() (la ruta que se usa al recibir datos de Firestore de OTRO entrenador) también debe escribir "cbj:dl" ──
-  win.localStorage.removeItem("cbj:dl");
+  win.localStorage.removeItem((win._lsKey?win._lsKey("cbj:dl"):"cbj:dl"));
   win._persistLocalCacheOnly();
-  report.assert(!!JSON.parse(win.localStorage.getItem("cbj:dl") || "null"), "_persistLocalCacheOnly() también escribe 'cbj:dl' -- antes tampoco lo hacía, así que un refresco justo después de recibir una sincronización remota también perdía el historial");
+  report.assert(!!JSON.parse(win.localStorage.getItem((win._lsKey?win._lsKey("cbj:dl"):"cbj:dl")) || "null"), "_persistLocalCacheOnly() también escribe 'cbj:dl' -- antes tampoco lo hacía, así que un refresco justo después de recibir una sincronización remota también perdía el historial");
 
   // ── _flattenDrillLive/_unflattenDrillLiveTeam: round-trip sin pérdida entre la forma anidada (que usa el resto de la app) y la forma plana (que usa el sync con Firestore, un documento por sesión) ──
   const sessA = { id: "dls_a", drillId: "dA", drillName: "Ejercicio A", type: "b11", status: "finished", players: [], stats: {}, log: [] };

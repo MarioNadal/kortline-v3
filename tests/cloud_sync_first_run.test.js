@@ -76,6 +76,14 @@ async function run() {
   // de un equipo que lleva toda la temporada usando la app.
   win.S.sessions = { [win.sk("t1", "2026-09-01")]: { p1: "present" } };
   win.S.trainingNotes = { [win.sk("t1", "2026-09-01")]: { text: "Buen ritmo" } };
+  // v3.0.0-dev.108 · B-SYNCSAFE1: la app ya solo sincroniza los trozos de
+  // los que la nube le ha dicho qué hay (los primeros snapshots de los
+  // listeners). Aquí se simula esa respuesta: la nube ya tiene exactamente
+  // el historial que el dispositivo tiene en caché.
+  win._markSynced("teams", undefined, win.S.teams);
+  win._markSynced("players", "t1", win.S.players.t1);
+  win._markSynced("sessions", "t1", { "2026-09-01": { p1: "present" } });
+  win._markSynced("trainingNotes", "t1", { "2026-09-01": { text: "Buen ritmo" } });
 
   // Nota: _lastSyncedSnapshot es una variable `let` interna del script, no
   // una propiedad de `window` -- no se puede leer desde fuera (win.
@@ -97,8 +105,9 @@ async function run() {
   const writeNota = mock.writes.find(w => w.op === "set" && w.path === P("teams/t1/trainingNotes/2026-09-01"));
   report.assert(!!writeHoy, "B-SYNC4: la asistencia de HOY llega a Firestore en el primer intento -- antes se perdía por el TypeError silencioso");
   report.assert(!!(writeHoy && writeHoy.data && writeHoy.data.p1 === "absent"), "el contenido de la asistencia de hoy es el correcto");
-  report.assert(!!writeAntes, "la asistencia de un día anterior (ya existente antes de esta sesión de la app) también se sube correctamente en ese mismo primer intento");
-  report.assert(!!writeNota, "lo mismo para las notas de entrenamiento (mismo mecanismo, _diffSessions reutilizada) -- también existían de antes y también se suben bien");
+  report.assert(!writeAntes, "B-SYNCSAFE1: la asistencia de un día anterior que la nube YA tiene igual NO se reenvía -- antes, la primera sincronización de cada apertura de la app subía TODO a ciegas");
+  report.assert(!writeNota, "lo mismo para las notas de entrenamiento ya presentes en la nube");
+  report.assert(!mock.writes.some(w => w.path === P("teams/t1") || w.path === P("teams/t1/players/p1")), "ni el equipo ni la jugadora (sin cambios respecto a la nube) se reenvían");
 
   // Una segunda sincronización inmediatamente después (ya con
   // _lastSyncedSnapshot fijado) no debe re-enviar nada -- confirma que el

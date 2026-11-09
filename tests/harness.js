@@ -78,6 +78,37 @@ const REAL_FIREBASE_SCRIPT_TAGS = [
 // para lo que cada test comprueba.
 const ANALYTICS_SCRIPT_TAG = '<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics-compat.js"></script>';
 
+// Copias locales (node_modules, ver tests/cdn-mirror/package.json; instalar con "npm ci --prefix cdn-mirror") de las
+// librerías que index.html carga por CDN. Antes, cada test descargaba de
+// verdad Chart.js/jsPDF/SheetJS/Driver.js/Firebase de internet: sin red (o
+// con el CDN bloqueado por un proxy) fallaban ~12 aserciones y 2 archivos
+// enteros SIN que hubiera ningún bug en la app (tour, PDF, notas de entreno),
+// y en CI cada ejecución dependía de que cdnjs/gstatic respondieran a tiempo.
+// Ahora se sirven desde disco -- mismas versiones exactas que index.html.
+// Cualquier URL que no esté en este mapa sigue el comportamiento de siempre.
+const LOCAL_CDN_MAP = {
+  "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js": "chart.js/dist/chart.umd.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js": "jspdf/dist/jspdf.umd.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js": "jspdf-autotable/dist/jspdf.plugin.autotable.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js": "xlsx/dist/xlsx.full.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/driver.js/1.3.1/driver.min.js.iife.js": "driver.js/dist/driver.js.iife.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/driver.js/1.3.1/driver.min.css": "driver.js/dist/driver.css",
+  "https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js": "firebase/firebase-app-compat.js",
+  "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js": "firebase/firebase-auth-compat.js",
+  "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js": "firebase/firebase-firestore-compat.js"
+};
+const { ResourceLoader } = require("jsdom");
+class LocalCdnLoader extends ResourceLoader {
+  fetch(url, options) {
+    const rel = LOCAL_CDN_MAP[url];
+    if (rel) {
+      const file = path.join(__dirname, "cdn-mirror", "node_modules", rel);
+      if (fs.existsSync(file)) return Promise.resolve(fs.readFileSync(file));
+    }
+    return super.fetch(url, options);
+  }
+}
+
 function loadApp(opts) {
   opts = opts || {};
   let html = fs.readFileSync(INDEX_HTML_PATH, "utf-8");
@@ -103,7 +134,7 @@ function loadApp(opts) {
 
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
-    resources: "usable",
+    resources: new LocalCdnLoader(),
     url: "https://marionadal.github.io/kortline-v3/",
     beforeParse(window) {
       window.matchMedia = window.matchMedia || function () {

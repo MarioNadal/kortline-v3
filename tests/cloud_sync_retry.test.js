@@ -91,6 +91,12 @@ async function setupWin() {
   win.S.teams = [{ id: "t1", name: "Equipo Uno" }];
   win.S.players = { t1: [{ id: "p1", name: "Ana", number: 4 }] };
   win.S.sessions = {};
+  // v3.0.0-dev.108 · B-SYNCSAFE1: simula los primeros snapshots de la nube
+  // (equipo/jugadora ya existentes, sin asistencia) -- sin ellos la app,
+  // a propósito, no sube nada a ciegas.
+  win._markSynced("teams", undefined, win.S.teams);
+  win._markSynced("players", "t1", win.S.players.t1);
+  win._markSynced("sessions", "t1", {});
   return { win, mock, P };
 }
 

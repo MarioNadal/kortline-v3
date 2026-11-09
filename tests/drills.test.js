@@ -118,10 +118,10 @@ async function run() {
   // del catálogo se podía perder si se refrescaba la página antes de que
   // llegara a sincronizar con Firestore (el resto del estado sí sobrevivía
   // al refresco, el catálogo de ejercicios no). ──
-  win.localStorage.removeItem("cbj:drills");
+  win.localStorage.removeItem((win._lsKey?win._lsKey("cbj:drills"):"cbj:drills"));
   win.S.drills.t1 = [{ id: "dr_persist", name: "Contraataque 3c1", category: "transition", minutes: 8, notes: "" }];
   win.save();
-  const persisted = JSON.parse(win.localStorage.getItem("cbj:drills") || "null");
+  const persisted = JSON.parse(win.localStorage.getItem((win._lsKey?win._lsKey("cbj:drills"):"cbj:drills")) || "null");
   report.assert(!!persisted, "save() escribe la clave \"cbj:drills\" en localStorage (antes no lo hacía)");
   report.assert(!!(persisted && persisted.t1 && persisted.t1[0] && persisted.t1[0].name === "Contraataque 3c1"), "el contenido guardado en localStorage refleja el catálogo actual del equipo");
   // Simula un refresco de página: load() reconstruye S.drills solo desde localStorage.

@@ -63,6 +63,13 @@ async function main() {
     out.teams.push(team);
   }
 
+  // v3.0.0-dev.108: también la papelera (copias de todo lo borrado desde la
+  // app, ver B-SYNCSAFE1) -- así un backup permite recuperar incluso lo que
+  // se borró antes de hacerlo.
+  const trashSnap = await clubRef.collection("trash").get();
+  out.trash = trashSnap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+  console.log("Papelera:", trashSnap.size, "documento(s)");
+
   const dir = path.join(__dirname, "backups");
   fs.mkdirSync(dir, { recursive: true });
   const stamp = out._backupAt.replace(/[:.]/g, "-");

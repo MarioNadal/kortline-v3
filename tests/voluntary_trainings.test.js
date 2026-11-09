@@ -250,7 +250,7 @@ async function run() {
   // propia clave "_opt" sin perder nada, de forma automática y una sola vez. ═══
   {
     const legacyKey = win.sk("t1", win._addDaysISO(today, -3));
-    win.localStorage.setItem("cbj:s", JSON.stringify({
+    win.localStorage.setItem(win._lsKey ? win._lsKey("cbj:s") : "cbj:s", JSON.stringify({
       [legacyKey]: { _optType: "voluntario", p1: "present" },
       [win.sk("t1", win._addDaysISO(today, -4))]: { p1: "present", p2: "present" } // normal real, no debe tocarse
     }));
@@ -261,7 +261,7 @@ async function run() {
     assert(win.S.sessions[win.sk("t1", win._addDaysISO(today, -4))].p1 === "present",
       "load(): migración -- una sesión normal real (sin _optType) no se toca para nada");
     // Y se persiste de inmediato en localStorage, no solo en memoria.
-    const persisted = JSON.parse(win.localStorage.getItem("cbj:s"));
+    const persisted = JSON.parse(win.localStorage.getItem(win._lsKey ? win._lsKey("cbj:s") : "cbj:s"));
     assert(!(legacyKey in persisted) && !!persisted[legacyKey + "_opt"],
       "load(): migración -- el resultado se guarda también en localStorage, no solo en S.sessions en memoria");
   }

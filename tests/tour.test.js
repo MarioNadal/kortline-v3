@@ -156,7 +156,7 @@ async function run() {
     assert(win.S.teams.length === 1 && win.S.teams[0].id === "real-team-1", "_tourEnd() quita SOLO el equipo de demo, dejando el real");
     assert(win.S.players["tour-demo-team"] === undefined && win.S.matches["tour-demo-team"] === undefined && win.S.events["tour-demo-team"] === undefined, "las claves del equipo de demo se limpian de players/matches/events");
     assert(win.S.screen === "equipos" && win.S.teamId === "real-team-1" && win.S.matchId === "real-match-1" && win.S.date === "2026-01-01", "se restaura la pantalla/equipo/partido/fecha exactos de antes del tour");
-    assert(win.localStorage.getItem("cbj:tour_seen") !== null, "_tourEnd() marca cbj:tour_seen para no repetir el tour solo en este dispositivo");
+    assert(win.localStorage.getItem((win._lsKey?win._lsKey("cbj:tour_seen"):"cbj:tour_seen")) !== null, "_tourEnd() marca cbj:tour_seen para no repetir el tour solo en este dispositivo");
   }
 
   // ═══ 3) Cada uno de los 8 pasos resuelve su elemento real (ninguno roto) ═══
@@ -230,6 +230,9 @@ async function run() {
     win.S.teamId = "t1";
     win.S.teams = [{ id: "t1", name: "Equipo Uno" }];
     win.S.players = { t1: [{ id: "p1", name: "Ana", number: 4 }] };
+    // B-SYNCSAFE1: la nube ha respondido que aún no hay nada (club nuevo).
+    win._markSynced("teams", undefined, []);
+    win._markSynced("players", "t1", []);
 
     // Primera sincronización normal (fija _lastSyncedSnapshot con estos datos).
     await win._runCloudSync();
@@ -258,19 +261,19 @@ async function run() {
   {
     const win = await loadApp();
     win.S.teams = [{ id: "t1", name: "Ya tiene equipo" }];
-    win.localStorage.removeItem("cbj:tour_seen");
+    win.localStorage.removeItem((win._lsKey?win._lsKey("cbj:tour_seen"):"cbj:tour_seen"));
     assert(win._maybeStartTour() === false, "_maybeStartTour() NO arranca si el club ya tiene algún equipo creado");
   }
   {
     const win = await loadApp();
     win.S.teams = [];
-    win.localStorage.setItem("cbj:tour_seen", "true");
+    win.localStorage.setItem((win._lsKey?win._lsKey("cbj:tour_seen"):"cbj:tour_seen"), "true");
     assert(win._maybeStartTour() === false, "_maybeStartTour() NO arranca si este dispositivo ya vio el tour, aunque el club esté vacío");
   }
   {
     const win = await loadApp();
     win.S.teams = [];
-    win.localStorage.removeItem("cbj:tour_seen");
+    win.localStorage.removeItem((win._lsKey?win._lsKey("cbj:tour_seen"):"cbj:tour_seen"));
     const result = win._maybeStartTour();
     assert(result === true, "_maybeStartTour() SÍ arranca (devuelve true) para club nuevo + nunca visto en este dispositivo");
     await sleep(250 + 250); // 400ms de setTimeout interno + margen de carga de pasos

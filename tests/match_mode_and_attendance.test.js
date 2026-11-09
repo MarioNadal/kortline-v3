@@ -101,7 +101,7 @@ async function run() {
     buildFixture(win, { matchMode: "live", countsForAttendance: true });
     win.S.screen = "matchDetail";
     const html = win.matchDetail();
-    assert(html.includes("usa el botón de seguimiento en vivo"), "matchDetail() en modo 'live' sin iniciar: explica que hay que usar el seguimiento en vivo");
+    assert(html.includes("empieza el seguimiento en vivo"), "matchDetail() en modo 'live' sin iniciar: explica que hay que usar el seguimiento en vivo");
     assert(!html.includes("_qStep("), "matchDetail() en modo 'live' sin iniciar: no hay ningún stepper editable a mano");
   }
 
