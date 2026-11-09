@@ -15,7 +15,7 @@ function makeFirebaseMock() {
       path,
       collection(name) { return ref(path + "/" + name); },
       doc(id) { return ref(path + "/" + id); },
-      onSnapshot(cb) { (listeners[path] = listeners[path] || []).push(cb); return () => {}; },
+      onSnapshot(a, b) { const cb = typeof a === "function" ? a : b; (listeners[path] = listeners[path] || []).push(cb); return () => {}; },
       get() { return Promise.resolve({ exists: false, data: () => ({}), docs: [] }); }
     };
   }
@@ -168,6 +168,34 @@ async function run() {
     mock.fire(P("teams/t1/sessions"), changesSnap([]));
     await win._runCloudSync();
     r.assert(mock.writes.some(w => w.path === P("teams/t1/sessions/2026-11-07")), "8) tras la primera apertura, una asistencia local pendiente se sube con normalidad");
+  }
+
+  // 10) B-SYNCSAFE2: la caché local de Firestore dice "el club no existe"
+  //     (móvil nuevo) -- NO es la verdad de la nube, no se sube nada.
+  {
+    const { mock, win } = await setup();
+    const CP = `clubs/${win.CLUB_ID}`;
+    win.S.cfg.coaches = [];
+    mock.fire(CP, { exists: false, metadata: { fromCache: true }, data: () => ({}) });
+    mock.fire(`${CP}/teams`, { docs: [], metadata: { fromCache: true } });
+    await win._runCloudSync();
+    r.assert(mock.writes.length === 0, "10) B-SYNCSAFE2: con solo la caché local ('el club no existe'), no se sube la configuración por defecto encima de la real -- el fallo visto al probar dev.108 en /test/");
+    mock.fire(CP, { exists: true, metadata: { fromCache: false }, data: () => ({ cfg: { coaches: [{ id: "c1", name: "Mario", role: "superadmin" }] } }) });
+    r.assert(win.S.cfg.coaches.length === 1, "10) cuando responde el servidor, llega la lista real de entrenadores");
+    await win._runCloudSync();
+    r.assert(!mock.writes.some(w => w.path === CP), "10) y no se reenvía nada");
+  }
+
+  // 11) Freno de la lista de entrenadores
+  {
+    const { mock, win } = await setup();
+    const CP = `clubs/${win.CLUB_ID}`;
+    mock.fire(CP, { exists: true, data: () => ({ cfg: { coaches: [{ id: "c1", name: "Mario", role: "superadmin" }, { id: "c2", name: "Ana", role: "entrenador" }] } }) });
+    win.S.cfg.coaches = []; // bug: se vacía en memoria
+    await win._runCloudSync();
+    r.assert(!mock.writes.some(w => w.path === CP), "11) vaciar la lista de entrenadores por un bug NO llega a la nube");
+    win._allowBulkDelete(); await win._runCloudSync();
+    r.assert(mock.writes.some(w => w.path === CP), "11) quitar al último entrenador a mano (autorizado) sí se guarda");
   }
 
   // 9) Espacio de nombres de localStorage por club.

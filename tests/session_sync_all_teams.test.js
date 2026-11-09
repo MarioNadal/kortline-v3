@@ -36,7 +36,7 @@ function makeFirebaseMock() {
       path,
       collection(name) { return ref(path + "/" + name); },
       doc(id) { return ref(path + "/" + id); },
-      onSnapshot(cb) {
+      onSnapshot(a, b) { const cb = typeof a === "function" ? a : b;
         (listeners[path] = listeners[path] || []).push(cb);
         return () => {
           const arr = listeners[path] || [];
