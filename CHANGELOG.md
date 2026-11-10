@@ -3,6 +3,12 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Publicación de "Hoy a todo el ancho" (dev.112, 2026-11-10)
+
+La PR #4 se fusionó justo antes de que llegara su último commit ("Hoy a todo el ancho y línea de AHORA que baja sola"), y ese commit además compartía número de versión (dev.111) con lo ya publicado, así que la app instalada nunca lo habría visto como versión nueva. Se publica aquí con su propio número. Contenido: el de B-HOY6 descrito abajo (sin columna de hora, tarjetas a todo el ancho, línea de AHORA que baja sola cada minuto).
+
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.112` / `kortline-v3.0.0-dev.112`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · La app instalada avisa de versiones nuevas aunque esté en segundo plano + "Hoy" ajustado a todos los móviles (B-SWUPD1 + B-HOY6, dev.111, 2026-11-10)
 
 Reportado por Mario justo después de publicar dev.110: *"no me sale la actualización en la app"*. El navegador solo comprueba si hay un `sw.js` nuevo al abrir la app desde cero; una PWA instalada que se deja en segundo plano podía no enterarse de una versión nueva durante días (y el aviso "🔄 Nueva versión disponible" no salía).
@@ -10,9 +16,10 @@ Reportado por Mario justo después de publicar dev.110: *"no me sale la actualiz
 ### Corregido
 
 - Registro del service worker: `reg.update()` también al volver a la app (`visibilitychange` → visible) y cada 30 min mientras está abierta. Si no hay cambios no descarga nada.
-- **B-HOY6 · línea de tiempo de "Hoy" pegada al borde y adaptada a cada móvil** (Mario: *"queda mucho espacio a la izquierda... que quede perfecto en todos los móviles, ahora está hecha principalmente para iPhones"*). La hora, el punto y la línea pasan a clases CSS (`.tl-row/.tl-time/.tl-rail/.tl-dot`) con anchos según pantalla: la columna de la hora baja de 52 px a 38 px (33 px en pantallas de menos de 375 px, 48 px en tablet). Las tarjetas ganan entre 20 y 31 px de ancho.
+- **B-HOY6 · línea de tiempo de "Hoy" a todo el ancho y en todos los móviles** (Mario: *"queda mucho espacio a la izquierda... que quede perfecto en todos los móviles"* y después *"no hace falta poner la hora [a la izquierda] porque ya sale en los entrenamientos"*). Fuera la columna de hora y el raíl de la izquierda: cada tarjeta ya lleva su hora dentro, y el orden lo dan la propia lista, las barras de tipo y la línea de AHORA. Las tarjetas pasan a empezar a 16 px del borde (antes 94 px) en todos los tamaños.
+- **La línea roja "AHORA · HH:MM" baja sola**: `_hoyMinuteTick()` repinta "Hoy" cada minuto, solo si se está viendo el día real, con la app en primer plano y sin ninguna hoja/modal abierta (no interrumpe nada). El temporizador (`_ensureHoyTick`) solo existe mientras "Hoy" está en pantalla y se apaga solo al salir; no arranca bajo jsdom (con un `setInterval` global la suite completa se quedaba sin memoria). Las tarjetas cuya hora ya pasó se atenúan un poco.
 - **Fila de recuentos de las tarjetas de Hoy** (%, Pres, Aus, Tard, Just): en móviles estrechos se salía por la derecha y se cortaba "Just". Ahora se ajusta (`.hoy-stats/.hoy-stat`).
-- Medido en Chromium con 7 dispositivos (Galaxy S9+ y iPhone SE de 320 px, Galaxy S8 de 360, iPhone 13 de 390, Pixel 7 de 412, iPhone 14 Pro Max de 430, iPad Mini): ningún elemento de la línea de tiempo se sale y no hay scroll horizontal.
+- Medido en Chromium con varios dispositivos (320 px a iPad Mini): ningún elemento de la línea de tiempo se sale y no hay scroll horizontal. `daily_flow_optional_guests.test.js` +5 (sin columna de hora, AHORA con hora, repintado por minuto y cuándo NO se repinta).
 - `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.111` / `kortline-v3.0.0-dev.111`, `/test/` regenerado. Suite completa en verde en raíz y `/test/`.
 
 ## [Sin publicar] · kortline-v3 · Día a día: voluntario Y tecnificación por equipo, "Hoy" como línea de tiempo, puntuales separados y quitar puntuales (B-VOLTECH5/6 + B-HOY5 + B-GUEST9/10, dev.110, 2026-11-10)
