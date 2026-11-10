@@ -41,27 +41,62 @@ function addGuestManual(win, name) {
 async function run() {
   const r = newReporter("daily_flow_optional_guests");
 
-  // ═══ 1) Horario fijo de voluntario/tecnificación desde "Editar equipo" ═══
+  // ═══ 1) Horario fijo de voluntario Y tecnificación desde "Editar equipo" ═══
   {
-    const { win, d, ti } = await setup();
+    const { win, d, ti, today } = await setup();
     win.openTeamModal(win.S.teams[0]);
     const id = "m-edit-team";
-    d.getElementById(id + "-opt-day-" + ti).checked = true;
-    d.getElementById(id + "-opt-time-" + ti).value = "20:00";
-    // NO se toca el desplegable de tipo (se queda en "Sin horario fijo")
+    r.assert(!d.getElementById(id + "-opttype"), "1) B-VOLTECH6: ya no hay desplegable de tipo (con él se perdía el horario si no se elegía)");
+    d.getElementById(id + "-optv-day-" + ti).checked = true;
+    d.getElementById(id + "-optv-time-" + ti).value = "17:00";
+    d.getElementById(id + "-optt-day-" + ti).checked = true;
+    d.getElementById(id + "-optt-time-" + ti).value = "20:00";
     win.saveTeam(id, "t1");
-    const os = win.S.teams[0].optSchedule;
-    r.assert(!!os && os.type === "voluntario" && os.schedule[ti] === "20:00",
-      "1) B-VOLTECH5: marcar días fijos sin elegir el tipo ya NO descarta el horario en silencio -- se guarda como Voluntario (antes: optSchedule=null y nunca salía en Hoy)");
+    const os = win.S.teams[0].optSchedules;
+    r.assert(!!os && os.voluntario[ti] === "17:00" && os.tecnificacion[ti] === "20:00",
+      "1) B-VOLTECH6: un equipo puede tener voluntario Y tecnificación fijos, cada uno con su día y hora");
+    win.openTeamModal(win.S.teams[0]);
+    r.assert(d.getElementById(id + "-optv-day-" + ti).checked && d.getElementById(id + "-optt-time-" + ti).value === "20:00", "1) al volver a abrir Editar equipo se ven los dos horarios guardados");
+    d.getElementById(id)?.remove();
     win.S.screen = "hoy"; win.S.hoyDate = null; win.render();
     const h = root(win);
-    r.assert(h.includes("🙋 VOLUNTARIO") && h.includes("🏋️ ENTRENAMIENTO"),
-      "1) ese día salen en Hoy las DOS tarjetas: el entrenamiento normal y el voluntario fijo");
-    r.assert(h.includes("20:00"), "1) con su hora fija");
-    win.navTo("att", { teamId: "t1", date: win.td(), attOpt: true });
+    r.assert(h.includes("🙋 VOLUNTARIO") && h.includes("🎯 TECNIFICACIÓN") && h.includes("🏋️ ENTRENAMIENTO"),
+      "1) ese día salen en Hoy las TRES tarjetas: entrenamiento normal, voluntario y tecnificación");
+    // Línea de tiempo: 17:00 voluntario → 18:00 entreno → 20:00 tecnificación
+    const iV = h.indexOf("🙋 VOLUNTARIO"), iE = h.indexOf("🏋️ ENTRENAMIENTO"), iT = h.indexOf("🎯 TECNIFICACIÓN");
+    r.assert(iV < iE && iE < iT, "1) B-HOY5: en Hoy van ordenados por hora en una sola línea de tiempo (17:00 voluntario, 18:00 entreno, 20:00 tecnificación), no en bloques separados");
+    r.assert(!h.includes("🙋 VOLUNTARIOS / TECNIFICACIÓN"), "1) B-HOY5: ya no hay bloque aparte abajo del todo");
+    win.navTo("att", { teamId: "t1", date: today, attOpt: "voluntario" });
     win.cycleAtt("p1");
-    r.assert(win.S.sessions[win.skO("t1", win.td())] && win.S.sessions[win.skO("t1", win.td())].p1 === "absent" && !win.S.sessions[win.sk("t1", win.td())],
-      "1) pasar lista en el voluntario fijo escribe SOLO en su sesión aparte, nunca en la del entrenamiento normal");
+    win.navTo("att", { teamId: "t1", date: today, attOpt: "tecnificacion" });
+    win.cycleAtt("p2");
+    const sv = win.S.sessions[win.skO("t1", today, "voluntario")], st = win.S.sessions[win.skO("t1", today, "tecnificacion")];
+    r.assert(sv && sv.p1 === "absent" && !("p2" in sv) && st && st.p2 === "absent" && !("p1" in st) && !win.S.sessions[win.sk("t1", today)],
+      "1) cada sesión (voluntario, tecnificación, entreno normal) guarda su propia asistencia, sin mezclarse");
+  }
+
+  // ═══ 1b) Línea de tiempo con partido y "ahora" ═══
+  {
+    const { win, today, ti } = await setup();
+    win.S.teams[0].schedule = { [ti]: "23:58" };
+    win.S.matches = { t2: [{ id: "m1", date: today, time: "00:01", rival: "Rival Mañana", quarters: 4, qMins: 10, convocados: [] }] };
+    win.S.screen = "hoy"; win.S.hoyDate = null; win.render();
+    const h = root(win);
+    const iM = h.indexOf("Rival Mañana"), iNow = h.indexOf("AHORA"), iE = h.indexOf("🏋️ ENTRENAMIENTO");
+    r.assert(iM >= 0 && iNow > iM && iE > iNow, "1b) B-HOY5: el partido de las 00:01 va antes de la marca AHORA y el entrenamiento de las 23:58 después");
+  }
+
+  // ═══ 1c) Datos antiguos: tecnificación guardada en "_opt" y horario fijo antiguo ═══
+  {
+    const { win, today, ti } = await setup();
+    win.S.sessions[win.sk("t1", today) + "_opt"] = { _optType: "tecnificacion", p1: "present" };
+    win._migrateLegacyTecSessions();
+    r.assert(!win.S.sessions[win.sk("t1", today) + "_opt"] && win.S.sessions[win.skO("t1", today, "tecnificacion")].p1 === "present",
+      "1c) B-VOLTECH6: una tecnificación antigua (clave '_opt') se mueve a su propia clave sin perder la asistencia");
+    win.S.teams[1].optSchedule = { type: "tecnificacion", schedule: { [ti]: "19:00" } }; // formato dev.106
+    win.S.screen = "hoy"; win.S.hoyDate = null; win.render();
+    r.assert((root(win).match(/🎯 TECNIFICACIÓN/g) || []).length === 2 && root(win).includes("19:00"),
+      "1c) un horario fijo guardado con el formato antiguo (un solo tipo) se sigue viendo en Hoy");
   }
 
   // ═══ 2) Crear una tecnificación para 2 equipos cuando ya hay entreno ═══
@@ -74,30 +109,30 @@ async function run() {
     d.querySelectorAll("#hoy-opt-teams input").forEach(c => { c.checked = true; });
     d.getElementById("hoy-opt-time").value = "19:30";
     win._hoyAddCommitOptional("tecnificacion");
-    r.assert(win.S.screen === "att" && win.S.attOpt === true && win.S.teamId === "t1", "2) tras crearla se abre directamente el pase de lista de la tecnificación");
+    r.assert(win.S.screen === "att" && win.S.attOpt === "tecnificacion" && win.S.teamId === "t1", "2) tras crearla se abre directamente el pase de lista de la tecnificación");
     r.assert(JSON.stringify(win.S.sessions[win.sk("t1", today)].p1) === normal, "2) el entrenamiento normal ya pasado de ese día no se toca");
-    r.assert(root(win).includes("INFANTIL") && root(win).includes("Otros equipos hoy"), "2) B-VOLTECH5: en el pase de lista salen los otros equipos de la misma tecnificación para saltar a ellos sin volver a Hoy");
-    win.navTo("att", { teamId: "t2", date: today, attOpt: true });
+    r.assert(root(win).includes("INFANTIL") && root(win).includes("Otros equipos en esta tecnificación"), "2) B-VOLTECH5: en el pase de lista salen los otros equipos de la misma tecnificación para saltar a ellos sin volver a Hoy");
+    win.navTo("att", { teamId: "t2", date: today, attOpt: "tecnificacion" });
     r.assert(root(win).includes("Cris") && root(win).includes("Tecnificación"), "2) y al saltar se abre la tecnificación del otro equipo");
     win.navRoot("hoy");
     const h = root(win);
     r.assert(h.includes("🏋️ ENTRENAMIENTO") && (h.match(/🎯 TECNIFICACIÓN/g) || []).length === 2 && h.includes("19:30"),
       "2) Hoy muestra el entrenamiento normal + una tarjeta de tecnificación por cada equipo, con la hora");
     win.navTo("team", { teamId: "t1" });
-    r.assert(root(win).includes("TECNIFICACIÓN HOY"), "2) B-VOLTECH5: la ficha del equipo tiene acceso directo a la tecnificación de hoy");
+    r.assert(!root(win).includes("TECNIFICACIÓN HOY"), "2) la ficha del equipo NO tiene un segundo acceso a la sesión de hoy -- Mario: duplicaba el ＋ de Hoy y liaba; un solo sitio (Hoy)");
   }
 
   // ═══ 3) Puntual de tecnificación ≠ puntual del entrenamiento normal ═══
   {
     const { win, d, today } = await setup();
-    win.S.sessions[win.skO("t1", today)] = { _optType: "tecnificacion" };
-    win.navTo("att", { teamId: "t1", date: today, attOpt: true });
+    win.S.sessions[win.skO("t1", today, "tecnificacion")] = { _optType: "tecnificacion" };
+    win.navTo("att", { teamId: "t1", date: today, attOpt: "tecnificacion" });
     addGuestManual(win, "Invitado Tec");
     r.assert(root(win).includes("Invitado Tec"), "3) el puntual sale en la tecnificación donde se añadió");
     win.navTo("att", { teamId: "t1", date: today, attOpt: false });
     r.assert(!root(win).includes("Invitado Tec"), "3) B-GUEST9: y ya NO aparece en el entrenamiento normal del mismo día (antes salía, y contaba como presente en el % oficial)");
     addGuestManual(win, "Invitado Normal");
-    win.navTo("att", { teamId: "t1", date: today, attOpt: true });
+    win.navTo("att", { teamId: "t1", date: today, attOpt: "tecnificacion" });
     r.assert(!root(win).includes("Invitado Normal"), "3) igual al revés: un puntual del entrenamiento normal no se cuela en la tecnificación");
   }
 
@@ -141,11 +176,11 @@ async function run() {
     const { win, today } = await setup();
     win.S.players.t1.push({ id: "gz", name: "Mixto", guest: true, attOnly: true, addedAt: today, attDates: [today, today + "_opt"] });
     win.S.sessions[win.sk("t1", today)] = { gz: "present" };
-    win.S.sessions[win.skO("t1", today)] = { _optType: "voluntario", gz: "present" };
-    win.navTo("att", { teamId: "t1", date: today, attOpt: true });
+    win.S.sessions[win.skO("t1", today, "voluntario")] = { _optType: "voluntario", gz: "present" };
+    win.navTo("att", { teamId: "t1", date: today, attOpt: "voluntario" });
     win.removeGuestFromSession("gz"); clickConfirm(win);
     const gz = win.S.players.t1.find(p => p.id === "gz");
-    r.assert(!!gz && JSON.stringify(gz.attDates) === JSON.stringify([today]) && win.S.sessions[win.sk("t1", today)].gz === "present" && !("gz" in win.S.sessions[win.skO("t1", today)]),
+    r.assert(!!gz && JSON.stringify(gz.attDates) === JSON.stringify([today]) && win.S.sessions[win.sk("t1", today)].gz === "present" && !("gz" in win.S.sessions[win.skO("t1", today, "voluntario")]),
       "5) quitarlo del voluntario lo quita solo de ahí -- sigue en el entrenamiento normal del mismo día");
   }
 
