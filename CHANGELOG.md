@@ -3,6 +3,31 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Día a día: voluntarios/tecnificación fijos, puntuales separados por sesión y quitar puntuales (B-VOLTECH5 + B-GUEST9 + B-GUEST10, dev.110, 2026-11-10)
+
+Reportado por Mario probando desde el móvil: *"no puedes borrar un jugador puntual añadido un día de entrenamiento y si hay errores debe hacerse, las tecnificaciones y entrenamientos voluntarios no acaban de funcionar bien, si las pones en el equipo como un entrenamiento más semanal no salen en el horario en el día de hoy para pasar lista... y si ya hay un entrenamiento de ese equipo tampoco deja añadirlo o no acaba de funcionar bien"*.
+
+### Corregido
+
+- **B-VOLTECH5 · el horario fijo de voluntario/tecnificación se perdía en silencio.** En "Editar equipo", si se marcaban días pero el desplegable de tipo seguía en su valor por defecto ("Sin horario fijo"), `saveTeam()` guardaba `optSchedule=null` -- el equipo nunca aparecía en "Hoy". Ahora, con días marcados y sin tipo, se guarda como Voluntario y se avisa.
+- **B-GUEST9 · el puntual de una tecnificación se colaba en el entrenamiento normal del día** (y ahí contaba como "presente por defecto" en el % oficial), y al revés. `attDates` apunta ahora el día de una sesión opcional como `AAAA-MM-DD_opt` (`_attTok`); `_attOnlyActiveOn(p,date,isOpt)`, `_attRosterFor`, `_guestMarkAttDate`, el picker de "Más frecuentes", la tarjeta de Hoy y el texto de WhatsApp distinguen la sesión. Los puntuales antiguos siguen saliendo donde salían.
+
+### Añadido
+
+- **B-GUEST10 · "✕ Quitar" en cada puntual del pase de lista** (`removeGuestFromSession`): lo quita solo de la sesión que se está viendo (marca, motivo y nota de ese día). Si no ha venido ningún otro día ni está convocado a ningún partido, se borra el puntual entero (error de alta); si no, conserva el resto de su historial. Con confirmación; nunca afecta a la plantilla fija.
+- **B-VOLTECH5 · "Otros equipos hoy"** en el pase de lista de un voluntario/tecnificación: salta directamente al siguiente equipo de la misma sesión sin volver a Hoy.
+- **B-VOLTECH5 · acceso directo "VOLUNTARIO/TECNIFICACIÓN HOY"** en la ficha del equipo.
+
+### Investigado
+
+- Crear un voluntario/tecnificación desde "＋" cuando el equipo ya tiene entrenamiento ese día **sí funciona** a nivel de datos (sesiones separadas desde dev.106): se comprobó de punta a punta por los mismos caminos que los botones. Lo que fallaba en el uso real eran los tres puntos de arriba.
+
+### Probado (jsdom)
+
+- `daily_flow_optional_guests.test.js` (nuevo, 23 aserciones): horario fijo desde el formulario real, tecnificación de 2 equipos con entreno ya pasado, puntuales separados por sesión, quitar puntual (de 1 día / de varios días / cancelar / nunca a la plantilla fija / solo de la opcional). Contraprueba: contra dev.109 fallan exactamente las 7 aserciones de los arreglos.
+- Suite completa: **2019/2019 OK** en raíz y en `/test/`.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.110` / `kortline-v3.0.0-dev.110`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Fix CRÍTICO: la caché local de Firestore se tomaba como la verdad de la nube (B-SYNCSAFE2, dev.109, 2026-11-09)
 
 Reportado por Mario probando dev.108 en `/test/`: *"no me sale nadie en entrenadores"*.
