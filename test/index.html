@@ -99,6 +99,15 @@ if("serviceWorker" in navigator){
       document.getElementById("kl-sw-dismiss").onclick=()=>b.remove();
     }
     if(reg.waiting)_showUpdateBanner(reg.waiting);
+    // v3.0.0-dev.111 · B-SWUPD1: Mario -- "no me sale la actualización en la
+    // app". El navegador solo comprueba si hay un sw.js nuevo al ABRIR la
+    // app; una PWA instalada que se deja en segundo plano (lo normal en el
+    // móvil) podía pasar días sin enterarse de una versión nueva. Ahora se
+    // comprueba también al volver a la app y cada 30 min mientras está
+    // abierta (reg.update() es barato: si no hay cambios no descarga nada).
+    const _checkSwUpdate=()=>{try{reg.update().catch(()=>{});}catch(e){}};
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")_checkSwUpdate();});
+    setInterval(_checkSwUpdate,30*60*1000);
     reg.addEventListener("updatefound",()=>{
       const nw=reg.installing;if(!nw)return;
       nw.addEventListener("statechange",()=>{
@@ -591,6 +600,26 @@ label{-webkit-tap-highlight-color:transparent;}
 .driver-popover-footer .driver-popover-next-btn{background:linear-gradient(135deg,#f97316,#c2410c);border:none}
 .driver-popover-close-btn{color:#7a9cc8}
 .driver-popover-arrow-side-left.driver-popover-arrow,.driver-popover-arrow-side-right.driver-popover-arrow,.driver-popover-arrow-side-top.driver-popover-arrow,.driver-popover-arrow-side-bottom.driver-popover-arrow{border-color:#0d2244}
+/* v3.0.0-dev.111 · B-HOY6: línea de tiempo de "Hoy" pegada al borde y
+   adaptada al ancho de cada móvil (Mario: "queda mucho espacio a la
+   izquierda [...] que quede perfecto en todos los móviles"). La columna de
+   la hora usa el ancho justo de "00:00" y se estrecha en pantallas
+   pequeñas (Android de 360px, iPhone SE); en tablet se ensancha. */
+.tl-row{display:flex;gap:6px;align-items:stretch}
+.tl-time{width:38px;flex-shrink:0;text-align:right;padding-top:15px;font-family:var(--font-d);font-weight:900;font-size:14px;letter-spacing:-.2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tl-rail{width:8px;flex-shrink:0;display:flex;flex-direction:column;align-items:center}
+.tl-dot{width:8px;height:8px;border-radius:50%;margin-top:19px;flex-shrink:0}
+.tl-line{flex:1;width:2px;background:var(--border)}
+.tl-card{flex:1;min-width:0}
+.tl-now{display:flex;align-items:center;gap:6px;margin:2px 0 10px}
+.tl-now .tl-time{padding-top:0;font-size:11px;color:#ef4444;font-family:inherit}
+/* Fila de recuentos (%, Pres, Aus, Tard, Just) de las tarjetas de Hoy: en
+   móviles estrechos se salía por la derecha y se cortaba "Just". */
+.hoy-stat{min-width:0;overflow:hidden}
+@media (max-width:430px){.hoy-stats{gap:5px!important}.hoy-stat{padding:7px 2px!important}.hoy-stat-main>div:first-child{font-size:18px!important}}
+@media (max-width:374px){.hoy-stats{gap:3px!important}.hoy-stat>div:first-child{font-size:14px!important}.hoy-stat-main>div:first-child{font-size:16px!important}.hoy-stat>div:last-child{font-size:9px!important}}
+@media (max-width:374px){.tl-row,.tl-now{gap:4px}.tl-time{width:33px;font-size:12.5px}.tl-rail,.tl-dot{width:6px}.tl-dot{height:6px}}
+@media (min-width:600px){.tl-row,.tl-now{gap:10px}.tl-time{width:48px;font-size:16px}.tl-rail,.tl-dot{width:10px}.tl-dot{height:10px}}
 </style>
 </head>
 <body>
@@ -2426,7 +2455,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.110";
+const APP_VERSION = "3.0.0-dev.111";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -5103,9 +5132,9 @@ function hoy(){
             :`<span style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap">Pendiente</span>`
           }
         </div>
-        ${done?`<div style="display:flex;gap:8px;margin-bottom:10px">
-          <div style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:20px;color:#22c55e">${pct}%</div><div style="font-size:10px;color:var(--td)">Asistencia</div></div>
-          ${[["✓",pr,"#22c55e","Pres"],["✗",ab,"#ef4444","Aus"],["⏱",la,"#f59e0b","Tard"],["◎",ex,"#6b7280","Just"]].map(([ic,v,col,l])=>`<div style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:16px;color:${col}">${v}</div><div style="font-size:10px;color:var(--td)">${l}</div></div>`).join("")}
+        ${done?`<div class="hoy-stats" style="display:flex;gap:8px;margin-bottom:10px">
+          <div class="hoy-stat hoy-stat-main" style="flex:1.4;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:20px;color:#22c55e">${pct}%</div><div style="font-size:10px;color:var(--td)">Asistencia</div></div>
+          ${[["✓",pr,"#22c55e","Pres"],["✗",ab,"#ef4444","Aus"],["⏱",la,"#f59e0b","Tard"],["◎",ex,"#6b7280","Just"]].map(([ic,v,col,l])=>`<div class="hoy-stat" style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:16px;color:${col}">${v}</div><div style="font-size:10px;color:var(--td)">${l}</div></div>`).join("")}
         </div>`:""}
         <div style="display:flex;gap:8px">
           <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:false})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
@@ -5160,9 +5189,9 @@ function hoy(){
             :`<span style="background:rgba(168,85,247,.15);color:#a855f7;border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap">Pendiente</span>`
           }
         </div>
-        ${done?`<div style="display:flex;gap:8px;margin-bottom:10px">
-          <div style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:20px;color:#22c55e">${pct}%</div><div style="font-size:10px;color:var(--td)">Asistencia</div></div>
-          ${[["✓",pr,"#22c55e","Pres"],["✗",ab,"#ef4444","Aus"],["⏱",la,"#f59e0b","Tard"],["◎",ex,"#6b7280","Just"]].map(([ic,v,col,l])=>`<div style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:16px;color:${col}">${v}</div><div style="font-size:10px;color:var(--td)">${l}</div></div>`).join("")}
+        ${done?`<div class="hoy-stats" style="display:flex;gap:8px;margin-bottom:10px">
+          <div class="hoy-stat hoy-stat-main" style="flex:1.4;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:20px;color:#22c55e">${pct}%</div><div style="font-size:10px;color:var(--td)">Asistencia</div></div>
+          ${[["✓",pr,"#22c55e","Pres"],["✗",ab,"#ef4444","Aus"],["⏱",la,"#f59e0b","Tard"],["◎",ex,"#6b7280","Just"]].map(([ic,v,col,l])=>`<div class="hoy-stat" style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:16px;color:${col}">${v}</div><div style="font-size:10px;color:var(--td)">${l}</div></div>`).join("")}
         </div>`:""}
         <div style="font-size:11px;color:var(--tm);margin-bottom:10px">No cuenta para el % de asistencia oficial.</div>
         <div style="display:flex;gap:8px">
@@ -5215,7 +5244,7 @@ function hoy(){
     let nowMark="";
     if(isToday&&!_nowShown&&it.time&&it.time>_nowHM){
       _nowShown=true;
-      nowMark=`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 10px"><span style="width:52px;flex-shrink:0;text-align:right;font-size:11px;font-weight:900;color:#ef4444">${_nowHM}</span><span style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;box-shadow:0 0 0 3px rgba(239,68,68,.25)"></span><span style="flex:1;height:2px;background:rgba(239,68,68,.5)"></span><span style="font-size:10px;font-weight:900;letter-spacing:1.5px;color:#ef4444">AHORA</span></div>`;
+      nowMark=`<div class="tl-now"><span class="tl-time">${_nowHM}</span><span class="tl-rail"><span style="width:100%;aspect-ratio:1;border-radius:50%;background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.25)"></span></span><span style="flex:1;height:2px;background:rgba(239,68,68,.5)"></span><span style="font-size:10px;font-weight:900;letter-spacing:1.5px;color:#ef4444">AHORA</span></div>`;
     }
     const past=isToday&&it.time&&it.time<=_nowHM;
     let divider="";
@@ -5224,10 +5253,10 @@ function hoy(){
       divider=`<div class="tl-divider" style="display:flex;align-items:center;gap:10px;margin:${_prevKind?"6px":"0"} 0 10px"><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span><span style="font-size:11px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase;color:${col};white-space:nowrap">${lbl}</span><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span></div>`;
       _prevKind=it.kind;
     }
-    return nowMark+divider+`<div class="tl-row" style="display:flex;gap:8px;align-items:stretch">
-      <div style="width:52px;flex-shrink:0;text-align:right;padding-top:14px;font-family:var(--font-d);font-weight:900;font-size:15px;color:${it.time?(past?"var(--td)":"var(--tx)"):"var(--tm)"}">${it.time?esc(it.time):"—"}</div>
-      <div style="width:10px;flex-shrink:0;display:flex;flex-direction:column;align-items:center"><span style="width:10px;height:10px;border-radius:50%;margin-top:18px;background:${_tlColor[it.kind]};flex-shrink:0"></span><span style="flex:1;width:2px;background:var(--border)"></span></div>
-      <div style="flex:1;min-width:0">${it.html}</div>
+    return nowMark+divider+`<div class="tl-row">
+      <div class="tl-time" style="color:${it.time?(past?"var(--td)":"var(--tx)"):"var(--tm)"}">${it.time?esc(it.time):"—"}</div>
+      <div class="tl-rail"><span class="tl-dot" style="background:${_tlColor[it.kind]}"></span><span class="tl-line"></span></div>
+      <div class="tl-card">${it.html}</div>
     </div>`;
   }).join("");
   const _nextTrainingPending=isToday?timeline.find(it=>it.kind!=="match"&&it.time&&it.pending)||null:null;
