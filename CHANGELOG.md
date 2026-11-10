@@ -3,6 +3,12 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Publicación de "Hoy a todo el ancho" (dev.112, 2026-11-10)
+
+La PR #4 se fusionó justo antes de que llegara su último commit ("Hoy a todo el ancho y línea de AHORA que baja sola"), y ese commit además compartía número de versión (dev.111) con lo ya publicado, así que la app instalada nunca lo habría visto como versión nueva. Se publica aquí con su propio número. Contenido: el de B-HOY6 descrito abajo (sin columna de hora, tarjetas a todo el ancho, línea de AHORA que baja sola cada minuto).
+
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.112` / `kortline-v3.0.0-dev.112`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · La app instalada avisa de versiones nuevas aunque esté en segundo plano + "Hoy" ajustado a todos los móviles (B-SWUPD1 + B-HOY6, dev.111, 2026-11-10)
 
 Reportado por Mario justo después de publicar dev.110: *"no me sale la actualización en la app"*. El navegador solo comprueba si hay un `sw.js` nuevo al abrir la app desde cero; una PWA instalada que se deja en segundo plano podía no enterarse de una versión nueva durante días (y el aviso "🔄 Nueva versión disponible" no salía).
