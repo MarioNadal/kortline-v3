@@ -2253,13 +2253,54 @@ function sk(tid,d){return tid+"_"+d;}
 // extra en la "fecha" -- aquí "_opt" -- viaja sin tocar ni una línea de ese
 // código, el más sensible de toda la app). Confirmado con AskUserQuestion:
 // como mucho UNA sesión opcional aparte por equipo y día.
-function skO(tid,d){return sk(tid,d)+"_opt";}
+// v3.0.0-dev.110 · B-VOLTECH6: Mario -- "puede haber un equipo que tenga
+// entrenamientos voluntarios y tecnificaciones todas las semanas, no puede
+// ser que solo elijas uno". Hasta dev.109 había UNA sola sesión opcional por
+// equipo y día ("..._opt", con _optType dentro). Ahora cada tipo tiene la
+// suya: voluntario = "..._opt" (la de siempre, sin migrar nada) y
+// tecnificación = "..._opt_tec". Las tecnificaciones antiguas guardadas en
+// "..._opt" se mueven solas a su clave (_migrateLegacyTecSessions).
+// S.attOpt pasa de true/false a false | "voluntario" | "tecnificacion"
+// (true se sigue entendiendo como "voluntario").
+const OPT_TYPES=["voluntario","tecnificacion"];
+function _optTypeOf(o){ return o==="tecnificacion"?"tecnificacion":(o?"voluntario":null); }
+function _optSuffix(type){ return type==="tecnificacion"?"_opt_tec":"_opt"; }
+function skO(tid,d,type){return sk(tid,d)+_optSuffix(_optTypeOf(type||"voluntario"));}
+// "2026-11-10" / "2026-11-10_opt" / "2026-11-10_opt_tec" → {date, optType|null}
+function _parseSessSuffix(raw){
+  if(raw.endsWith("_opt_tec"))return{date:raw.slice(0,-8),optType:"tecnificacion"};
+  if(raw.endsWith("_opt"))return{date:raw.slice(0,-4),optType:"voluntario"};
+  return{date:raw,optType:null};
+}
+function _isOptKey(k){ return k.endsWith("_opt")||k.endsWith("_opt_tec"); }
+// Horario semanal fijo de un tipo de sesión opcional ({diaIdx:"HH:MM"}) o
+// null. Retrocompatible con el formato de dev.106-109 (t.optSchedule =
+// {type, schedule}, un único tipo por equipo).
+function _optSched(t,type){
+  if(t&&t.optSchedules&&t.optSchedules[type])return t.optSchedules[type];
+  if(t&&t.optSchedule&&t.optSchedule.type===type&&t.optSchedule.schedule)return t.optSchedule.schedule;
+  return null;
+}
+function _optSchedHas(t,type,ti){ const sc=_optSched(t,type); return !!sc&&Object.prototype.hasOwnProperty.call(sc,ti); }
+function _migrateLegacyTecSessions(tid){
+  let moved=0;
+  for(const key of Object.keys(S.sessions||{})){
+    if(tid&&!key.startsWith(tid+"_"))continue;
+    const v=S.sessions[key];
+    if(key.endsWith("_opt")&&v&&v._optType==="tecnificacion"){
+      const nk=key.slice(0,-4)+"_opt_tec";
+      if(!S.sessions[nk])S.sessions[nk]=v;
+      delete S.sessions[key];moved++;
+    }
+  }
+  return moved;
+}
 function so(tid,d){return S.sessions[sk(tid,d)]||{};}
-function soO(tid,d){return S.sessions[skO(tid,d)]||{};}
+function soO(tid,d,type){return S.sessions[skO(tid,d,type)]||{};}
 // Clave/lectura de la sesión que corresponde según si la pantalla de pase de
 // lista está mostrando la sesión normal o la opcional (ver S.attOpt, puesto
 // por navTo al entrar a att()/share() desde una tarjeta/fila concreta).
-function _sessKeyFor(tid,d,isOpt){return isOpt?skO(tid,d):sk(tid,d);}
+function _sessKeyFor(tid,d,isOpt){return isOpt?skO(tid,d,_optTypeOf(isOpt)):sk(tid,d);}
 function _attK(tid,d){return _sessKeyFor(tid,d,S.attOpt);}
 function soAtt(tid,d){return S.sessions[_attK(tid,d)]||{};}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
@@ -2385,7 +2426,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.109";
+const APP_VERSION = "3.0.0-dev.110";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3050,6 +3091,11 @@ function _attachGlobalTeamListeners(tid){
       _syncKnown.sessions[tid]=true;
       try{_scheduleCloudSync();}catch(e){}
     }
+    // B-VOLTECH6: una tecnificación antigua que llega de la nube bajo "_opt"
+    // (creada por un móvil con una versión anterior) se mueve a "_opt_tec".
+    if(_syncKnown.sessions[tid] && _migrateLegacyTecSessions(tid)){
+      changed=true; _allowBulkDelete(); setTimeout(()=>{try{save();}catch(e){}},0);
+    }
     if(!changed)return;
     _persistLocalCacheOnly();render();
   }));
@@ -3200,12 +3246,13 @@ function load(){
   // esta migración.
   for(const key of Object.keys(S.sessions)){
     const v=S.sessions[key];
-    if(v&&v._optType&&!key.endsWith("_opt")){
-      const newKey=key+"_opt";
+    if(v&&v._optType&&!_isOptKey(key)){
+      const newKey=key+_optSuffix(v._optType);
       if(!S.sessions[newKey])S.sessions[newKey]=v;
       delete S.sessions[key];
     }
   }
+  _migrateLegacyTecSessions();
   lsSet("cbj:s",S.sessions);
   _sortTeams();
   S.clubLogo=lsGet("cbj:logo")||null;S.clubName=lsGet("cbj:name")||"Kortline";S.clubAbrev=lsGet("cbj:cabrev")||"";S.clubLema=lsGet("cbj:clema")||"";
@@ -3528,10 +3575,12 @@ function _teamSessionEntries(tid,opts){
   // todo el resto del código (temporada, meses, _isPlayerActiveOn...) siga
   // comparando fechas ISO reales.
   const entries=Object.entries(S.sessions).filter(([k])=>k.startsWith(prefix)).map(([k,v])=>{
-    const isOpt=k.endsWith("_opt");
     const raw=k.slice(prefix.length);
-    const date=isOpt?raw.slice(0,-4):raw;
-    return{date,data:v,isOpt};
+    const ps=_parseSessSuffix(raw);
+    const isOpt=!!ps.optType;
+    // una tecnificación antigua todavía sin migrar vive en "_opt" con _optType
+    const optType=isOpt?(ps.optType==="voluntario"&&v&&v._optType==="tecnificacion"?"tecnificacion":ps.optType):null;
+    return{date:ps.date,data:v,isOpt,optType};
   });
   return(opts&&opts.includeOptional)?entries:entries.filter(e=>!e.isOpt);
 }
@@ -3559,8 +3608,17 @@ function _playerStartDate(p,sessList){
 // día -- "se pierde en el vacío". Retrocompatible: si un puntual antiguo no
 // tiene attDates (datos de antes de B-GUEST4), se sigue comparando contra su
 // addedAt de siempre.
-function _attOnlyActiveOn(p,date){
-  return Array.isArray(p.attDates)?p.attDates.includes(date):p.addedAt===date;
+// v3.0.0-dev.110 · B-GUEST9: un puntual añadido a un voluntario/
+// tecnificación se guardaba en attDates con la fecha a secas -- y por eso
+// aparecía TAMBIÉN en el entrenamiento normal de ese día (donde además
+// contaba como "presente por defecto" en el % oficial). Ahora el día de una
+// sesión opcional se apunta como "AAAA-MM-DD_opt" (_attTok), así cada
+// puntual solo sale en la sesión a la que de verdad vino. Los puntuales
+// antiguos (fecha a secas) siguen saliendo donde salían.
+function _attTok(date,isOpt){ return isOpt?date+_optSuffix(_optTypeOf(isOpt)):date; }
+function _attOnlyActiveOn(p,date,isOpt){
+  const tok=_attTok(date,isOpt);
+  return Array.isArray(p.attDates)?p.attDates.includes(tok):(!isOpt&&p.addedAt===date);
 }
 // v3.0.0-dev.100 · B-ATT8, bug encontrado en auditoría: el mismo filtro
 // "¿este jugador entrena hoy?" (B-GUEST7: nunca un puntual de PARTIDO
@@ -3574,8 +3632,9 @@ function _attOnlyActiveOn(p,date){
 // puntuales -- y es exactamente el tipo de dato que una pantalla futura sin
 // este mismo filtro mostraría mal. Centralizado aquí para que _flushSess/
 // setAll (y cualquier futuro consumidor) usen siempre el mismo criterio.
-function _attRosterFor(tid,date){
-  return pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date)));
+function _attRosterFor(tid,date,isOpt){
+  if(isOpt===undefined)isOpt=S.attOpt;
+  return pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date,isOpt)));
 }
 // v3.0.0-dev.100 · B-VOLTECH1: "contador aparte" de asistencia a
 // entrenamientos voluntarios/tecnificaciones, confirmado con AskUserQuestion
@@ -3588,7 +3647,7 @@ function _attRosterFor(tid,date){
 function _optionalAttCount(p,tid,optType){
   if(!p||p.matchOnly)return{asistidas:0,total:0};
   const all=_teamSessionEntries(tid,{includeOptional:true});
-  const entries=all.filter(e=>e.isOpt&&(!optType||e.data._optType===optType)&&_isPlayerActiveOn(p,e.date,all));
+  const entries=all.filter(e=>e.isOpt&&(!optType||e.optType===optType)&&_isPlayerActiveOn(p,e.date,all));
   let asistidas=0;
   entries.forEach(e=>{const v=e.data[p.id];if(v==="present"||v==="late")asistidas++;});
   return{asistidas,total:entries.length};
@@ -4029,7 +4088,7 @@ function applyInjuryToSessions(tid,pid,startDate,endDate,noteText,prevStartDate)
   // entrenamiento OFICIAL (obligatorio); una sesión voluntaria/tecnificación
   // ni siquiera cuenta las ausencias, así que marcarla aquí no aportaría
   // nada y solo ensuciaría ese registro aparte.
-  const keys=Object.keys(S.sessions).filter(k=>k.startsWith(tid+"_")&&!k.endsWith("_opt"));
+  const keys=Object.keys(S.sessions).filter(k=>k.startsWith(tid+"_")&&!_isOptKey(k));
   keys.forEach(k=>{
     const sess={...(S.sessions[k]||{})};
     let changed=false;
@@ -4722,7 +4781,7 @@ function navBack(){
     S.navStack=stack.slice(0,-1);
     S.screen=prev.screen;S.teamId=prev.teamId;S.matchId=prev.matchId;
     S.date=prev.date;S.eventId=prev.eventId;S.histMonth=prev.histMonth;
-    S.statsView=prev.statsView;S.sf=prev.sf;S.hoyDate=prev.hoyDate;S.attOpt=!!prev.attOpt;
+    S.statsView=prev.statsView;S.sf=prev.sf;S.hoyDate=prev.hoyDate;S.attOpt=prev.attOpt||false;
     render();
   });
 }
@@ -4943,7 +5002,7 @@ function hoy(){
   // visibles para este entrenador.
   const todayMatches=Object.values(_allMatchMap).filter(m=>m.date===today&&!m.finished&&_canViewTeam(m._tid));
   // ── Match cards ──
-  const matchCards=todayMatches.map(m=>{
+  const matchCardsArr=todayMatches.map(m=>{
     const t=S.teams.find(x=>x.id===m._tid);
     if(!t)return"";
     const live=m.live||{};
@@ -4998,7 +5057,7 @@ function hoy(){
         </div>
       </div>
     </div>`;
-  }).join("");
+  });
 // v3.0.0-dev.76 · B-TNMERGE1: el botón "📝 Notas de entrenamiento" (pantalla
 // aparte con objetivos/foco de semana/hábitos/observaciones/foto/notas para
 // la próxima sesión) desaparece de aquí -- Mario pidió explícitamente
@@ -5009,7 +5068,7 @@ function hoy(){
 // pudiendo consultar de forma sencilla y de solo lectura desde el propio
 // pase de lista de ese día (ver _legacyTrainingNoteHtml en att()).
 // ── Training cards ──
-  const trainingCards=todayTeams.length===0?"":todayTeams_sorted.map(t=>{
+  const trainingCardsArr=todayTeams_sorted.map(t=>{
     const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija
     const sess=so(t.id,today);
     // v3.0.0-dev · B-GUEST2: idem buildDailyText -- excluye puntuales de
@@ -5054,7 +5113,7 @@ function hoy(){
         </div>
       </div>
     </div>`;
-  }).join("");
+  });
   // v3.0.0-dev.106 · B-VOLTECH3: entrenamientos voluntarios/tecnificación de
   // HOY, ahora en su propia tarjeta aparte (nunca comparten sitio con la
   // normal del mismo equipo, ver skO()) -- aparecen solos si el equipo tiene
@@ -5062,16 +5121,20 @@ function hoy(){
   // explícito de Mario: "mirar una opción de tecnificación o entrenamiento
   // voluntario fijos de algunos equipos"), o si ya se creó uno puntual desde
   // el FAB "Añadir actividad" (mismo patrón "sorpresa" que arriba).
-  const optScheduledToday=_visTeamsHoy.filter(t=>t.optSchedule&&t.optSchedule.schedule&&t.optSchedule.schedule.hasOwnProperty(ti));
-  const optSurpriseToday=_visTeamsHoy.filter(t=>!(t.optSchedule&&t.optSchedule.schedule&&t.optSchedule.schedule.hasOwnProperty(ti))&&!!S.sessions[skO(t.id,today)]);
-  const optTeamsToday=[...optScheduledToday,...optSurpriseToday];
-  const optTeamsToday_sorted=[...optTeamsToday].sort((a,b)=>((a.optSchedule&&a.optSchedule.schedule&&a.optSchedule.schedule[ti])||"99:99").localeCompare((b.optSchedule&&b.optSchedule.schedule&&b.optSchedule.schedule[ti])||"99:99"));
-  const optTrainingCards=optTeamsToday.length===0?"":optTeamsToday_sorted.map(t=>{
-    const fixedTime=t.optSchedule&&t.optSchedule.schedule&&t.optSchedule.schedule[ti];
-    const sessO=soO(t.id,today);
+  // v3.0.0-dev.110 · B-VOLTECH6: una entrada por (equipo, tipo) -- un
+  // equipo puede tener voluntario Y tecnificación el mismo día, cada uno
+  // por su horario fijo semanal (_optSched) o creado puntual desde "＋".
+  const optPairsToday=[];
+  _visTeamsHoy.forEach(t=>OPT_TYPES.forEach(type=>{
+    if(_optSchedHas(t,type,ti)||!!S.sessions[skO(t.id,today,type)])optPairsToday.push({t,type});
+  }));
+  const optTeamsToday=optPairsToday; // (nombre de siempre: lo usan totalToday y el resto)
+  const optCardsArr=optPairsToday.map(({t,type})=>{
+    const fixedTime=(_optSched(t,type)||{})[ti];
+    const sessO=soO(t.id,today,type);
     const time=fixedTime||sessO._time||"";
-    const effType=sessO._optType||(t.optSchedule&&t.optSchedule.type)||"voluntario";
-    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today)));
+    const effType=type;
+    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today,true)));
     const marked=players.filter(p=>sessO[p.id]).length;
     const done=players.length>0&&marked>0;
     const effSt=players.map(p=>_effAttState(p,today,sessO[p.id]));
@@ -5103,12 +5166,12 @@ function hoy(){
         </div>`:""}
         <div style="font-size:11px;color:var(--tm);margin-bottom:10px">No cuenta para el % de asistencia oficial.</div>
         <div style="display:flex;gap:8px">
-          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:true})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,#a855f7,#7e22ce)"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
-          ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:'${today}',attOpt:true})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
+          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:'${type}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,#a855f7,#7e22ce)"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
+          ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:'${today}',attOpt:'${type}'})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
     </div>`;
-  }).join("");
+  });
   const totalToday=todayMatches.length+todayTeams.length+optTeamsToday.length;
   // v1.8.31 · B-HOY1: barra con el proximo entreno al que aun no se le ha
   // pasado lista (el mas cercano en el tiempo, ya que todayTeams_sorted viene
@@ -5120,20 +5183,62 @@ function hoy(){
   // pasado no tiene un "próximo" que esperar (ya pasó, o ya se le pasó
   // lista), y un día futuro tampoco (aún no ha llegado su hora). Se calcula
   // solo cuando isToday para no hacer trabajo de más en los demás días.
-  const _nextTrainingPending=isToday?todayTeams_sorted.find(t=>{
-    const time=t.schedule&&t.schedule[ti]; // un entrenamiento sorpresa (B-HOY2) nunca tiene hora fija, nunca cuenta como "pendiente por hora"
-    if(!time)return false;
+  // v3.0.0-dev.110 · B-HOY5: Mario -- "debe de ser a la hora, que no salga
+  // apartado [...] prefiero una timeline buena para que a la hora se vea que
+  // toca eso". Todo lo del día (partidos, entrenamientos, voluntarios y
+  // tecnificaciones) va en UNA sola línea de tiempo por hora, en vez de tres
+  // bloques separados. Lo que no tiene hora va al final.
+  const _tl=[];
+  todayMatches.forEach((m,i)=>_tl.push({time:m.time||"",kind:"match",html:matchCardsArr[i]}));
+  todayTeams_sorted.forEach((t,i)=>{
     const sess=so(t.id,today);
-    return pl(t.id).filter(p=>sess[p.id]).length===0;
-  }):null;
+    _tl.push({time:(t.schedule&&t.schedule[ti])||"",kind:"training",html:trainingCardsArr[i],
+      pending:pl(t.id).filter(p=>sess[p.id]).length===0,name:t.name,tid:t.id,attOpt:false});
+  });
+  optPairsToday.forEach((pr,i)=>{
+    const sessO=soO(pr.t.id,today,pr.type);
+    _tl.push({time:((_optSched(pr.t,pr.type)||{})[ti])||sessO._time||"",kind:pr.type,html:optCardsArr[i],
+      pending:pl(pr.t.id).filter(p=>sessO[p.id]).length===0,name:pr.t.name,tid:pr.t.id,attOpt:pr.type});
+  });
+  const _kindOrd={match:0,training:1,voluntario:2,tecnificacion:3};
+  const timeline=_tl.filter(x=>x.html).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99")||_kindOrd[a.kind]-_kindOrd[b.kind]);
+  const _tlColor={match:"var(--orange)",training:"var(--orange)",voluntario:"#a855f7",tecnificacion:"#a855f7"};
+  let _nowShown=false;
+  // B-HOY5 (retocado tras feedback de Mario): "haz una diferenciación...
+  // con barras/líneas que ponga tecnificación o voluntario y luego vuelva a
+  // poner entrenamientos, pero no abajo del todo" -- cada vez que cambia el
+  // tipo de actividad en la línea de tiempo se intercala una barra con su
+  // nombre, sin romper el orden por hora.
+  const _tlLabel={match:["🏀 PARTIDOS","var(--orange)"],training:["🏋️ ENTRENAMIENTOS","var(--orange)"],voluntario:["🙋 VOLUNTARIO","#a855f7"],tecnificacion:["🎯 TECNIFICACIÓN","#a855f7"]};
+  let _prevKind=null;
+  const timelineHtml=timeline.map(it=>{
+    let nowMark="";
+    if(isToday&&!_nowShown&&it.time&&it.time>_nowHM){
+      _nowShown=true;
+      nowMark=`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 10px"><span style="width:52px;flex-shrink:0;text-align:right;font-size:11px;font-weight:900;color:#ef4444">${_nowHM}</span><span style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;box-shadow:0 0 0 3px rgba(239,68,68,.25)"></span><span style="flex:1;height:2px;background:rgba(239,68,68,.5)"></span><span style="font-size:10px;font-weight:900;letter-spacing:1.5px;color:#ef4444">AHORA</span></div>`;
+    }
+    const past=isToday&&it.time&&it.time<=_nowHM;
+    let divider="";
+    if(it.kind!==_prevKind){
+      const [lbl,col]=_tlLabel[it.kind];
+      divider=`<div class="tl-divider" style="display:flex;align-items:center;gap:10px;margin:${_prevKind?"6px":"0"} 0 10px"><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span><span style="font-size:11px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase;color:${col};white-space:nowrap">${lbl}</span><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span></div>`;
+      _prevKind=it.kind;
+    }
+    return nowMark+divider+`<div class="tl-row" style="display:flex;gap:8px;align-items:stretch">
+      <div style="width:52px;flex-shrink:0;text-align:right;padding-top:14px;font-family:var(--font-d);font-weight:900;font-size:15px;color:${it.time?(past?"var(--td)":"var(--tx)"):"var(--tm)"}">${it.time?esc(it.time):"—"}</div>
+      <div style="width:10px;flex-shrink:0;display:flex;flex-direction:column;align-items:center"><span style="width:10px;height:10px;border-radius:50%;margin-top:18px;background:${_tlColor[it.kind]};flex-shrink:0"></span><span style="flex:1;width:2px;background:var(--border)"></span></div>
+      <div style="flex:1;min-width:0">${it.html}</div>
+    </div>`;
+  }).join("");
+  const _nextTrainingPending=isToday?timeline.find(it=>it.kind!=="match"&&it.time&&it.pending)||null:null;
   const nextTrainingBar=_nextTrainingPending?(()=>{
-    const time=_nextTrainingPending.schedule[ti];
+    const time=_nextTrainingPending.time;
     const isNow=time<=_nowHM;
-    return`<div onclick="navTo('att',{teamId:'${_nextTrainingPending.id}',date:'${today}',attOpt:false})" style="display:flex;align-items:center;gap:10px;background:${isNow?"rgba(239,68,68,.12)":"rgba(249,115,22,.1)"};border:1px solid ${isNow?"rgba(239,68,68,.35)":"rgba(249,115,22,.3)"};border-radius:12px;padding:10px 14px;margin-bottom:14px;cursor:pointer">
+    return`<div onclick="navTo('att',{teamId:'${_nextTrainingPending.tid}',date:'${today}',attOpt:${_nextTrainingPending.attOpt?"'"+_nextTrainingPending.attOpt+"'":"false"}})" style="display:flex;align-items:center;gap:10px;background:${isNow?"rgba(239,68,68,.12)":"rgba(249,115,22,.1)"};border:1px solid ${isNow?"rgba(239,68,68,.35)":"rgba(249,115,22,.3)"};border-radius:12px;padding:10px 14px;margin-bottom:14px;cursor:pointer">
       <div style="font-size:20px">${isNow?"🔴":"⏰"}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;font-weight:800;color:${isNow?"#ef4444":"var(--orange)"};letter-spacing:.5px;text-transform:uppercase">${isNow?"Toca pasar lista ahora":"Próximo entrenamiento"}</div>
-        <div style="font-size:14px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_nextTrainingPending.name)} · ${time}h</div>
+        <div style="font-size:14px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(_nextTrainingPending.name)}${_nextTrainingPending.attOpt?(_nextTrainingPending.attOpt==="tecnificacion"?" · 🎯 Tecnificación":" · 🙋 Voluntario"):""} · ${time}h</div>
       </div>
       <div style="font-size:18px;color:var(--td)">›</div>
     </div>`;
@@ -5188,11 +5293,7 @@ function hoy(){
   </div>`;
   const content=hoyNavHtml+bdayBannerHoy+(emptyState
     ||nextTrainingBar
-    +(todayMatches.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin-bottom:10px">🏀 PARTIDOS</div>${matchCards}`:"")
-    +(todayTeams.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--td);margin:${todayMatches.length>0?"14px 0":"0 0"} 10px">🏋️ ENTRENAMIENTOS</div>${trainingCards}`:"")
-    // v3.0.0-dev.106 · B-VOLTECH3: bloque aparte para las tarjetas
-    // voluntario/tecnificación de hoy -- nunca se mezclan con las de arriba.
-    +(optTeamsToday.length>0?`<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#a855f7;margin:${(todayMatches.length>0||todayTeams.length>0)?"14px 0":"0 0"} 10px">🙋 VOLUNTARIOS / TECNIFICACIÓN</div>${optTrainingCards}`:""));
+    +timelineHtml);
   // v1.6.12: el título del header usa el nombre del club si está configurado
   const _hasClub=S.clubName&&S.clubName.trim()&&S.clubName!=="Kortline";
   const _title=_hasClub?esc(S.clubName):"Hoy";
@@ -5227,7 +5328,7 @@ function hoy(){
 // justificado). att() ahora llama a esta misma función -- cero cambio de
 // comportamiento ahí, es un refactor puro.
 function _attEffectiveState(p,tid,date,isOpt){
-  const sess=isOpt?soO(tid,date):so(tid,date);
+  const sess=isOpt?soO(tid,date,_optTypeOf(isOpt)):so(tid,date);
   if(sess[p.id])return{st:sess[p.id],auto:false};
   if(isInjured(p)){
     const st2=injuryStart(p);
@@ -5246,7 +5347,7 @@ function att(){
   // v3.0.0-dev.37 · B-GUEST3: un puntual de ENTRENAMIENTO (attOnly) solo
   // aparece en el pase de lista del día exacto para el que se dio de alta
   // -- antes se quedaba para siempre como si fuera plantilla fija.
-  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,S.date))); // B-GUEST7
+  const players=pl(S.teamId).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,S.date,S.attOpt))); // B-GUEST7 + B-GUEST9
   // v3.0.0-dev.106 · B-VOLTECH3: soAtt() lee de la clave normal o de la
   // opcional según S.attOpt (puesto por navTo al entrar aquí desde "Hoy"/
   // Historial) -- todo lo demás de esta pantalla sigue leyendo/escribiendo
@@ -5297,7 +5398,13 @@ function att(){
   // -- se usa el tipo configurado para el equipo como respaldo, solo para
   // decidir qué aviso/icono mostrar (no se persiste nada por el simple
   // hecho de ver la pantalla).
-  const optType=S.attOpt?(sess._optType||(t&&t.optSchedule&&t.optSchedule.type)||"voluntario"):null;
+  const optType=_optTypeOf(S.attOpt);
+  // v3.0.0-dev.110 · B-VOLTECH5: una tecnificación suele juntar varios
+  // equipos -- antes, tras crearla, había que volver a "Hoy" para pasar lista
+  // al siguiente. Ahora salen aquí los otros equipos con sesión opcional ese
+  // día, para saltar de uno a otro directamente.
+  const _optSiblings=S.attOpt?_visibleTeams().filter(x=>x.id!==S.teamId&&(S.sessions[skO(x.id,S.date,optType)]||_optSchedHas(x,optType,_weekdayIdxForDate(S.date)))):[];
+  const optSiblingsHtml=_optSiblings.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-4px 0 10px;font-size:11.5px;color:var(--td)"><span>Otros equipos en esta ${optType==="tecnificacion"?"tecnificación":"sesión"}:</span>${_optSiblings.map(x=>`<button onclick="navTo('att',{teamId:'${x.id}',date:'${S.date}',attOpt:'${optType}'})" style="padding:5px 10px;border-radius:14px;border:1px solid rgba(168,85,247,.4);background:rgba(168,85,247,.1);color:#a855f7;font-weight:700;font-size:12px;cursor:pointer">${esc(x.name)}</button>`).join("")}</div>`:"";
   const optSessionBannerHtml=optType?`<div style="display:flex;align-items:center;gap:8px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#a855f7;font-weight:600"><span style="font-size:16px">${optType==="tecnificacion"?"🎯":"🙋"}</span><span>${optType==="tecnificacion"?"Tecnificación":"Entrenamiento voluntario"} -- las ausencias aquí NO cuentan para el % oficial. Las asistencias suman a un contador aparte.</span></div>`:"";
   // v3.0.0-dev.62 · B-BDAY1: aviso de cumpleaños de HOY para jugadores de
   // este equipo (solo decorativo, sin botones -- no hay ninguna acción que
@@ -5412,7 +5519,7 @@ function att(){
         <div class="pnum-wrap"><div class="pnum" style="background:linear-gradient(135deg,${t?.color||"#F06318"},${t?.color||"#F06318"}80)">${p.number!=null?p.number:"?"}</div>${isInj?`<span class="injury-dot" title="Lesionado">!</span>`:""}</div>
         ${avatar}
         <div style="flex:1;min-width:0" onpointerdown="_plNoteLongPressStart(this,'${p.id}')" onpointerup="_plNoteLongPressEnd(this)" onpointerleave="_plNoteLongPressEnd(this)" onpointercancel="_plNoteLongPressEnd(this)">
-          <div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${esc(p.name)}${injBadge}${p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px">🔄 PUNTUAL</span>`:""}${pnote?`<span class="pnote-badge" title="${esc(pnote)}" onclick="event.stopPropagation();openPlayerNoteModal('${p.id}')">📝</span>`:""}</div>
+          <div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">${esc(p.name)}${injBadge}${p.guest?`<span style="background:rgba(139,92,246,.18);color:#8b5cf6;border:1px solid rgba(139,92,246,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px">🔄 PUNTUAL</span>${p.attOnly?`<button onclick="event.stopPropagation();removeGuestFromSession('${p.id}')" title="Quitar de este día" aria-label="Quitar puntual de este día" style="background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.35);border-radius:5px;font-size:10px;font-weight:800;padding:1px 6px;cursor:pointer">✕ Quitar</button>`:""}`:""}${pnote?`<span class="pnote-badge" title="${esc(pnote)}" onclick="event.stopPropagation();openPlayerNoteModal('${p.id}')">📝</span>`:""}</div>
           <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:2px">
             <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:12px;font-weight:700;background:${v.bg};color:${v.c}">${v.i} ${v.l}</span>
             ${autoHint}
@@ -5532,6 +5639,7 @@ function att(){
     </div>
     ${notTodayBannerHtml}
     ${optSessionBannerHtml}
+    ${optSiblingsHtml}
     ${bdayReminderHtml}
     ${injReminderHtml}
     <div class="agrid">${agrid}</div>
@@ -5908,15 +6016,15 @@ function hist(){
       // t.optSchedule), el registro aún no tiene _optType propio -- se usa
       // el tipo configurado para el equipo como respaldo, solo para la
       // etiqueta visual.
-      const eType=e.data._optType||(t&&t.optSchedule&&t.optSchedule.type);
+      const eType=e.optType;
       const typeLabel=eType==="tecnificacion"?"🎯 Tecnificación":"🙋 Voluntario";
       return`<div class="he" style="${i===optEntries.length-1?"border-bottom:none":""}">
         <div style="display:flex;align-items:center;gap:8px">
-          <div onclick="S.attOpt=true;S.date='${e.date}';navTo('att')" style="flex:1;cursor:pointer">
+          <div onclick="S.attOpt='${e.optType}';S.date='${e.date}';navTo('att')" style="flex:1;cursor:pointer">
             <div style="display:flex;align-items:center;gap:6px"><div style="font-family:var(--font-d);font-weight:700;font-size:16px">${fd(e.date,true)}</div><span style="font-size:11px;font-weight:800;color:#a855f7;background:rgba(168,85,247,.12);border-radius:5px;padding:1px 6px">${typeLabel}</span></div>
             <div style="font-size:12px;color:var(--td);margin-top:4px">✓ ${pr} asistieron de ${activeP.length}</div>
           </div>
-          <button onclick="openDeleteConfirm('${S.teamId}','${e.date}',true)" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
+          <button onclick="openDeleteConfirm('${S.teamId}','${e.date}','${e.optType}')" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
         </div>
       </div>`;
     }).join("")}</div>`;
@@ -6162,7 +6270,7 @@ function buildDailyText(tid,date,showMotivo,opts,isOpt){
   // nunca fueron.
   // v3.0.0-dev.106 · B-VOLTECH3: isOpt (S.attOpt de quien llama) decide si
   // se comparte la sesión normal o la opcional de este equipo+día.
-  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date)));const sess=isOpt?soO(tid,date):so(tid,date); // B-GUEST7
+  const players=pl(tid).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,date,isOpt)));const sess=isOpt?soO(tid,date,_optTypeOf(isOpt)):so(tid,date); // B-GUEST7 + B-GUEST9
   const allCoaches=(t.coaches||[]).filter(Boolean);
   let lines=[`🏀 *${t.name}* — ${t.category||""}`,`📅 ${cap(fd(date,false))}`];
   const coachesToShowD=coachNames!==null?coachNames:allCoaches;
@@ -8463,14 +8571,13 @@ function openTeamModal(init){
     <div class="fg" id="${id}-asst-wrap"><label class="fl">👟 Entrenadores ayudantes</label><div id="${id}-asst-list">${coaches.slice(1).map((c,i)=>`<div class="asst-row"><input class="fi asst-inp" id="${id+'-asst-'+i}" value="${esc(c)}" placeholder="Nombre ayudante" style="flex:1;margin-bottom:0"/><button type="button" class="asst-rm" onclick="this.closest('.asst-row').remove()">✕</button></div>`).join("")||`<div class="asst-row"><input class="fi asst-inp" id="${id}-asst-0" placeholder="Nombre ayudante" style="flex:1;margin-bottom:0"/><button type="button" class="asst-rm" onclick="this.closest('.asst-row').remove()">✕</button></div>`}</div><button type="button" class="btn-asst-add" onclick="addAsstRow('${id}')">+ Añadir ayudante</button></div>
     <div class="fg"><label class="fl">📅 Días y horarios</label><div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:4px 12px;">${dayScheduleRows(id,init?.schedule)}</div></div>
     <div class="fg">
-      <label class="fl">🙋 Voluntario / tecnificación fijo <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label>
-      <select class="fi" id="${id}-opttype" style="margin-bottom:8px">
-        <option value="">Sin horario fijo (solo puntual desde "Hoy")</option>
-        <option value="voluntario" ${init?.optSchedule?.type==="voluntario"?"selected":""}>🙋 Voluntario</option>
-        <option value="tecnificacion" ${init?.optSchedule?.type==="tecnificacion"?"selected":""}>🎯 Tecnificación</option>
-      </select>
-      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:4px 12px;">${dayScheduleRows(id+"-opt",init?.optSchedule?.schedule)}</div>
-      <div style="font-size:11px;color:var(--td);margin-top:6px">💡 Si pones días aquí, el equipo aparecerá solo en "Hoy" cada semana con una tarjeta APARTE, sin tener que añadirla a mano -- nunca sustituye al entrenamiento normal de ese día.</div>
+      <label class="fl">🙋 Entrenamiento voluntario fijo <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label>
+      <div style="background:var(--s2);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:4px 12px;">${dayScheduleRows(id+"-optv",_optSched(init,"voluntario"))}</div>
+    </div>
+    <div class="fg">
+      <label class="fl">🎯 Tecnificación fija <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label>
+      <div style="background:var(--s2);border:1px solid rgba(168,85,247,.3);border-radius:10px;padding:4px 12px;">${dayScheduleRows(id+"-optt",_optSched(init,"tecnificacion"))}</div>
+      <div style="font-size:11px;color:var(--td);margin-top:6px">💡 Los días que marques aquí salen solos en "Hoy" cada semana, a su hora, junto al resto de entrenamientos. Las ausencias en voluntarios y tecnificaciones nunca cuentan para el % oficial.</div>
     </div>
     <div class="fg"><label class="fl">Color</label><div style="display:flex;gap:8px;flex-wrap:wrap" id="${id}-cols">${COLORS.map(c=>`<div class="cdot ${sc===c?"s":""}" data-col="${c}" style="background:${c}" onclick="togCol(this,'${id}-cols')"></div>`).join("")}</div></div>
     <button class="btn-p" onclick="saveTeam('${id}','${init?.id||""}')">${init?"Guardar":"Crear Equipo"}</button>
@@ -8541,9 +8648,8 @@ function buildInjSourceOptions(origin,selectedId){
     // ordenada (`id` se deja tal cual, sigue siendo la clave real y única).
     items=Object.keys(S.sessions||{}).filter(k=>k.startsWith(tid+"_")).map(k=>{
       const raw=k.replace(tid+"_","");
-      const isOpt=raw.endsWith("_opt");
-      const date=isOpt?raw.slice(0,-4):raw;
-      return{id:raw,date,label:fd(date,false)+(isOpt?" (opcional)":"")};
+      const ps=_parseSessSuffix(raw);
+      return{id:raw,date:ps.date,label:fd(ps.date,false)+(ps.optType?(ps.optType==="tecnificacion"?" (tecnificación)":" (voluntario)"):"")};
     });
   }else if(origin==="match"){
     items=(S.matches[tid]||[]).map(m=>({id:m.id,date:m.date,label:(m.date?fd(m.date,false)+" · ":"")+(m.rival||"Partido")}));
@@ -9218,11 +9324,11 @@ function deleteIncident(pid,incId){
 // siempre (doble check + irreversible) sin duplicar nada.
 function openDeleteConfirm(teamId,date,isOpt){
   document.getElementById("m-del")?.remove();
-  const players=pl(teamId);const sess=isOpt?soO(teamId,date):so(teamId,date);
+  const players=pl(teamId);const sess=isOpt?soO(teamId,date,_optTypeOf(isOpt)):so(teamId,date);
   const pr=players.filter(p=>_effAttState(p,date,sess[p.id])==="present").length;
   const p2=pc(pr,players.length);
   const t=S.teams.find(x=>x.id===teamId);
-  const optType=isOpt?(sess._optType||(t&&t.optSchedule&&t.optSchedule.type)||"voluntario"):null;
+  const optType=_optTypeOf(isOpt);
   const optBadge=isOpt?`<span style="font-size:11px;font-weight:800;color:#a855f7;background:rgba(168,85,247,.12);border-radius:5px;padding:1px 6px;margin-left:6px">${optType==="tecnificacion"?"🎯 Tecnificación":"🙋 Voluntario"}</span>`:"";
   const el=document.createElement("div");el.id="m-del";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=e=>{if(e.target===el)el.remove();};
@@ -9242,7 +9348,7 @@ function openDeleteConfirm(teamId,date,isOpt){
       <input type="checkbox" id="del-check" style="width:24px;height:24px;margin-top:1px;accent-color:#ef4444;flex-shrink:0;-webkit-appearance:auto;appearance:auto" onchange="document.getElementById('del-btn').disabled=!this.checked"/>
       <span style="font-size:14px;color:var(--tx);line-height:1.5">Entiendo que esta acción es <b>irreversible</b> y quiero borrar este entrenamiento definitivamente</span>
     </label>
-    <button id="del-btn" class="btn-d" disabled onclick="execDelete('${teamId}','${date}',${!!isOpt})">🗑 Borrar definitivamente</button>
+    <button id="del-btn" class="btn-d" disabled onclick="execDelete('${teamId}','${date}',${isOpt?"'"+_optTypeOf(isOpt)+"'":"false"})">🗑 Borrar definitivamente</button>
     <button class="btn-s" onclick="document.getElementById('m-del').remove()">Cancelar, no borrar</button>
   </div>`;
   document.body.appendChild(el);
@@ -9489,16 +9595,16 @@ function saveTeam(mid,eid){
   const assistants=asstList?[...asstList.querySelectorAll(".asst-inp")].map(x=>x.value.trim()).filter(Boolean):[];
   const coaches=[c0,...assistants].filter(Boolean);
   const schedule={};for(let i=0;i<7;i++){const cb=document.getElementById(mid+"-day-"+i),ti=document.getElementById(mid+"-time-"+i);if(cb?.checked||ti?.value)schedule[i]=ti?ti.value:"";}
-  // v3.0.0-dev.106 · B-VOLTECH3: horario semanal fijo opcional (voluntario/
-  // tecnificación), pedido explícito de Mario -- mismo widget que el
-  // horario normal (dayScheduleRows), con prefijo "-opt" aparte. null si no
-  // se eligió tipo (sin horario fijo -- solo puntual desde "Hoy").
-  const optTypeVal=document.getElementById(mid+"-opttype")?.value||"";
-  const optSchedRaw={};for(let i=0;i<7;i++){const cb=document.getElementById(mid+"-opt-day-"+i),ti=document.getElementById(mid+"-opt-time-"+i);if(cb?.checked||ti?.value)optSchedRaw[i]=ti?ti.value:"";}
-  const optSchedule=optTypeVal?{type:optTypeVal,schedule:optSchedRaw}:null;
+  // v3.0.0-dev.110 · B-VOLTECH6: un horario semanal fijo por CADA tipo de
+  // sesión opcional (un equipo puede tener voluntario y tecnificación todas
+  // las semanas). Sustituye al optSchedule único de dev.106 -- que además
+  // perdía el horario si no se elegía el tipo en un desplegable (B-VOLTECH5).
+  const _readOptDays=pre=>{const o={};for(let i=0;i<7;i++){const cb=document.getElementById(mid+pre+"-day-"+i),ti=document.getElementById(mid+pre+"-time-"+i);if(cb?.checked||ti?.value)o[i]=ti?ti.value:"";}return o;};
+  const optSchedules={voluntario:_readOptDays("-optv"),tecnificacion:_readOptDays("-optt")};
+  const optSchedule=null; // formato antiguo, ya no se usa
   const colorEl=document.querySelector("#"+mid+"-cols .cdot.s");const color=colorEl?(colorEl.dataset.col||colorEl.style.background):COLORS[0];
-  if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,gender,schedule,optSchedule,color,coaches}:t);toast("✅ Actualizado");}
-  else{S.teams.push({id:uid(),name,category:cat,gender,schedule,optSchedule,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
+  if(eid){S.teams=S.teams.map(t=>t.id===eid?{...t,name,category:cat,gender,schedule,optSchedule,optSchedules,color,coaches}:t);toast("✅ Actualizado");}
+  else{S.teams.push({id:uid(),name,category:cat,gender,schedule,optSchedule,optSchedules,color,coaches,order:S.teams.length});toast("✅ Equipo creado");}
   clearDirty();
   document.getElementById(mid)?.remove();save();render();
   return true;
@@ -9618,9 +9724,11 @@ function _guestUseCount(p,mode){
 }
 // Añade `date` al historial de días de un puntual de entreno sin duplicar
 // (retrocompatible con los que solo tenían addedAt de antes de este cambio).
-function _guestMarkAttDate(p,date){
+function _guestMarkAttDate(p,date,isOpt){
+  if(isOpt===undefined)isOpt=S.attOpt;
+  const tok=_attTok(date,isOpt);
   const dates=Array.isArray(p.attDates)?[...p.attDates]:(p.addedAt?[p.addedAt]:[]);
-  if(!dates.includes(date))dates.push(date);
+  if(!dates.includes(tok))dates.push(tok);
   p.attDates=dates;
 }
 // Fila de selección reutilizada de la convocatoria de partido (mismo look:
@@ -9692,7 +9800,7 @@ function openGuestPlayerModal(opts){
   // ordenados por más veces usados. Se excluye a quien ya está activo/
   // convocado HOY (no tiene sentido volver a añadirlo).
   const frequent=pl(S.teamId).filter(p=>p.guest&&p[flag]).filter(p=>{
-    if(mode==="att")return !(Array.isArray(p.attDates)&&p.attDates.includes(S.date));
+    if(mode==="att")return !_attOnlyActiveOn(p,S.date,S.attOpt);
     return !(m&&(m.convocados||[]).includes(p.id));
   }).map(p=>({id:p.id,name:p.name,number:p.number??null,useCount:_guestUseCount(p,mode)}))
     .sort((a,b)=>b.useCount-a.useCount||(a.name||"").localeCompare(b.name||""));
@@ -9769,7 +9877,7 @@ function _guestPickerCommit(){
     // no se actualiza solo. sourceTeamId/sourcePlayerId solo se usan para no
     // volver a ofrecer al mismo jugador dos veces en esta lista.
     const np={id,name:r.name,number,guest:true,guestNote:r.teamName,addedAt:today,matchOnly:mode==="match",attOnly:mode==="att",sourceTeamId:r.teamId,sourcePlayerId:r.id};
-    if(mode==="att")np.attDates=[today];
+    if(mode==="att")np.attDates=[_attTok(today,S.attOpt)];
     list.push(np);
     addedIds.push(id);
     names.push(r.name);
@@ -9796,6 +9904,37 @@ function _guestPickerCommit(){
   }
   const uniqueNames=[...new Set(names)];
   toast(`✅ ${uniqueNames.length} jugador${uniqueNames.length>1?"es":""} añadido${uniqueNames.length>1?"s":""}`+(numberClashes?` (${numberClashes} sin dorsal por estar repetido)`:""));
+}
+// v3.0.0-dev.110 · B-GUEST10: Mario -- "no puedes borrar un jugador puntual
+// añadido un día de entrenamiento y si hay errores debe hacerse". Quita al
+// puntual SOLO de la sesión que se está viendo (ese día, normal u opcional):
+// se borra su marca de asistencia/motivo/nota de ese día y ese día de sus
+// attDates. Si ya no le queda ningún otro día ni ninguna convocatoria, se
+// elimina el puntual entero (era un error de alta) -- si no, se conserva con
+// el resto de su historial intacto.
+function removeGuestFromSession(pid){
+  if(!_requireEdit(S.teamId))return;
+  const list=S.players[S.teamId]||[];
+  const p=list.find(x=>x.id===pid);
+  if(!p||!p.guest||!p.attOnly)return;
+  const tok=_attTok(S.date,S.attOpt);
+  const dates=Array.isArray(p.attDates)?p.attDates:(p.addedAt?[p.addedAt]:[]);
+  const others=dates.filter(d=>d!==tok&&!(d===S.date&&!S.attOpt));
+  const inMatches=mlist(S.teamId).some(m=>(m.convocados||[]).includes(pid));
+  const willDelete=!others.length&&!inMatches;
+  _confirm(`¿Quitar a <b>${esc(p.name)}</b> de este ${S.attOpt?(_optTypeOf(S.attOpt)==="tecnificacion"?"tecnificación":"entrenamiento voluntario"):"entrenamiento"} (${fd(S.date,true)})?`+
+    (willDelete?`<br><span style="font-size:12px;color:var(--td)">No ha venido ningún otro día, así que se borra el puntual.</span>`:`<br><span style="font-size:12px;color:var(--td)">Se conserva en los otros ${others.length} día(s) en que vino.</span>`),
+    "✕ Quitar",()=>{
+      const k=_attK(S.teamId,S.date);
+      if(S.sessions[k]){
+        const sess={...S.sessions[k]};
+        Object.keys(sess).forEach(key=>{ if(key===pid||key.startsWith(pid+"_"))delete sess[key]; });
+        S.sessions[k]=sess;
+      }
+      if(willDelete){ S.players[S.teamId]=list.filter(x=>x.id!==pid); }
+      else { p.attDates=others; if(p.addedAt===S.date&&others.length)p.addedAt=String(others[0]).replace(/_opt(_tec)?$/,""); }
+      save();render();toast("✕ "+p.name+" quitado de este día");
+    });
 }
 function _guestPlayerCommit(mode){
   const name=(document.getElementById("gp-name")?.value||"").trim();
@@ -9836,7 +9975,7 @@ function _guestPlayerCommit(mode){
     // v3.0.0-dev.58 · B-GUEST4: attDates arranca con el día de alta, para
     // que este mismo puntual pueda reutilizarse en días futuros ("Más
     // frecuentes") sin crear una segunda entrada duplicada.
-    if(mode==="att")np.attDates=[addedAt];
+    if(mode==="att")np.attDates=[_attTok(addedAt,S.attOpt)];
     list.push(np);
   }
   if(mode==="match"){
@@ -9922,7 +10061,7 @@ function _mergeGuestGroup(teamId,group){
     if(isAtt){
       const dates=new Set([...(survivor.attDates||(survivor.addedAt?[survivor.addedAt]:[])),...(loser.attDates||(loser.addedAt?[loser.addedAt]:[]))]);
       survivor.attDates=[...dates].sort();
-      if(survivor.attDates.length)survivor.addedAt=survivor.attDates[0];
+      if(survivor.attDates.length)survivor.addedAt=String(survivor.attDates[0]).replace(/_opt(_tec)?$/,"");
       Object.keys(S.sessions).filter(k=>k.startsWith(teamId+"_")).forEach(k=>{
         const sess=S.sessions[k];
         Object.keys(sess).forEach(sk2=>{
@@ -11085,13 +11224,13 @@ function _hoyAddCommitOptional(kind){
   const time=document.getElementById("hoy-opt-time")?.value||"";
   document.getElementById("m-hoy-add")?.remove();
   checked.forEach(tid=>{
-    const k=skO(tid,date);
+    const k=skO(tid,date,kind);
     const existing=S.sessions[k]||{};
     S.sessions[k]={...existing,_optType:kind,...(time?{_time:time}:{})};
   });
   save();
   S.teamId=checked[0];
-  navTo("att",{teamId:checked[0],date,attOpt:true});
+  navTo("att",{teamId:checked[0],date,attOpt:kind});
   toast(checked.length>1?`✅ Creado para ${checked.length} equipos -- cambia de equipo para pasar lista a cada uno`:"✅ Creado -- ya puedes pasar lista");
 }
 /* ═══════════════════════════════════════

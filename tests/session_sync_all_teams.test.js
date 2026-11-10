@@ -211,7 +211,7 @@ async function run() {
     { id: "m1", rival: "Rival Test", date: hoyFecha, quarters: 4, qMins: 10, convocados: [] }
   ]));
   const hoyHtmlConPartido = win.document.getElementById("root").innerHTML;
-  report.assert(hoyHtmlConPartido.includes("🏀 PARTIDOS"), "B-SYNC2: la sección de partidos de hoy aparece en cuanto llega un partido de t2 (equipo NO abierto) por el listener");
+  report.assert(hoyHtmlConPartido.includes("Rival Test"), "B-SYNC2: el partido de hoy de t2 aparece en Hoy (línea de tiempo) en cuanto llega por el listener, sin abrir t2");
   report.assert(/Rival Test/.test(hoyHtmlConPartido), "el rival del partido de t2 se muestra en la tarjeta, sin haber entrado nunca en t2");
 
   // Si t2 se da de baja del club, su listener de asistencia se debe cortar

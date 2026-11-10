@@ -82,7 +82,7 @@ async function run() {
   win._hoyAddCommitOptional("tecnificacion");
 
   const normalAfter = win.S.sessions[win.sk("t1", today)];
-  const optAfter = win.S.sessions[win.skO("t1", today)];
+  const optAfter = win.S.sessions[win.skO("t1", today, "tecnificacion")];
   assert(normalAfter.p1 === "present" && normalAfter.p2 === "absent",
     "B-VOLTECH3 FIX: crear una tecnificación el mismo día NO toca ni pisa la asistencia normal ya pasada (antes del fix, era la misma clave y se perdía)");
   assert(optAfter && optAfter._optType === "tecnificacion",
@@ -95,9 +95,9 @@ async function run() {
   win.cycleAtt("p1"); // present -> absent en la sesión NORMAL
   assert(win.S.sessions[win.sk("t1", today)].p1 === "absent",
     "cycleAtt() tras crear la opcional sigue escribiendo en la clave normal con normalidad");
-  assert(win.S.sessions[win.skO("t1", today)]._optType === "tecnificacion",
+  assert(win.S.sessions[win.skO("t1", today, "tecnificacion")]._optType === "tecnificacion",
     "B-VOLTECH3 FIX (al revés): seguir pasando lista normal NO toca la sesión opcional ya creada");
-  win.S.attOpt = true; // deja el flag como lo espera el resto del archivo
+  win.S.attOpt = "tecnificacion"; // deja el flag como lo espera el resto del archivo
 
   // ═══ 2) Multi-equipo real (varios checkboxes a la vez) -- ya lo cubría
   // B-VOLTECH1, sigue cubierto con la clave nueva. ═══
@@ -120,7 +120,7 @@ async function run() {
   win.document.getElementById("hoy-opt-time").value = "18:30";
   win.document.querySelectorAll("#hoy-opt-teams input[type=checkbox]").forEach(cb => { if (cb.value === "t1") cb.checked = true; });
   win._hoyAddCommitOptional("tecnificacion");
-  assert(win.S.sessions[win.skO("t1", today)]._time === "18:30",
+  assert(win.S.sessions[win.skO("t1", today, "tecnificacion")]._time === "18:30",
     "_hoyAddCommitOptional(): guarda la hora puesta en el campo opcional");
 
   // Sin hora puesta (campo vacío) -> no se guarda ningún _time.
@@ -132,18 +132,21 @@ async function run() {
   assert(!("_time" in win.S.sessions[win.skO("t2", today)]),
     "_hoyAddCommitOptional(): sin hora puesta, no se guarda ningún campo _time");
 
-  // ═══ 4) Cambiar de tipo (voluntario -> tecnificación) una sesión que YA
-  // era opcional conserva la asistencia ya tomada (misma clave, solo
-  // cambia la etiqueta _optType). ═══
+  // ═══ 4) v3.0.0-dev.110 · B-VOLTECH6: voluntario y tecnificación son
+  // sesiones INDEPENDIENTES -- crear una tecnificación el día que ya hay un
+  // voluntario no lo convierte ni lo pisa: quedan las dos, cada una con su
+  // asistencia (Mario: "puede haber un equipo que tenga entrenamientos
+  // voluntarios y tecnificaciones todas las semanas"). ═══
   freshTeams();
-  win.S.sessions[win.skO("t1", today)] = { _optType: "voluntario", p1: "present" };
+  win.S.sessions[win.skO("t1", today, "voluntario")] = { _optType: "voluntario", p1: "present" };
   win.openHoyAddSheet();
   win._hoyAddPickOptional("tecnificacion");
   win.document.querySelectorAll("#hoy-opt-teams input[type=checkbox]").forEach(cb => { if (cb.value === "t1") cb.checked = true; });
   win._hoyAddCommitOptional("tecnificacion");
-  const changed = win.S.sessions[win.skO("t1", today)];
-  assert(changed._optType === "tecnificacion" && changed.p1 === "present",
-    "_hoyAddCommitOptional(): permite cambiar el tipo de una sesión que YA era opcional, sin perder la asistencia ya tomada");
+  const volKeep = win.S.sessions[win.skO("t1", today, "voluntario")];
+  const tecNew = win.S.sessions[win.skO("t1", today, "tecnificacion")];
+  assert(volKeep && volKeep._optType === "voluntario" && volKeep.p1 === "present" && tecNew && tecNew._optType === "tecnificacion" && !("p1" in tecNew),
+    "B-VOLTECH6: crear una tecnificación el día que ya hay voluntario crea una sesión APARTE -- el voluntario sigue intacto con su asistencia");
 
   // ═══ 5) att(): aviso morado + botón "Confirmar sesión" en una opcional
   // recién creada (sin nadie marcado todavía) ═══
@@ -151,8 +154,8 @@ async function run() {
   win.openHoyAddSheet();
   win._hoyAddPickOptional("tecnificacion");
   win.document.querySelectorAll("#hoy-opt-teams input[type=checkbox]").forEach(cb => { if (cb.value === "t1") cb.checked = true; });
-  win._hoyAddCommitOptional("tecnificacion"); // navega con attOpt:true
-  assert(win.S.attOpt === true, "_hoyAddCommitOptional(): navega al pase de lista con S.attOpt=true (sesión opcional)");
+  win._hoyAddCommitOptional("tecnificacion"); // navega con attOpt:"tecnificacion"
+  assert(win.S.attOpt === "tecnificacion", "_hoyAddCommitOptional(): navega al pase de lista de la tecnificación (S.attOpt='tecnificacion')");
   let attHtml = win.att();
   assert(attHtml.includes("Tecnificación") && attHtml.includes("NO cuentan para el % oficial"),
     "att(): muestra el aviso de tecnificación cuando S.attOpt=true y la sesión opcional tiene _optType");
@@ -160,7 +163,7 @@ async function run() {
     "B-VOLTECH2 (conservado): justo tras crear la sesión opcional, sin que nadie haya pasado lista aún, el botón Confirmar sesión SÍ aparece");
 
   win.confirmSession();
-  const optAfterConfirm = win.S.sessions[win.skO("t1", today)];
+  const optAfterConfirm = win.S.sessions[win.skO("t1", today, "tecnificacion")];
   assert(optAfterConfirm.p1 === "present" && optAfterConfirm.p2 === "present",
     "confirmSession(): marca explícitamente presentes a los dos jugadores DENTRO de la sesión opcional (skO), no en la normal");
   assert(optAfterConfirm._optType === "tecnificacion", "confirmSession(): conserva el _optType de la sesión opcional");
@@ -179,9 +182,9 @@ async function run() {
     "_optionalAttCount(): tras confirmar, cuenta la asistencia de los dos jugadores en la sesión opcional");
 
   // Reconstruir sin asistencia para los bloques de abajo.
-  win.S.sessions[win.skO("t1", today)] = { _optType: "tecnificacion" };
-  win.S.sessions[win.skO("t1", today)].p1 = "present";
-  win.S.sessions[win.skO("t1", today)].p2 = "absent";
+  win.S.sessions[win.skO("t1", today, "tecnificacion")] = { _optType: "tecnificacion" };
+  win.S.sessions[win.skO("t1", today, "tecnificacion")].p1 = "present";
+  win.S.sessions[win.skO("t1", today, "tecnificacion")].p2 = "absent";
   const c1 = win._optionalAttCount(p1, "t1");
   const c2 = win._optionalAttCount(p2, "t1");
   assert(c1.asistidas === 1 && c1.total === 1, "_optionalAttCount(): p1 (presente) cuenta 1 asistencia de 1 sesión opcional");
@@ -192,7 +195,7 @@ async function run() {
   freshTeams();
   win.S.sessions = {
     [win.sk("t1", win._addDaysISO(today, -5))]: { p1: "present", p2: "present" },
-    [win.skO("t1", today)]: { _optType: "tecnificacion", p1: "present", p2: "absent" }
+    [win.skO("t1", today, "tecnificacion")]: { _optType: "tecnificacion", p1: "present", p2: "absent" }
   };
   win.S.teamId = "t1";
   let histHtml = "";
@@ -203,8 +206,8 @@ async function run() {
     assert(histHtml.includes("1 asistieron de 2"), "hist(): cuenta bien asistencias dentro del bloque opcional (p1 presente, p2 ausente -> 1 de 2)");
     assert(histHtml.includes(`S.attOpt=false;S.date='${win._addDaysISO(today, -5)}';navTo('att')`),
       "hist(): la fila OFICIAL navega con S.attOpt=false");
-    assert(histHtml.includes(`S.attOpt=true;S.date='${today}';navTo('att')`),
-      "hist(): la fila OPCIONAL navega con S.attOpt=true");
+    assert(histHtml.includes(`S.attOpt='tecnificacion';S.date='${today}';navTo('att')`),
+      "hist(): la fila OPCIONAL navega a su sesión concreta (S.attOpt='tecnificacion')");
     // La fila oficial NUNCA debe contar como 1 de las "Voluntarios/tecnificación".
     assert(!histHtml.includes(`<div style="font-family:var(--font-d);font-weight:900;font-size:18px">1 sesiones`),
       "hist(): el total de sesiones oficiales del encabezado no incluye la opcional");
@@ -219,8 +222,8 @@ async function run() {
   win.S.hoyDate = null;
   let hoyHtml = win.hoy();
   assert(hoyHtml.includes("🎯 TECNIFICACIÓN"), "hoy(): equipo con horario fijo de tecnificación hoy muestra su propia tarjeta, sin haber creado ninguna sesión todavía");
-  assert(hoyHtml.includes("🙋 VOLUNTARIOS / TECNIFICACIÓN"), "hoy(): el bloque opcional tiene su propio encabezado, separado de ENTRENAMIENTOS");
-  assert(hoyHtml.includes("navTo('att',{teamId:'t1',date:'" + today + "',attOpt:true})"), "hoy(): el botón de pasar lista de la tarjeta opcional navega con attOpt:true");
+  assert(!hoyHtml.includes("🙋 VOLUNTARIOS / TECNIFICACIÓN"), "B-HOY5: ya no hay un bloque opcional aparte abajo -- todo va en la línea de tiempo por hora");
+  assert(hoyHtml.includes("navTo('att',{teamId:'t1',date:'" + today + "',attOpt:'tecnificacion'})"), "hoy(): el botón de pasar lista de la tarjeta navega a la tecnificación (attOpt:'tecnificacion')");
   assert(hoyHtml.includes("19:00h"), "hoy(): la tarjeta opcional muestra la hora fija configurada");
 
   // Un equipo SIN horario fijo pero con una sesión puntual ya creada hoy
@@ -298,8 +301,8 @@ async function run() {
   const histHtmlDel = win.hist();
   assert(histHtmlDel.includes(`openDeleteConfirm('t1','${win._addDaysISO(today, -2)}',false)`),
     "hist(): la fila OFICIAL sigue teniendo su botón de borrar, con isOpt=false explícito");
-  assert(histHtmlDel.includes(`openDeleteConfirm('t1','${win._addDaysISO(today, -1)}',true)`),
-    "B-VOLTECH4: la fila OPCIONAL ahora también tiene su propio botón de borrar, con isOpt=true");
+  assert(histHtmlDel.includes(`openDeleteConfirm('t1','${win._addDaysISO(today, -1)}','voluntario')`),
+    "B-VOLTECH4: la fila OPCIONAL también tiene su propio botón de borrar, con su tipo (voluntario)");
 
   // openDeleteConfirm(...,true) construye el modal sobre la sesión OPCIONAL
   // (no la normal), con su propia insignia morada, y pasa isOpt=true al
@@ -307,8 +310,8 @@ async function run() {
   win.openDeleteConfirm("t1", win._addDaysISO(today, -1), true);
   const delModalHtml = win.document.getElementById("m-del")?.innerHTML || "";
   assert(delModalHtml.includes("🙋 Voluntario"), "openDeleteConfirm(isOpt=true): el modal identifica la sesión como voluntaria, no como un entrenamiento oficial");
-  assert(delModalHtml.includes("execDelete('t1','" + win._addDaysISO(today, -1) + "',true)"),
-    "openDeleteConfirm(isOpt=true): el botón de confirmar pasa isOpt=true a execDelete()");
+  assert(delModalHtml.includes("execDelete('t1','" + win._addDaysISO(today, -1) + "','voluntario')"),
+    "openDeleteConfirm(voluntario): el botón de confirmar pasa el tipo a execDelete()");
   win.document.getElementById("m-del")?.remove();
 
   // execDelete(...,true) borra SOLO la clave opcional (skO) -- la sesión
@@ -325,10 +328,10 @@ async function run() {
   // cambios) borra solo la normal, deja la opcional intacta si la hay.
   const dOther = win._addDaysISO(today, -7);
   win.S.sessions[win.sk("t1", dOther)] = { p1: "present" };
-  win.S.sessions[win.skO("t1", dOther)] = { _optType: "tecnificacion", p2: "present" };
+  win.S.sessions[win.skO("t1", dOther, "tecnificacion")] = { _optType: "tecnificacion", p2: "present" };
   win.execDelete("t1", dOther, false);
   assert(win.S.sessions[win.sk("t1", dOther)] === undefined, "execDelete(isOpt=false): borra la sesión normal de ese día");
-  assert(win.S.sessions[win.skO("t1", dOther)] && win.S.sessions[win.skO("t1", dOther)]._optType === "tecnificacion",
+  assert(win.S.sessions[win.skO("t1", dOther, "tecnificacion")] && win.S.sessions[win.skO("t1", dOther, "tecnificacion")]._optType === "tecnificacion",
     "execDelete(isOpt=false): no toca la sesión opcional de ese mismo día");
 
   // Mismo guarda de permisos de siempre (_requireEdit), también para la
