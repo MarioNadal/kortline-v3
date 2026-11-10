@@ -5204,6 +5204,13 @@ function hoy(){
   const timeline=_tl.filter(x=>x.html).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99")||_kindOrd[a.kind]-_kindOrd[b.kind]);
   const _tlColor={match:"var(--orange)",training:"var(--orange)",voluntario:"#a855f7",tecnificacion:"#a855f7"};
   let _nowShown=false;
+  // B-HOY5 (retocado tras feedback de Mario): "haz una diferenciación...
+  // con barras/líneas que ponga tecnificación o voluntario y luego vuelva a
+  // poner entrenamientos, pero no abajo del todo" -- cada vez que cambia el
+  // tipo de actividad en la línea de tiempo se intercala una barra con su
+  // nombre, sin romper el orden por hora.
+  const _tlLabel={match:["🏀 PARTIDOS","var(--orange)"],training:["🏋️ ENTRENAMIENTOS","var(--orange)"],voluntario:["🙋 VOLUNTARIO","#a855f7"],tecnificacion:["🎯 TECNIFICACIÓN","#a855f7"]};
+  let _prevKind=null;
   const timelineHtml=timeline.map(it=>{
     let nowMark="";
     if(isToday&&!_nowShown&&it.time&&it.time>_nowHM){
@@ -5211,7 +5218,13 @@ function hoy(){
       nowMark=`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 10px"><span style="width:52px;flex-shrink:0;text-align:right;font-size:11px;font-weight:900;color:#ef4444">${_nowHM}</span><span style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;box-shadow:0 0 0 3px rgba(239,68,68,.25)"></span><span style="flex:1;height:2px;background:rgba(239,68,68,.5)"></span><span style="font-size:10px;font-weight:900;letter-spacing:1.5px;color:#ef4444">AHORA</span></div>`;
     }
     const past=isToday&&it.time&&it.time<=_nowHM;
-    return nowMark+`<div class="tl-row" style="display:flex;gap:8px;align-items:stretch">
+    let divider="";
+    if(it.kind!==_prevKind){
+      const [lbl,col]=_tlLabel[it.kind];
+      divider=`<div class="tl-divider" style="display:flex;align-items:center;gap:10px;margin:${_prevKind?"6px":"0"} 0 10px"><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span><span style="font-size:11px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase;color:${col};white-space:nowrap">${lbl}</span><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span></div>`;
+      _prevKind=it.kind;
+    }
+    return nowMark+divider+`<div class="tl-row" style="display:flex;gap:8px;align-items:stretch">
       <div style="width:52px;flex-shrink:0;text-align:right;padding-top:14px;font-family:var(--font-d);font-weight:900;font-size:15px;color:${it.time?(past?"var(--td)":"var(--tx)"):"var(--tm)"}">${it.time?esc(it.time):"—"}</div>
       <div style="width:10px;flex-shrink:0;display:flex;flex-direction:column;align-items:center"><span style="width:10px;height:10px;border-radius:50%;margin-top:18px;background:${_tlColor[it.kind]};flex-shrink:0"></span><span style="flex:1;width:2px;background:var(--border)"></span></div>
       <div style="flex:1;min-width:0">${it.html}</div>

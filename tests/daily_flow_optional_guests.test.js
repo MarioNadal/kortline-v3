@@ -29,6 +29,8 @@ async function setup() {
   return { win, d: win.document, today, ti };
 }
 const root = win => win.document.getElementById("root").innerHTML;
+// Tarjetas de la línea de tiempo de Hoy que son de un tipo (sin contar las barras divisorias)
+const tlCards = (win, label) => [...win.document.querySelectorAll("#root .tl-row")].filter(x => x.textContent.includes(label)).length;
 // Abre "Añadir puntual" y escribe un nombre nuevo a mano (si ya hay
 // puntuales frecuentes, el formulario manual viene plegado).
 function addGuestManual(win, name) {
@@ -66,6 +68,10 @@ async function run() {
     const iV = h.indexOf("🙋 VOLUNTARIO"), iE = h.indexOf("🏋️ ENTRENAMIENTO"), iT = h.indexOf("🎯 TECNIFICACIÓN");
     r.assert(iV < iE && iE < iT, "1) B-HOY5: en Hoy van ordenados por hora en una sola línea de tiempo (17:00 voluntario, 18:00 entreno, 20:00 tecnificación), no en bloques separados");
     r.assert(!h.includes("🙋 VOLUNTARIOS / TECNIFICACIÓN"), "1) B-HOY5: ya no hay bloque aparte abajo del todo");
+    // Barras divisorias intercaladas por tipo, en el orden de la hora:
+    const divs = [...win.document.querySelectorAll("#root .tl-divider")].map(x => x.textContent.trim());
+    r.assert(JSON.stringify(divs) === JSON.stringify(["🙋 VOLUNTARIO", "🏋️ ENTRENAMIENTOS", "🎯 TECNIFICACIÓN"]),
+      "1) B-HOY5: cada cambio de tipo lleva su barra con nombre (VOLUNTARIO → ENTRENAMIENTOS → TECNIFICACIÓN), intercaladas por hora -- " + JSON.stringify(divs));
     win.navTo("att", { teamId: "t1", date: today, attOpt: "voluntario" });
     win.cycleAtt("p1");
     win.navTo("att", { teamId: "t1", date: today, attOpt: "tecnificacion" });
@@ -73,6 +79,18 @@ async function run() {
     const sv = win.S.sessions[win.skO("t1", today, "voluntario")], st = win.S.sessions[win.skO("t1", today, "tecnificacion")];
     r.assert(sv && sv.p1 === "absent" && !("p2" in sv) && st && st.p2 === "absent" && !("p1" in st) && !win.S.sessions[win.sk("t1", today)],
       "1) cada sesión (voluntario, tecnificación, entreno normal) guarda su propia asistencia, sin mezclarse");
+  }
+
+  // ═══ 1a) Entreno → tecnificación → entreno: la barra ENTRENAMIENTOS vuelve a salir ═══
+  {
+    const { win, ti } = await setup();
+    win.S.teams[0].schedule = { [ti]: "17:00" };
+    win.S.teams[1].schedule = { [ti]: "21:00" };
+    win.S.teams[1].optSchedules = { voluntario: {}, tecnificacion: { [ti]: "19:00" } };
+    win.S.screen = "hoy"; win.S.hoyDate = null; win.render();
+    const divs = [...win.document.querySelectorAll("#root .tl-divider")].map(x => x.textContent.trim());
+    r.assert(JSON.stringify(divs) === JSON.stringify(["🏋️ ENTRENAMIENTOS", "🎯 TECNIFICACIÓN", "🏋️ ENTRENAMIENTOS"]),
+      "1a) B-HOY5: tras la tecnificación de las 19:00 vuelve a salir la barra ENTRENAMIENTOS para el de las 21:00, en vez de mandarlo todo abajo -- " + JSON.stringify(divs));
   }
 
   // ═══ 1b) Línea de tiempo con partido y "ahora" ═══
@@ -95,7 +113,7 @@ async function run() {
       "1c) B-VOLTECH6: una tecnificación antigua (clave '_opt') se mueve a su propia clave sin perder la asistencia");
     win.S.teams[1].optSchedule = { type: "tecnificacion", schedule: { [ti]: "19:00" } }; // formato dev.106
     win.S.screen = "hoy"; win.S.hoyDate = null; win.render();
-    r.assert((root(win).match(/🎯 TECNIFICACIÓN/g) || []).length === 2 && root(win).includes("19:00"),
+    r.assert(tlCards(win, "🎯 TECNIFICACIÓN") === 2 && root(win).includes("19:00"),
       "1c) un horario fijo guardado con el formato antiguo (un solo tipo) se sigue viendo en Hoy");
   }
 
@@ -116,7 +134,7 @@ async function run() {
     r.assert(root(win).includes("Cris") && root(win).includes("Tecnificación"), "2) y al saltar se abre la tecnificación del otro equipo");
     win.navRoot("hoy");
     const h = root(win);
-    r.assert(h.includes("🏋️ ENTRENAMIENTO") && (h.match(/🎯 TECNIFICACIÓN/g) || []).length === 2 && h.includes("19:30"),
+    r.assert(h.includes("🏋️ ENTRENAMIENTO") && tlCards(win, "🎯 TECNIFICACIÓN") === 2 && h.includes("19:30"),
       "2) Hoy muestra el entrenamiento normal + una tarjeta de tecnificación por cada equipo, con la hora");
     win.navTo("team", { teamId: "t1" });
     r.assert(!root(win).includes("TECNIFICACIÓN HOY"), "2) la ficha del equipo NO tiene un segundo acceso a la sesión de hoy -- Mario: duplicaba el ＋ de Hoy y liaba; un solo sitio (Hoy)");
