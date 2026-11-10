@@ -104,6 +104,25 @@ async function run() {
     r.assert(iM >= 0 && iNow > iM && iE > iNow, "1b) B-HOY5: el partido de las 00:01 va antes de la marca AHORA y el entrenamiento de las 23:58 después");
   }
 
+  // ═══ 1d) La línea de AHORA baja sola cada minuto ═══
+  {
+    const { win, ti } = await setup();
+    win.S.teams[0].schedule = { [ti]: "23:58" };
+    win.S.screen = "hoy"; win.S.hoyDate = null; win.render();
+    const before = win.document.querySelector("#root .tl-now");
+    r.assert(!!before && /AHORA · \d\d:\d\d/.test(before.textContent), "1d) la línea roja muestra AHORA con la hora actual");
+    r.assert(!win.document.querySelector("#root .tl-time"), "1d) B-HOY6: sin columna de hora a la izquierda -- las tarjetas van a todo el ancho (cada una ya lleva su hora)");
+    // jsdom: simular app en primer plano y sin la pantalla del código del club
+    Object.defineProperty(win.document, "visibilityState", { configurable: true, get: () => "visible" });
+    win.document.getElementById("m-pin-gate")?.remove();
+    r.assert(win._hoyMinuteTick() === true, "1d) B-HOY6: viendo Hoy, el aviso de cada minuto repinta la pantalla para que la línea de AHORA vaya bajando");
+    win.openHoyAddSheet();
+    r.assert(win._hoyMinuteTick() === false, "1d) pero nunca con una hoja/modal abierta encima (no cierra lo que estás haciendo)");
+    win.document.getElementById("m-hoy-add")?.remove();
+    win.navTo("team", { teamId: "t1" });
+    r.assert(win._hoyMinuteTick() === false, "1d) ni fuera de la pantalla Hoy");
+  }
+
   // ═══ 1c) Datos antiguos: tecnificación guardada en "_opt" y horario fijo antiguo ═══
   {
     const { win, today, ti } = await setup();
