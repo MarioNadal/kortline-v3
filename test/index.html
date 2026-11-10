@@ -600,26 +600,18 @@ label{-webkit-tap-highlight-color:transparent;}
 .driver-popover-footer .driver-popover-next-btn{background:linear-gradient(135deg,#f97316,#c2410c);border:none}
 .driver-popover-close-btn{color:#7a9cc8}
 .driver-popover-arrow-side-left.driver-popover-arrow,.driver-popover-arrow-side-right.driver-popover-arrow,.driver-popover-arrow-side-top.driver-popover-arrow,.driver-popover-arrow-side-bottom.driver-popover-arrow{border-color:#0d2244}
-/* v3.0.0-dev.111 · B-HOY6: línea de tiempo de "Hoy" pegada al borde y
-   adaptada al ancho de cada móvil (Mario: "queda mucho espacio a la
-   izquierda [...] que quede perfecto en todos los móviles"). La columna de
-   la hora usa el ancho justo de "00:00" y se estrecha en pantallas
-   pequeñas (Android de 360px, iPhone SE); en tablet se ensancha. */
-.tl-row{display:flex;gap:6px;align-items:stretch}
-.tl-time{width:38px;flex-shrink:0;text-align:right;padding-top:15px;font-family:var(--font-d);font-weight:900;font-size:14px;letter-spacing:-.2px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.tl-rail{width:8px;flex-shrink:0;display:flex;flex-direction:column;align-items:center}
-.tl-dot{width:8px;height:8px;border-radius:50%;margin-top:19px;flex-shrink:0}
-.tl-line{flex:1;width:2px;background:var(--border)}
-.tl-card{flex:1;min-width:0}
-.tl-now{display:flex;align-items:center;gap:6px;margin:2px 0 10px}
-.tl-now .tl-time{padding-top:0;font-size:11px;color:#ef4444;font-family:inherit}
+/* v3.0.0-dev.111 · B-HOY6: línea de tiempo de "Hoy" a todo el ancho. Mario:
+   "se pierde mucho espacio a la izquierda [...] no hace falta poner la hora
+   porque ya sale en los entrenamientos" -- sin columna de hora ni raíl: cada
+   tarjeta ya lleva su hora dentro; el orden por hora lo dan la propia lista,
+   las barras de tipo y la línea roja de AHORA. */
+.tl-row{display:block}
+.tl-now{display:flex;align-items:center;gap:8px;margin:2px 0 12px}
 /* Fila de recuentos (%, Pres, Aus, Tard, Just) de las tarjetas de Hoy: en
    móviles estrechos se salía por la derecha y se cortaba "Just". */
 .hoy-stat{min-width:0;overflow:hidden}
 @media (max-width:430px){.hoy-stats{gap:5px!important}.hoy-stat{padding:7px 2px!important}.hoy-stat-main>div:first-child{font-size:18px!important}}
 @media (max-width:374px){.hoy-stats{gap:3px!important}.hoy-stat>div:first-child{font-size:14px!important}.hoy-stat-main>div:first-child{font-size:16px!important}.hoy-stat>div:last-child{font-size:9px!important}}
-@media (max-width:374px){.tl-row,.tl-now{gap:4px}.tl-time{width:33px;font-size:12.5px}.tl-rail,.tl-dot{width:6px}.tl-dot{height:6px}}
-@media (min-width:600px){.tl-row,.tl-now{gap:10px}.tl-time{width:48px;font-size:16px}.tl-rail,.tl-dot{width:10px}.tl-dot{height:10px}}
 </style>
 </head>
 <body>
@@ -4987,6 +4979,28 @@ function _hoyShiftDay(delta){
   render();
 }
 function _hoyGoToday(){S.hoyDate=null;render();}
+// v3.0.0-dev.111 · B-HOY6: la línea roja de AHORA baja sola. Cada minuto, si
+// se está viendo "Hoy" (del día real), con la app en primer plano y sin
+// ningún modal/hoja abierta encima, se repinta para mover la línea y la hora.
+function _hoyMinuteTick(){
+  try{
+    if(S.screen!=="hoy"||S.hoyDate||document.visibilityState!=="visible")return false;
+    if(document.querySelector('body > div[id^="m-"], .modal'))return false;
+    render();return true;
+  }catch(e){return false;}
+}
+// Un único temporizador, que solo vive mientras "Hoy" está en pantalla: lo
+// arranca hoy() y se apaga solo en cuanto se sale de "Hoy" (no consume nada
+// en el resto de pantallas). No arranca bajo jsdom (suite de tests), donde
+// mantendría vivas en memoria las ~100 instancias de la app de la suite.
+let _hoyTickTimer=null;
+function _ensureHoyTick(){
+  if(_hoyTickTimer||/jsdom/i.test(navigator.userAgent||""))return;
+  _hoyTickTimer=setInterval(()=>{
+    if(S.screen!=="hoy"){clearInterval(_hoyTickTimer);_hoyTickTimer=null;return;}
+    _hoyMinuteTick();
+  },60000);
+}
 function hoy(){
   // v3.0.0-dev.98 · B-HOY3: `today` pasa a ser el DÍA QUE SE ESTÁ VIENDO
   // (S.hoyDate, o el propio día real si no se ha navegado) -- todo lo que
@@ -4995,6 +5009,7 @@ function hoy(){
   // SIEMPRE el día real de hoy, para lo que no tiene sentido ver en un día
   // distinto (cumpleaños de hoy, aviso de próximo entreno, añadir una
   // actividad sorpresa "de hoy").
+  _ensureHoyTick();
   const realToday=td();
   const today=S.hoyDate||realToday;
   const isToday=today===realToday;
@@ -5231,7 +5246,6 @@ function hoy(){
   });
   const _kindOrd={match:0,training:1,voluntario:2,tecnificacion:3};
   const timeline=_tl.filter(x=>x.html).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99")||_kindOrd[a.kind]-_kindOrd[b.kind]);
-  const _tlColor={match:"var(--orange)",training:"var(--orange)",voluntario:"#a855f7",tecnificacion:"#a855f7"};
   let _nowShown=false;
   // B-HOY5 (retocado tras feedback de Mario): "haz una diferenciación...
   // con barras/líneas que ponga tecnificación o voluntario y luego vuelva a
@@ -5244,7 +5258,7 @@ function hoy(){
     let nowMark="";
     if(isToday&&!_nowShown&&it.time&&it.time>_nowHM){
       _nowShown=true;
-      nowMark=`<div class="tl-now"><span class="tl-time">${_nowHM}</span><span class="tl-rail"><span style="width:100%;aspect-ratio:1;border-radius:50%;background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.25)"></span></span><span style="flex:1;height:2px;background:rgba(239,68,68,.5)"></span><span style="font-size:10px;font-weight:900;letter-spacing:1.5px;color:#ef4444">AHORA</span></div>`;
+      nowMark=`<div class="tl-now"><span style="width:9px;height:9px;border-radius:50%;background:#ef4444;flex-shrink:0;box-shadow:0 0 0 3px rgba(239,68,68,.25)"></span><span style="font-size:11px;font-weight:900;letter-spacing:1.2px;color:#ef4444;white-space:nowrap">AHORA · ${_nowHM}</span><span style="flex:1;height:2px;background:rgba(239,68,68,.5)"></span></div>`;
     }
     const past=isToday&&it.time&&it.time<=_nowHM;
     let divider="";
@@ -5253,11 +5267,7 @@ function hoy(){
       divider=`<div class="tl-divider" style="display:flex;align-items:center;gap:10px;margin:${_prevKind?"6px":"0"} 0 10px"><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span><span style="font-size:11px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase;color:${col};white-space:nowrap">${lbl}</span><span style="flex:1;height:2px;border-radius:1px;background:${col};opacity:.35"></span></div>`;
       _prevKind=it.kind;
     }
-    return nowMark+divider+`<div class="tl-row">
-      <div class="tl-time" style="color:${it.time?(past?"var(--td)":"var(--tx)"):"var(--tm)"}">${it.time?esc(it.time):"—"}</div>
-      <div class="tl-rail"><span class="tl-dot" style="background:${_tlColor[it.kind]}"></span><span class="tl-line"></span></div>
-      <div class="tl-card">${it.html}</div>
-    </div>`;
+    return nowMark+divider+`<div class="tl-row"${past?' style="opacity:.82"':""}>${it.html}</div>`;
   }).join("");
   const _nextTrainingPending=isToday?timeline.find(it=>it.kind!=="match"&&it.time&&it.pending)||null:null;
   const nextTrainingBar=_nextTrainingPending?(()=>{
