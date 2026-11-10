@@ -99,6 +99,15 @@ if("serviceWorker" in navigator){
       document.getElementById("kl-sw-dismiss").onclick=()=>b.remove();
     }
     if(reg.waiting)_showUpdateBanner(reg.waiting);
+    // v3.0.0-dev.111 · B-SWUPD1: Mario -- "no me sale la actualización en la
+    // app". El navegador solo comprueba si hay un sw.js nuevo al ABRIR la
+    // app; una PWA instalada que se deja en segundo plano (lo normal en el
+    // móvil) podía pasar días sin enterarse de una versión nueva. Ahora se
+    // comprueba también al volver a la app y cada 30 min mientras está
+    // abierta (reg.update() es barato: si no hay cambios no descarga nada).
+    const _checkSwUpdate=()=>{try{reg.update().catch(()=>{});}catch(e){}};
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")_checkSwUpdate();});
+    setInterval(_checkSwUpdate,30*60*1000);
     reg.addEventListener("updatefound",()=>{
       const nw=reg.installing;if(!nw)return;
       nw.addEventListener("statechange",()=>{
@@ -2426,7 +2435,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.110";
+const APP_VERSION = "3.0.0-dev.111";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial

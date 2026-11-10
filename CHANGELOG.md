@@ -3,6 +3,15 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · La app instalada avisa de versiones nuevas aunque esté en segundo plano (B-SWUPD1, dev.111, 2026-11-10)
+
+Reportado por Mario justo después de publicar dev.110: *"no me sale la actualización en la app"*. El navegador solo comprueba si hay un `sw.js` nuevo al abrir la app desde cero; una PWA instalada que se deja en segundo plano podía no enterarse de una versión nueva durante días (y el aviso "🔄 Nueva versión disponible" no salía).
+
+### Corregido
+
+- Registro del service worker: `reg.update()` también al volver a la app (`visibilitychange` → visible) y cada 30 min mientras está abierta. Si no hay cambios no descarga nada.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.111` / `kortline-v3.0.0-dev.111`, `/test/` regenerado. Suite completa en verde en raíz y `/test/`.
+
 ## [Sin publicar] · kortline-v3 · Día a día: voluntario Y tecnificación por equipo, "Hoy" como línea de tiempo, puntuales separados y quitar puntuales (B-VOLTECH5/6 + B-HOY5 + B-GUEST9/10, dev.110, 2026-11-10)
 
 Reportado por Mario probando desde el móvil: *"no puedes borrar un jugador puntual añadido un día de entrenamiento... las tecnificaciones y entrenamientos voluntarios no acaban de funcionar bien, si las pones en el equipo como un entrenamiento más semanal no salen en el horario en el día de hoy..."*, y después: *"puede haber un equipo que tenga entrenamientos voluntarios y tecnificaciones todas las semanas, no puede ser que solo elijas uno"* y *"debe de ser a la hora, que no salga apartado... prefiero una timeline buena para que a la hora se vea que toca eso"*.
