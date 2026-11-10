@@ -2449,7 +2449,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.112";
+const APP_VERSION = "3.0.0-dev.113";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3668,12 +3668,34 @@ function _attRosterFor(tid,date,isOpt){
 // obligatorio, pero aquí convertiría cualquier sesión opcional creada pero
 // nunca pasada en "asistieron todos" por defecto). Solo cuenta una marca
 // EXPLÍCITA de "present"/"late" para ese jugador en esa sesión concreta.
+// v3.0.0-dev.113 · B-VOLTECH7 (bug real, Mario en /test/ con Alevín
+// Femenino: "0 asistieron de 15 en el historial y no sale en cada jugador
+// el cuadrado morado, y sí que han asistido"). El pase de lista de una
+// sesión opcional enseña a cada jugadora como "Presente" por defecto (igual
+// que un entreno normal), pero este contador solo sumaba marcas EXPLÍCITAS:
+// si el entrenador solo tocaba a las que faltaron, las presentes nunca
+// contaban. Ahora se usa el MISMO criterio que la pantalla y la tarjeta de
+// Hoy: si en esa sesión ya se ha pasado lista (alguien del roster tiene
+// marca), las que no se tocaron cuentan como lo que se ve (presente, o
+// justificada si está lesionada); si nadie ha pasado lista todavía, no
+// cuenta nadie (una sesión creada pero sin pasar lista no es "vinieron
+// todas").
+function _optSessionTouched(tid,date,data,isOpt){
+  if(!data)return false;
+  return _attRosterFor(tid,date,isOpt||"voluntario").some(p=>data[p.id]!==undefined);
+}
+function _optAttendedIn(p,tid,e){
+  if(!_optSessionTouched(tid,e.date,e.data,e.optType))return false;
+  const v=_effAttState(p,e.date,e.data[p.id]);
+  return v==="present"||v==="late";
+}
 function _optionalAttCount(p,tid,optType){
   if(!p||p.matchOnly)return{asistidas:0,total:0};
   const all=_teamSessionEntries(tid,{includeOptional:true});
-  const entries=all.filter(e=>e.isOpt&&(!optType||e.optType===optType)&&_isPlayerActiveOn(p,e.date,all));
+  const entries=all.filter(e=>e.isOpt&&(!optType||e.optType===optType)&&_optSessionTouched(tid,e.date,e.data,e.optType)&&
+    (p.attOnly?_attOnlyActiveOn(p,e.date,e.optType):_isPlayerActiveOn(p,e.date,all)));
   let asistidas=0;
-  entries.forEach(e=>{const v=e.data[p.id];if(v==="present"||v==="late")asistidas++;});
+  entries.forEach(e=>{if(_optAttendedIn(p,tid,e))asistidas++;});
   return{asistidas,total:entries.length};
 }
 // v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
@@ -6052,8 +6074,9 @@ function hist(){
   const optRowsHtml=optEntries.length===0?"":`<div style="display:flex;align-items:center;gap:10px;margin:18px 0 8px"><div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#a855f7;white-space:nowrap">🙋 Voluntarios / tecnificación (${optEntries.length})</div><div style="flex:1;height:1px;background:var(--border)"></div></div>
     <div style="font-size:11.5px;color:var(--tm);margin-bottom:8px;line-height:1.5">No cuentan para el % de asistencia oficial.</div>
     <div class="card">${optEntries.map((e,i)=>{
-      const activeP=players.filter(p=>!p.matchOnly&&_isPlayerActiveOn(p,e.date,allEntries));
-      let pr=0;activeP.forEach(p=>{const v=e.data[p.id];if(v==="present"||v==="late")pr++;});
+      // B-VOLTECH7: mismo criterio que el pase de lista (ver _optAttendedIn)
+      const activeP=players.filter(p=>!p.matchOnly&&(p.attOnly?_attOnlyActiveOn(p,e.date,e.optType):_isPlayerActiveOn(p,e.date,allEntries)));
+      let pr=0;activeP.forEach(p=>{if(_optAttendedIn(p,S.teamId,e))pr++;});
       // Si todavía no se ha tocado nada en un día de horario fijo (ver
       // t.optSchedule), el registro aún no tiene _optType propio -- se usa
       // el tipo configurado para el equipo como respaldo, solo para la
