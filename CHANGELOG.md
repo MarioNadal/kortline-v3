@@ -3,6 +3,19 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Botón "Cambiar de entrenador" (B-ROLES2, dev.115, 2026-11-12)
+
+Mario, probando permisos en `/test/`: *"¿cómo cierro sesión de entrenador para probar permisos?"*. No había forma de cambiar la identidad elegida en un móvil (solo abriendo la app en otro navegador o en una pestaña privada).
+
+### Añadido
+
+- **Ajustes → Tu perfil en este dispositivo**: con roles activados, muestra "Entras como Nombre · Rol" y el botón **🔄 Cambiar de entrenador** (`switchCoachIdentity`). Tras confirmar, olvida la identidad de este móvil y vuelve a salir "¿Quién eres?". No toca ningún dato del club ni la sesión de Firebase. Sin roles activados el botón no aparece.
+
+### Probado
+
+- `roles_permissions.test.js` (+5).
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.115` / `kortline-v3.0.0-dev.115`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Auditoría completa: permisos de solo lectura, Gráficas, copiar y prueba "mono" (B-PERM2 + B-CHART1 + B-DATE1, dev.114, 2026-11-12)
 
 Pedido por Mario: *"hazme una auditoría completa... auditala como un profesional pero también pruébala como un usuario real"*, con la app en uso real. Informe completo en [`AUDITORIA_2026-11-12.md`](AUDITORIA_2026-11-12.md). Todas las pruebas en local, sin tocar ninguna base de datos.

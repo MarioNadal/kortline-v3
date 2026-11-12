@@ -437,6 +437,27 @@ async function run() {
   win._maybeShowIdentityGate();
   assert(!document.getElementById("m-identity-gate"), "_maybeShowIdentityGate(): nunca aparece si coaches está vacío (sin restricciones)");
 
+  // ═══ v3.0.0-dev.115 · B-ROLES2: cambiar de entrenador en este móvil ═══
+  {
+    const w2 = await loadApp();
+    w2.S.teams = [{ id: "t1", name: "Uno" }];
+    w2.S.cfg.coaches = [{ id: "sa", name: "Super", role: "superadmin", teamsEdit: [], teamsView: [] }, { id: "e1", name: "Entrena", role: "entrenador", teamsEdit: [], teamsView: ["t1"] }];
+    w2._setCurrentCoachId("sa");
+    w2.openClubSettings();
+    const st = w2.document.getElementById("m-club-settings").innerHTML;
+    report.assert(st.includes("Entras como") && st.includes("Super · Superadmin") && st.includes("switchCoachIdentity()"), "B-ROLES2: Ajustes muestra con quién se entra y el botón Cambiar de entrenador");
+    const before = JSON.stringify({ t: w2.S.teams, c: w2.S.cfg.coaches });
+    w2.switchCoachIdentity();
+    w2.document.querySelector("#m-confirm button").click();
+    report.assert(w2._getCurrentCoachId() === "" && !!w2.document.getElementById("m-identity-gate"), "B-ROLES2: al confirmar se olvida la identidad y vuelve a salir '¿Quién eres?'");
+    report.assert(JSON.stringify({ t: w2.S.teams, c: w2.S.cfg.coaches }) === before, "B-ROLES2: cambiar de entrenador no toca ningún dato del club");
+    w2._pickIdentity("e1");
+    report.assert(w2._currentCoach().id === "e1" && !w2._canEditTeam("t1") && w2._canViewTeam("t1"), "B-ROLES2: tras elegir otro entrenador se aplican sus permisos (solo ver t1)");
+    w2.S.cfg.coaches = [];
+    w2.openClubSettings();
+    report.assert(!w2.document.getElementById("m-club-settings").innerHTML.includes("switchCoachIdentity()"), "B-ROLES2: sin roles activados no aparece el botón");
+  }
+
   return report.summary();
 }
 
