@@ -78,7 +78,8 @@ const ROLE = process.env.MONKEY_ROLE || "";
 const SCREENS_ROLE = [
   ["hoy", {}], ["equipos", {}], ["team", { teamId: "t2" }], ["att", { teamId: "t2", date: "__TODAY__", attOpt: false }], ["att", { teamId: "t2", date: "__TODAY__", attOpt: "tecnificacion" }],
   ["hist", { teamId: "t2" }], ["matchList", { teamId: "t2" }], ["matchDetail", { teamId: "t2", matchId: "ms" }], ["eventos", { teamId: "t2" }], ["stats", { teamId: "t2", statsView: "table" }],
-  ["liveGame", { teamId: "t2", matchId: "ms" }], ["matchSummary", { teamId: "t2", matchId: "ms" }], ["shotMap", { teamId: "t2", matchId: "ms" }]
+  ["liveGame", { teamId: "t2", matchId: "ms" }], ["matchSummary", { teamId: "t2", matchId: "ms" }], ["shotMap", { teamId: "t2", matchId: "ms" }],
+  ["dlsLive", { teamId: "t2" }]
 ];
 const SCREENS_ALL = [
   ["hoy", {}], ["equipos", {}], ["statsHome", {}],
@@ -160,6 +161,11 @@ const SCREENS_ALL = [
     cur = scr + " " + JSON.stringify(rawOpts).replace(/"/g, "");
     await goto(scr, opts); await page.waitForTimeout(150);
     await check("pantalla"); await checkOpen();
+    if (ROLE) {
+      const ro = await page.evaluate(() => ({ banner: !!document.querySelector("#root .ro-banner"), pasar: /Pasar lista|Anotar partido|Empezar partido|Continuar en vivo/.test(document.getElementById("root").innerText) }));
+      if (/^(team|att|hist|matchList|matchDetail|liveGame|eventos|stats|shotMap|matchSummary|dlsLive)$/.test(scr) && !ro.banner) note("MODO VER", "falta el aviso de Modo ver");
+      if (ro.pasar && scr !== "hoy") note("MODO VER", "sigue ofreciendo Pasar lista / Anotar / Empezar en un equipo de solo ver");
+    }
     const handlers = await page.evaluate(() => [...new Set([...document.querySelectorAll("#root [onclick]")].filter(e => e.offsetParent !== null).map(e => e.getAttribute("onclick")))]);
     for (const h of handlers) {
       if (/navRoot\(|navBack\(|^navTo\(|location\.|installPWA|startTour/.test(h)) continue; // navegación ya cubierta pantalla a pantalla; el tutorial tiene su propio test

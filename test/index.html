@@ -612,6 +612,18 @@ label{-webkit-tap-highlight-color:transparent;}
 .hoy-stat{min-width:0;overflow:hidden}
 @media (max-width:430px){.hoy-stats{gap:5px!important}.hoy-stat{padding:7px 2px!important}.hoy-stat-main>div:first-child{font-size:18px!important}}
 @media (max-width:374px){.hoy-stats{gap:3px!important}.hoy-stat>div:first-child{font-size:14px!important}.hoy-stat-main>div:first-child{font-size:16px!important}.hoy-stat>div:last-child{font-size:9px!important}}
+/* v3.0.0-dev.116 · B-ROVIEW1: "modo ver". Mario: "cuando alguien no tiene
+   permiso para editar [...] le debería aparecer en vez de pasar lista todo
+   modo ver [...] y así con toda la aplicación". Con body.ro-mode (equipo
+   que solo se puede ver, ver _isReadOnlyTeam/render) desaparecen todos los
+   botones de editar -- la lista sale de las mismas acciones protegidas con
+   _requireEdit (B-PERM2) y de los modales que solo sirven para editar -- y
+   los que enseñan un estado (asistencia, convocado, titular, capitán) se
+   ven pero no se pueden pulsar. */
+.ro-banner{display:flex;align-items:center;gap:8px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.35);color:#93c5fd;border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:12.5px;font-weight:700;line-height:1.35}
+body.ro-mode button:is([onclick*="dlsAssist("],[onclick*="dlsBlock("],[onclick*="dlsRebound("],[onclick*="dlsShot("],[onclick*="dlsSteal("],[onclick*="dlsTurnover("],[onclick*="_dlsConfirmDeleteSession("],[onclick*="_dlsConfirmRemovePlayer("],[onclick*="_dlsMatchAssign("],[onclick*="_dlsAddTemp("],[onclick*="_dlsMatchAddTemp("],[onclick*="_dlsPickerConfirm("],[onclick*="_dlsCancelChain("],[onclick="startLiveGameConfirm()"],[onclick*="_applyClockRewind("],[onclick*="_confirmMergeAllGuestDuplicates("],[onclick*="_convClearAll("],[onclick*="_convSelectAll("],[onclick*="_endPeriodAction("],[onclick*="_finishAndShowSummary("],[onclick*="_guestPickerCommit("],[onclick*="_guestPlayerCommit("],[onclick*="_msAddOT("],[onclick*="_qInlineEdit("],[onclick*="_qStep("],[onclick*="_rivAdd("],[onclick*="_rivDel("],[onclick*="_tnHandlePhoto("],[onclick*="_tnRemovePhoto("],[onclick*="activateOT("],[onclick*="addDlsMinutes("],[onclick*="addManualOT("],[onclick*="addTimeout("],[onclick*="applyEditClock("],[onclick*="clearJust("],[onclick*="clearPlayerNote("],[onclick*="confirmEndDls("],[onclick*="confirmFinishMatch("],[onclick*="confirmInjuryRecovery("],[onclick*="confirmOurTL("],[onclick*="confirmOurTLShoot("],[onclick*="confirmOurTeamOnlyTLShoot("],[onclick*="confirmResetAtt("],[onclick*="confirmSession("],[onclick*="confirmTeamTLShoot("],[onclick*="delEvento("],[onclick*="delPlayer("],[onclick*="delTeam("],[onclick*="deleteDrill("],[onclick*="deleteIncident("],[onclick*="deleteLogEntry("],[onclick*="deleteMatchConfirm("],[onclick*="deleteMvp("],[onclick*="dlsMatchScore("],[onclick*="editClock("],[onclick*="evtConvAll("],[onclick*="evtConvNone("],[onclick*="execDelete("],[onclick*="finishMatch("],[onclick*="handlePhoto("],[onclick*="liveAction("],[onclick*="liveTeamAction("],[onclick*="reassignLogEntry("],[onclick*="removeGuestFromSession("],[onclick*="removeLastOT("],[onclick*="removePhoto("],[onclick*="resetClock("],[onclick*="revertTeamScoreAuto("],[onclick*="rivalFoulLive("],[onclick*="rivalScoreLive("],[onclick*="saveAttAndShare("],[onclick*="saveDrill("],[onclick*="saveEvento("],[onclick*="saveIncident("],[onclick*="saveInjury("],[onclick*="saveJust("],[onclick*="saveManualStatsQuarter("],[onclick*="saveMatchMeta("],[onclick*="saveMatchNotes("],[onclick*="saveMvp("],[onclick*="savePlayer("],[onclick*="savePlayerNote("],[onclick*="savePlusMinus("],[onclick*="saveRivalPlayer("],[onclick*="saveTLResults("],[onclick*="saveTeam("],[onclick*="setLiveQ("],[onclick*="setPlayType("],[onclick*="startDls("],[onclick*="startDlsMatch("],[onclick*="stepPlayerScore("],[onclick*="stepTeamScore("],[onclick*="subPlayer("],[onclick*="subRivalPlayer("],[onclick*="toggleClock("],[onclick*="toggleDlsClock("],[onclick*="toggleReducedMinutesDismiss("],[onclick*="toggleSessionDrill("],[onclick*="undoDlsLast("],[onclick*="undoLiveAction("],[onclick*="setAll("],[onclick*="openActionPicker("],[onclick*="openClockRewindModal("],[onclick*="openConvSetup("],[onclick*="openCourtRivalSubModal("],[onclick*="openCourtSubModal("],[onclick*="openDeleteConfirm("],[onclick*="openDrillModal("],[onclick*="openDrillPickerModal("],[onclick*="openEditQModal("],[onclick*="openEventoModal("],[onclick*="openGuestDuplicatesModal("],[onclick*="openGuestPlayerModal("],[onclick*="openIncidentEditModal("],[onclick*="openIncidentNewModal("],[onclick*="openInjuryEditModal("],[onclick*="openInjuryModal("],[onclick*="openJustModal("],[onclick*="openManualStatsModal("],[onclick*="openMatchModal("],[onclick*="openMvpNewModal("],[onclick*="openPlayerModal("],[onclick*="openPlayerNoteModal("],[onclick*="openReassignLogModal("],[onclick*="openSubModal("],[onclick*="openTeamModal("],[onclick*="openTimeoutModal("],[onclick*="openEventoConvModal("],[onclick*="openDlsResumeOrLive("]){display:none!important}
+body.ro-mode :is([onclick*="dlsAssist("],[onclick*="dlsBlock("],[onclick*="dlsRebound("],[onclick*="dlsShot("],[onclick*="dlsSteal("],[onclick*="dlsTurnover("],[onclick*="_dlsConfirmDeleteSession("],[onclick*="_dlsConfirmRemovePlayer("],[onclick*="_dlsMatchAssign("],[onclick*="_dlsAddTemp("],[onclick*="_dlsMatchAddTemp("],[onclick*="_dlsPickerConfirm("],[onclick*="_dlsCancelChain("],[onclick="startLiveGameConfirm()"],[onclick*="_applyClockRewind("],[onclick*="_confirmMergeAllGuestDuplicates("],[onclick*="_convClearAll("],[onclick*="_convSelectAll("],[onclick*="_endPeriodAction("],[onclick*="_finishAndShowSummary("],[onclick*="_guestPickerCommit("],[onclick*="_guestPlayerCommit("],[onclick*="_msAddOT("],[onclick*="_qInlineEdit("],[onclick*="_qStep("],[onclick*="_rivAdd("],[onclick*="_rivDel("],[onclick*="_tnHandlePhoto("],[onclick*="_tnRemovePhoto("],[onclick*="activateOT("],[onclick*="addDlsMinutes("],[onclick*="addManualOT("],[onclick*="addTimeout("],[onclick*="applyEditClock("],[onclick*="clearJust("],[onclick*="clearPlayerNote("],[onclick*="confirmEndDls("],[onclick*="confirmFinishMatch("],[onclick*="confirmInjuryRecovery("],[onclick*="confirmOurTL("],[onclick*="confirmOurTLShoot("],[onclick*="confirmOurTeamOnlyTLShoot("],[onclick*="confirmResetAtt("],[onclick*="confirmSession("],[onclick*="confirmTeamTLShoot("],[onclick*="delEvento("],[onclick*="delPlayer("],[onclick*="delTeam("],[onclick*="deleteDrill("],[onclick*="deleteIncident("],[onclick*="deleteLogEntry("],[onclick*="deleteMatchConfirm("],[onclick*="deleteMvp("],[onclick*="dlsMatchScore("],[onclick*="editClock("],[onclick*="evtConvAll("],[onclick*="evtConvNone("],[onclick*="execDelete("],[onclick*="finishMatch("],[onclick*="handlePhoto("],[onclick*="liveAction("],[onclick*="liveTeamAction("],[onclick*="reassignLogEntry("],[onclick*="removeGuestFromSession("],[onclick*="removeLastOT("],[onclick*="removePhoto("],[onclick*="resetClock("],[onclick*="revertTeamScoreAuto("],[onclick*="rivalFoulLive("],[onclick*="rivalScoreLive("],[onclick*="saveAttAndShare("],[onclick*="saveDrill("],[onclick*="saveEvento("],[onclick*="saveIncident("],[onclick*="saveInjury("],[onclick*="saveJust("],[onclick*="saveManualStatsQuarter("],[onclick*="saveMatchMeta("],[onclick*="saveMatchNotes("],[onclick*="saveMvp("],[onclick*="savePlayer("],[onclick*="savePlayerNote("],[onclick*="savePlusMinus("],[onclick*="saveRivalPlayer("],[onclick*="saveTLResults("],[onclick*="saveTeam("],[onclick*="setLiveQ("],[onclick*="setPlayType("],[onclick*="startDls("],[onclick*="startDlsMatch("],[onclick*="stepPlayerScore("],[onclick*="stepTeamScore("],[onclick*="subPlayer("],[onclick*="subRivalPlayer("],[onclick*="toggleClock("],[onclick*="toggleDlsClock("],[onclick*="toggleReducedMinutesDismiss("],[onclick*="toggleSessionDrill("],[onclick*="undoDlsLast("],[onclick*="undoLiveAction("],[onclick*="setAll("],[onclick*="openActionPicker("],[onclick*="openClockRewindModal("],[onclick*="openConvSetup("],[onclick*="openCourtRivalSubModal("],[onclick*="openCourtSubModal("],[onclick*="openDeleteConfirm("],[onclick*="openDrillModal("],[onclick*="openDrillPickerModal("],[onclick*="openEditQModal("],[onclick*="openEventoModal("],[onclick*="openGuestDuplicatesModal("],[onclick*="openGuestPlayerModal("],[onclick*="openIncidentEditModal("],[onclick*="openIncidentNewModal("],[onclick*="openInjuryEditModal("],[onclick*="openInjuryModal("],[onclick*="openJustModal("],[onclick*="openManualStatsModal("],[onclick*="openMatchModal("],[onclick*="openMvpNewModal("],[onclick*="openPlayerModal("],[onclick*="openPlayerNoteModal("],[onclick*="openReassignLogModal("],[onclick*="openSubModal("],[onclick*="openTeamModal("],[onclick*="openTimeoutModal("],[onclick*="openEventoConvModal("],[onclick*="openDlsResumeOrLive("]):not(button){pointer-events:none!important}
+body.ro-mode :is([onclick*="cycleAtt("],[onclick*="_mdCycleAtt("],[onclick*="_convCycleAtt("],[onclick*="toggleConvocado("],[onclick*="toggleTitular("],[onclick*="setCapitan("],[onclick*="_convToggle("],[onclick*="_convTitular("],[onclick*="_convCapitan("],[onclick*="evtTogglePlayer("]){pointer-events:none!important}
 </style>
 </head>
 <body>
@@ -2412,6 +2424,8 @@ function _editableTeams(){
 // ahora con esta misma comprobación (marcadas "B-PERM2"). Sin roles
 // activados (_permissionsActive()===false) devuelve siempre true: cero
 // cambios para un club que no usa permisos.
+// v3.0.0-dev.116 · B-ROVIEW1: equipo que este entrenador solo puede VER.
+function _isReadOnlyTeam(tid){ return !!tid&&_permissionsActive()&&!_canEditTeam(tid); }
 function _requireEdit(tid){
   if(_canEditTeam(tid))return true;
   toast("🔒 Solo lectura -- no tienes permiso para editar este equipo");
@@ -2455,7 +2469,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.115";
+const APP_VERSION = "3.0.0-dev.116";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4810,6 +4824,23 @@ function render(){
   // full-width sólo a esa pantalla, manteniendo el resto a 430px centrado.
   document.body.classList.toggle("in-live", S.screen==="liveGame");
   requestAnimationFrame(()=>setTimeout(_initCharts,0));
+  // v3.0.0-dev.116 · B-ROVIEW1: modo ver en pantallas de un equipo que solo
+  // se puede ver -- aviso arriba, campos de solo lectura y (vía CSS
+  // body.ro-mode) sin botones de editar.
+  try{
+    const _ro=_TEAM_SCOPED_SCREENS.has(S.screen)&&_isReadOnlyTeam(S.teamId);
+    document.body.classList.toggle("ro-mode",_ro);
+    if(_ro){
+      const root=document.getElementById("root");
+      const cont=root&&root.querySelector(".content");
+      if(cont&&!cont.querySelector(".ro-banner")){
+        const b=document.createElement("div");b.className="ro-banner";
+        b.innerHTML='<span style="font-size:16px">👁</span><span>Modo ver · puedes consultarlo todo, pero no tienes permiso para editar este equipo.</span>';
+        cont.insertBefore(b,cont.firstChild);
+      }
+      if(root)root.querySelectorAll("input,textarea,select").forEach(el=>{el.readOnly=true;if(el.tagName==="SELECT"||["checkbox","radio","file","date","time"].includes(el.type))el.disabled=true;});
+    }
+  }catch(e){}
 }
 /* ── helpers ── */
 // Navegación con pila — guarda estado actual y avanza
@@ -5137,10 +5168,12 @@ function hoy(){
           </div>
         </div>`:""}
         <div style="display:flex;gap:8px">
-          ${FEATURE_LIVE_GAME&&(started||(m.matchMode||"quarters")==="live")?
+          ${_isReadOnlyTeam(t.id)?
+            `<button onclick="S.teamId='${t.id}';${started?`navTo('liveGame',{teamId:'${t.id}',matchId:'${m.id}'})`:`navTo('matchDetail',{teamId:'${t.id}',matchId:'${m.id}'})`}" style="flex:1;padding:11px;border-radius:9px;border:1px solid var(--border);font-weight:800;font-size:14px;cursor:pointer;background:var(--s2);color:var(--tx)">${started?"👁 Ver directo":"👁 Ver partido"}</button>`
+            :FEATURE_LIVE_GAME&&(started||(m.matchMode||"quarters")==="live")?
             `<button onclick="S.teamId='${t.id}';startLiveGameConfirm('${m.id}')" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${started?"linear-gradient(135deg,#ef4444,#b91c1c)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:white">${started?"🔴 Continuar partido":"▶ Empezar partido"}</button>`
             :
-            `<button onclick="S.teamId='${t.id}';navTo('matchDetail',{matchId:'${m.id}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:linear-gradient(135deg,var(--orange),var(--orange2));color:white">✏️ Anotar partido</button>`
+            `<button onclick="S.teamId='${t.id}';navTo('matchDetail',{matchId:'${m.id}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:linear-gradient(135deg,var(--orange),var(--orange2));color:white">${_isReadOnlyTeam(S.teamId)?"👁 Ver partido":"✏️ Anotar partido"}</button>`
           }
           <button onclick="S.teamId='${t.id}';navTo('matchDetail',{matchId:'${m.id}'})" style="width:46px;height:46px;border-radius:9px;background:var(--s2);border:1px solid var(--border);cursor:pointer;font-size:18px">📋</button>
           ${FEATURE_LIVE_GAME&&inProgress?`<button onclick="_finishAndShowSummary('${t.id}','${m.id}')" style="width:46px;height:46px;border-radius:9px;background:rgba(107,114,128,.15);border:1px solid #6b728055;cursor:pointer;font-size:18px" title="Finalizar y ver resumen">🏁</button>`:""}
@@ -5198,7 +5231,7 @@ function hoy(){
           ${[["✓",pr,"#22c55e","Pres"],["✗",ab,"#ef4444","Aus"],["⏱",la,"#f59e0b","Tard"],["◎",ex,"#6b7280","Just"]].map(([ic,v,col,l])=>`<div class="hoy-stat" style="flex:1;background:var(--s2);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:900;font-size:16px;color:${col}">${v}</div><div style="font-size:10px;color:var(--td)">${l}</div></div>`).join("")}
         </div>`:""}
         <div style="display:flex;gap:8px">
-          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:false})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
+          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:false})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${(done||_isReadOnlyTeam(t.id))?"var(--s2)":"linear-gradient(135deg,var(--orange),var(--orange2))"};color:${(done||_isReadOnlyTeam(t.id))?"var(--td)":"white"}">${_isReadOnlyTeam(t.id)?"👁 Ver asistencia":done?"✏️ Editar lista":"📋 Pasar lista"}</button>
           ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:'${today}',attOpt:false})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
@@ -5256,7 +5289,7 @@ function hoy(){
         </div>`:""}
         <div style="font-size:11px;color:var(--tm);margin-bottom:10px">No cuenta para el % de asistencia oficial.</div>
         <div style="display:flex;gap:8px">
-          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:'${type}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${done?"var(--s2)":"linear-gradient(135deg,#a855f7,#7e22ce)"};color:${done?"var(--td)":"white"}">${done?"✏️ Editar lista":"📋 Pasar lista"}</button>
+          <button onclick="navTo('att',{teamId:'${t.id}',date:'${today}',attOpt:'${type}'})" style="flex:1;padding:11px;border-radius:9px;border:none;font-weight:800;font-size:14px;cursor:pointer;background:${(done||_isReadOnlyTeam(t.id))?"var(--s2)":"linear-gradient(135deg,#a855f7,#7e22ce)"};color:${(done||_isReadOnlyTeam(t.id))?"var(--td)":"white"}">${_isReadOnlyTeam(t.id)?"👁 Ver asistencia":done?"✏️ Editar lista":"📋 Pasar lista"}</button>
           ${done?`<button onclick="S.teamId='${t.id}';navTo('share',{date:'${today}',attOpt:'${type}'})" style="width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#25d366,#128c7e);border:none;cursor:pointer;font-size:20px">📤</button>`:""}
         </div>
       </div>
@@ -5767,7 +5800,7 @@ function stats(){
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")}</div></div>
   </div></header>
-  <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm);margin-bottom:14px">Sin sesiones aún.<br/>Pasa lista primero.</div><button class="btn-p" style="max-width:240px;margin:0 auto" onclick="navTo('att',{date:td(),attOpt:false})">✅ Pasar lista ahora</button></div></div>
+  <div class="content"><div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📊</div><div style="font-size:14px;color:var(--tm);margin-bottom:14px">Sin sesiones aún.${_isReadOnlyTeam(S.teamId)?"":"<br/>Pasa lista primero."}</div><button class="btn-p" style="max-width:240px;margin:0 auto" onclick="navTo('att',{date:td(),attOpt:false})">${_isReadOnlyTeam(S.teamId)?"👁 Ver asistencia de hoy":"✅ Pasar lista ahora"}</button></div></div>
   ${navBar()}`;
   // v3.0.0-dev.55 · B-SEASON1: esta pantalla es la vista de TEMPORADA (a
   // diferencia de Historial, que sigue enseñando todo el histórico) -- a
@@ -7940,7 +7973,7 @@ function dlsMatchScore(team,pts){if(!_requireEdit(S.teamId))return false; /* B-P
   save();render();
 }
 /* ── Captura de estadísticas ── */
-function _dlsLog(pid,action){
+function _dlsLog(pid,action){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dls();if(!b)return;
   if(!b.stats[pid])b.stats[pid]=_dlsEmptyStats();
   b.stats[pid][action]=(b.stats[pid][action]||0)+1;
@@ -11468,8 +11501,8 @@ function matchList(){
       // de antes de B-MATCHMODE1/dev.82) -- si no, un directo ya empezado
       // perdería su acceso rápido de "Continuar en vivo" en esta lista.
       const quickActionHtml=m.finished?"":((_mMode==="live"||m.live)
-        ?`<button onclick="event.stopPropagation();startLiveGameConfirm('${m.id}')" style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:none;font-weight:800;font-size:13px;cursor:pointer;background:linear-gradient(135deg,${m.live?"#dc2626,#b91c1c":"var(--orange),var(--orange2)"});color:white">${m.live?"🔴 Continuar en vivo":"▶ Empezar partido"}</button>`
-        :`<button onclick="event.stopPropagation();navTo('matchDetail',{matchId:'${m.id}'})" style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-weight:700;font-size:13px;cursor:pointer">✏️ Anotar partido</button>`);
+        ?`<button onclick="event.stopPropagation();${_isReadOnlyTeam(S.teamId)&&!m.live?`navTo('matchDetail',{matchId:'${m.id}'})`:`startLiveGameConfirm('${m.id}')`}" style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:none;font-weight:800;font-size:13px;cursor:pointer;background:linear-gradient(135deg,${m.live?"#dc2626,#b91c1c":"var(--orange),var(--orange2)"});color:white">${_isReadOnlyTeam(S.teamId)?(m.live?"👁 Ver directo":"👁 Ver partido"):m.live?"🔴 Continuar en vivo":"▶ Empezar partido"}</button>`
+        :`<button onclick="event.stopPropagation();navTo('matchDetail',{matchId:'${m.id}'})" style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-weight:700;font-size:13px;cursor:pointer">${_isReadOnlyTeam(S.teamId)?"👁 Ver partido":"✏️ Anotar partido"}</button>`);
       return`<div class="match-card ${cls}" onclick="navTo('matchDetail',{matchId:'${m.id}'})">
         <div style="padding:12px 14px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -11649,7 +11682,7 @@ function matchDetail(){
   // datos), solo que ahora no se le da el mismo protagonismo visual que
   // antes a esa opción cuando el entrenador ya eligió anotar a mano.
   const liveActionHtml=!FEATURE_LIVE_GAME?"":hasLive
-    ?`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="navTo('liveGame')" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:14px;cursor:pointer">🔴 Continuar en vivo</button></div>`
+    ?`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="navTo('liveGame')" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:14px;cursor:pointer">${_isReadOnlyTeam(S.teamId)?"👁 Ver directo":"🔴 Continuar en vivo"}</button></div>`
     :mode==="live"
       ?`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="startLiveGameConfirm()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;font-weight:800;font-size:14px;cursor:pointer">🔴 Empezar en directo</button></div>`
       :`<div style="display:flex;justify-content:center;margin-bottom:16px"><button onclick="startLiveGameConfirm()" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1px solid rgba(220,38,38,.35);background:rgba(220,38,38,.08);color:#fca5a5;font-weight:700;font-size:12.5px;cursor:pointer">🔴 Cambiar a seguimiento en vivo</button></div>`;
