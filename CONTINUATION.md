@@ -4,7 +4,7 @@ Este documento es el punto de partida para retomar el trabajo en Kortline v3 des
 
 ## Qué es esto
 
-Kortline v3 es una PWA de gestión de equipos de baloncesto (asistencia, partidos en vivo, estadísticas, jugadores), de un solo archivo `index.html` (~10.700 líneas, vanilla JS, sin frameworks ni build step). La usa en producción un club real (**CB Jaca**), con ~5 entrenadores compartiendo la misma base de datos.
+Kortline v3 es una PWA de gestión de equipos de baloncesto (asistencia, partidos en vivo, estadísticas, jugadores), de un solo archivo `index.html` (~17.000 líneas a 2026-11-12, vanilla JS, sin frameworks ni build step). La usa en producción un club real (**CB Jaca**), con ~5 entrenadores compartiendo la misma base de datos.
 
 - **Repo:** `https://github.com/MarioNadal/kortline-v3` (rama `main`)
 - **App real (producción):** `https://marionadal.github.io/kortline-v3/`
@@ -38,9 +38,9 @@ Luego lee este archivo (`CONTINUATION.md`, si está commiteado) y el `CHANGELOG.
    ```bash
    git add -A
    git commit -F /tmp/commitmsgN.txt   # usar un fichero temporal si el mensaje lleva comillas
-   git push https://ghp_XXXXXXXX@github.com/MarioNadal/kortline-v3.git main
+   git push -u origin <rama>   # nunca con un token pegado en la URL: queda en el historial del terminal y en .git/config
    ```
-   El token de GitHub lo tiene que dar el usuario si no está ya en el entorno — **nunca mostrarlo en claro en la respuesta**, siempre redactarlo con `sed 's/ghp_[a-zA-Z0-9]*/***TOKEN***/g'` sobre la salida del push.
+   (v3.0.0-dev.114, auditoría: antes aquí se indicaba subir con un token `ghp_...` dentro de la URL. No hacerlo: usar la sesión de GitHub ya autenticada. Tampoco subir directo a `main`: rama + pull request, que es lo que publica `/test/` y producción a la vez.)
 8. **Si `index.html`/`sw.js` cambiaron, regenerar `/test/`:**
    ```bash
    bash scripts/build-test-deploy.sh

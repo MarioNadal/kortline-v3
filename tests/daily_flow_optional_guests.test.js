@@ -123,6 +123,27 @@ async function run() {
     r.assert(win._hoyMinuteTick() === false, "1d) ni fuera de la pantalla Hoy");
   }
 
+  // ═══ 1e) B-VOLTECH7: marcar solo a las que FALTAN en un voluntario ═══
+  // (caso real de Mario con Alevín Femenino en /test/: "0 asistieron de 15").
+  {
+    const { win, today } = await setup();
+    win.S.teams[1].name = "ALEVÍN FEMENINO";
+    win.S.players.t2 = Array.from({ length: 15 }, (_, i) => ({ id: "j" + i, name: "Jugadora " + i, number: i + 1 }));
+    win.navRoot("hoy"); win.openHoyAddSheet(); win._hoyAddPickOptional("voluntario");
+    win.document.querySelectorAll("#hoy-opt-teams input").forEach(c => { c.checked = c.value === "t2"; });
+    win._hoyAddCommitOptional("voluntario");
+    win.cycleAtt("j3"); win.cycleAtt("j7"); // solo se tocan las 2 que faltan
+    win.navTo("hist", { teamId: "t2" });
+    r.assert(/13 asistieron de 15/.test(root(win)), "1e) B-VOLTECH7: el Historial cuenta las 13 que se ven como Presente (antes: '0 asistieron de 15')");
+    r.assert(win._optionalAttCount(win.S.players.t2[0], "t2").asistidas === 1 && win._optionalAttCount(win.S.players.t2[3], "t2").asistidas === 0,
+      "1e) el contador morado de cada jugadora suma 1 a las que vinieron y 0 a las que faltaron");
+    win.navTo("team", { teamId: "t2" });
+    r.assert(win.document.querySelectorAll('span[title^="Asistencias a entrenamientos voluntarios"]').length === 13, "1e) la plantilla enseña el cuadrado morado 🙋 en las 13 que vinieron");
+    // Un voluntario creado pero en el que NADIE ha pasado lista no cuenta como 'vinieron todas'
+    win.S.sessions[win.skO("t2", win._addDaysISO(today, -1), "voluntario")] = { _optType: "voluntario" };
+    r.assert(win._optionalAttCount(win.S.players.t2[0], "t2").asistidas === 1, "1e) una sesión opcional sin pasar lista no suma a nadie");
+  }
+
   // ═══ 1c) Datos antiguos: tecnificación guardada en "_opt" y horario fijo antiguo ═══
   {
     const { win, today, ti } = await setup();
