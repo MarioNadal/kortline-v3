@@ -2457,7 +2457,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.114";
+const APP_VERSION = "3.0.0-dev.115";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -6937,6 +6937,7 @@ function openClubSettings(){
     <div class="stg-sec">
       <div class="stg-sec-title">👤 Tu perfil en este dispositivo</div>
       <div class="fg"><label class="fl">Tu nombre</label><input class="fi" id="cfg-coachname" value="${esc(_getCoachName())}" placeholder="ej. María" maxlength="40"/><div style="font-size:11px;color:var(--tm);margin-top:4px">Solo se guarda en este móvil (no es una cuenta). Sirve para que el aviso de "partido en directo ya seguido por otro dispositivo" diga quién es en vez de un aviso genérico.</div></div>
+      ${_permissionsActive()?(()=>{const c=_currentCoach();return`<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:4px"><div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--td)">Entras como</div><div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c?esc(c.name)+" · "+_roleLabel(c.role):"—"}</div></div><button type="button" class="btn-s" onclick="switchCoachIdentity()" style="width:auto;margin:0;font-size:13px;padding:9px 12px;white-space:nowrap">🔄 Cambiar de entrenador</button></div>`;})():""}
     </div>
     <div class="stg-sec">
       <div class="stg-sec-title">👥 Entrenadores y permisos</div>
@@ -12996,6 +12997,22 @@ function _showIdentityGate(){
     <div style="font-size:11px;color:#3a5a80;margin-top:16px;line-height:1.5">¿No apareces en la lista? Pide al superadmin del club que te añada desde Ajustes → Entrenadores y permisos.</div>
   </div>`;
   document.body.appendChild(el);
+}
+// v3.0.0-dev.115 · B-ROLES2: Mario -- "¿cómo cierro sesión de entrenador
+// para probar permisos?". No había forma de cambiar la identidad elegida en
+// un móvil (solo abriendo la app en otro navegador). Ajustes → Tu perfil →
+// "🔄 Cambiar de entrenador" olvida la identidad de ESTE dispositivo y
+// vuelve a mostrar "¿Quién eres?". No toca ningún dato del club ni la sesión
+// de Firebase (el código del club sigue puesto).
+function switchCoachIdentity(){
+  if(!_permissionsActive())return;
+  _confirm("¿Cambiar de entrenador en este móvil?<br><span style='font-size:12px;color:var(--td)'>Volverás a elegir quién eres. No se borra ningún dato.</span>","🔄 Cambiar",()=>{
+    _setCurrentCoachId("");
+    document.getElementById("m-club-settings")?.remove();
+    S.screen="hoy";S.teamId=null;S.navStack=[];
+    render();
+    _showIdentityGate();
+  });
 }
 function _pickIdentity(id){
   _setCurrentCoachId(id);
