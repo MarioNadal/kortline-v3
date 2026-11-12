@@ -93,6 +93,28 @@ async function run() {
     r.assert(win.S.matches.t1[0].q[0] === q0 + 1, "sin roles: el marcador por cuartos se sigue pudiendo cambiar");
   }
 
+  // ═══ 3) v3.0.0-dev.116 · B-ROVIEW1: "modo ver" en vez de botones de editar ═══
+  {
+    const { win, today } = await setup(true);
+    const ti = win._weekdayIdxForDate(today);
+    win.S.teams.push({ id: "t9", name: "MIO", schedule: { [ti]: "17:00" } });
+    win.S.teams[0].schedule = { [ti]: "18:00" };
+    win.S.players.t9 = [{ id: "x1", name: "Mía", number: 1 }];
+    win.S.matches.t1[0].date = today;
+    win.S.cfg.coaches[1].teamsEdit = ["t9"];
+    win.navRoot("hoy");
+    const h = win.document.getElementById("root").textContent;
+    r.assert(/Ver asistencia/.test(h) && /Ver partido/.test(h), "modo ver: en Hoy, el equipo de solo ver ofrece 'Ver asistencia' y 'Ver partido'");
+    r.assert((h.match(/Pasar lista/g) || []).length === 1, "modo ver: 'Pasar lista' solo sale en el equipo que sí se puede editar");
+    win.navTo("att", { teamId: "t1", date: today, attOpt: false });
+    r.assert(!!win.document.querySelector("#root .ro-banner") && win.document.body.classList.contains("ro-mode"), "modo ver: el pase de lista de un equipo de solo ver muestra el aviso y activa el modo ver");
+    r.assert([...win.document.querySelectorAll("#root textarea")].every(x => x.readOnly), "modo ver: las notas son de solo lectura");
+    win.navTo("att", { teamId: "t9", date: today, attOpt: false });
+    r.assert(!win.document.querySelector("#root .ro-banner") && !win.document.body.classList.contains("ro-mode"), "modo ver: en el equipo propio no hay aviso ni modo ver");
+    win.navTo("matchList", { teamId: "t1" });
+    r.assert(!/Anotar partido|Empezar partido/.test(win.document.getElementById("root").textContent), "modo ver: la lista de partidos no ofrece Anotar/Empezar");
+  }
+
   return r.summary();
 }
 

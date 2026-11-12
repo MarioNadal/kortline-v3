@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · "Modo ver" para equipos sin permiso de edición (B-ROVIEW1, dev.116, 2026-11-12)
+
+Mario: *"cuando alguien no tiene permiso para editar una asistencia o lo que sea le debería aparecer, en vez de pasar lista, todo modo ver... y así con toda la aplicación"*.
+
+### Añadido
+
+- **Etiquetas de solo lectura**: en Hoy, Partidos y detalle del partido, un equipo que solo se puede ver ofrece "👁 Ver asistencia", "👁 Ver partido" y "👁 Ver directo" en vez de "Pasar lista", "Anotar partido", "Empezar partido" o "Continuar en vivo". Un partido sin empezar lleva a su detalle, nunca a iniciarlo.
+- **Modo ver en todas las pantallas del equipo** (`_isReadOnlyTeam`, `body.ro-mode`): aviso "👁 Modo ver" arriba, campos de texto de solo lectura y sin botones de editar. La lista de botones a ocultar sale de las mismas acciones protegidas con `_requireEdit` (B-PERM2) más los modales que solo sirven para editar; los que muestran un estado (asistencia, convocado, titular, capitán) se ven pero no se pueden pulsar.
+- `_dlsLog` (estadísticas de ejercicios en vivo) también comprueba permiso.
+
+### Probado
+
+- `permissions_readonly_guards.test.js` (+6) y prueba "mono" en modo solo lectura ampliada a ejercicios en vivo, que además comprueba en cada pantalla el aviso de Modo ver y que no se ofrece "Pasar lista / Anotar / Empezar".
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.116` / `kortline-v3.0.0-dev.116`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Botón "Cambiar de entrenador" (B-ROLES2, dev.115, 2026-11-12)
 
 Mario, probando permisos en `/test/`: *"¿cómo cierro sesión de entrenador para probar permisos?"*. No había forma de cambiar la identidad elegida en un móvil (solo abriendo la app en otro navegador o en una pestaña privada).
