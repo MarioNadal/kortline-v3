@@ -702,7 +702,7 @@ function startClock(){
     }
   },1000);
 }
-function toggleClock(){
+function toggleClock(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   m.live.clockRunning=!m.live.clockRunning;
   if(m.live.clockRunning)startClock();
@@ -721,7 +721,7 @@ function toggleClock(){
   if(btnF){btnF.textContent=m.live.clockRunning?"⏸":"▶";btnF.style.background=m.live.clockRunning?"rgba(239,68,68,.9)":"rgba(34,197,94,.9)";}
   save();
 }
-function resetClock(){
+function resetClock(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   m.live.clockRunning=false;clearInterval(_liveTimer);_liveTimer=null;
   const mins=m.live.clockMins||10;
@@ -777,7 +777,7 @@ function _confirmClockReset(){
   </div>`;
   document.body.appendChild(el);
 }
-function _applyClockRewind(secs){
+function _applyClockRewind(secs){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   m.live.clockRunning=false;clearInterval(_liveTimer);_liveTimer=null;
   m.live.clockSec=Math.min((m.live.clockSec||0)+secs,(m.live.clockMins||10)*60);
@@ -790,7 +790,7 @@ function setClockMins(mins){
   m.live.clockMins=mins;m.live.clockSec=mins*60;
   save();render();
 }
-function editClock(){
+function editClock(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   m.live.clockRunning=false;clearInterval(_liveTimer);_liveTimer=null;
   save();
@@ -844,7 +844,7 @@ function _ecPreset(secs){
   const mi=document.getElementById("ec-min"),si=document.getElementById("ec-sec");
   if(mi)mi.value=m;if(si)si.value=s<10?"0"+s:s;
 }
-function applyEditClock(){
+function applyEditClock(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const mins=parseInt(document.getElementById("ec-min")?.value)||0;
   const secs=Math.min(59,parseInt(document.getElementById("ec-sec")?.value)||0);
@@ -1780,7 +1780,7 @@ function _showBreakOverlay(sec,nextLabel,breakLabel){
   document.body.appendChild(el);
 }
 // Registro de acción en el overlay de fin de cuarto (sin render)
-function _endPeriodAction(pid,action,pts,qIdx,isRival){
+function _endPeriodAction(pid,action,pts,qIdx,isRival){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m?.live)return;
   if(isRival){
     if(pts>0&&m.live.qScores?.[qIdx])m.live.qScores[qIdx][1]+=pts;
@@ -1971,7 +1971,7 @@ function openTimeoutModal(){
   </div>`;
   document.body.appendChild(el);
 }
-function addTimeout(team){
+function addTimeout(team){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   document.getElementById("m-tm-pick")?.remove();
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const qi=(m.live.q||1)-1;
@@ -2405,6 +2405,14 @@ function _editableTeams(){
 // Guard de un solo uso para mutadores de un equipo concreto: llamar al
 // principio de la función (if(!_requireEdit(tid))return;). Avisa con un
 // toast y no deja seguir si este dispositivo solo puede VER ese equipo.
+// v3.0.0-dev.114 · B-PERM2 (auditoría, prueba "mono" con un entrenador de
+// solo lectura pulsando todos los botones): unas 60 acciones de edición
+// (valoraciones, marcador por cuartos, asistencia al partido, reloj,
+// cambios, tiempos muertos, tiros libres, registro de jugadas, puntuales,
+// ejercicios, MVP...) guardaban sin comprobar permiso. Cada una empieza
+// ahora con esta misma comprobación (marcadas "B-PERM2"). Sin roles
+// activados (_permissionsActive()===false) devuelve siempre true: cero
+// cambios para un club que no usa permisos.
 function _requireEdit(tid){
   if(_canEditTeam(tid))return true;
   toast("🔒 Solo lectura -- no tienes permiso para editar este equipo");
@@ -2449,7 +2457,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.113";
+const APP_VERSION = "3.0.0-dev.114";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3230,7 +3238,7 @@ function _sortTeams(){
   S.teams.sort((a,b)=>(a.order??0)-(b.order??0));
   return needsBackfill;
 }
-function moveTeamUp(id){
+function moveTeamUp(id){if(!_isSuperadmin())return false; /* B-PERM2: reordenar equipos es del superadmin */
   const i=S.teams.findIndex(t=>t.id===id);
   if(i<=0)return;
   const a=S.teams[i],b=S.teams[i-1];
@@ -3304,7 +3312,13 @@ function save(){
   // constantemente, en cada acción). Esto es lo que permite avisar a otro
   // entrenador que abra el mismo partido de que ya lo está siguiendo
   // alguien más en ese momento.
-  if(S.screen==="liveGame" && S.teamId && S.matchId){
+  // v3.0.0-dev.114 · B-PERM2: solo quien puede EDITAR el equipo deja latido
+  // de "estoy registrando este partido" -- antes, un director deportivo que
+  // solo MIRABA el directo también lo dejaba (aviso falso de "otro
+  // dispositivo está registrando" al anotador real) y, al cambiar el
+  // documento del partido, su móvil podía subir su copia (más vieja) del
+  // partido entero encima de la del anotador.
+  if(S.screen==="liveGame" && S.teamId && S.matchId && _canEditTeam(S.teamId)){
     const _lm=mById(S.teamId,S.matchId);
     if(_lm && _lm.live){ _lm.live.trackedBy=_getDeviceId(); _lm.live.trackedAt=Date.now(); _lm.live.trackedByName=_getCoachName()||null; }
   }
@@ -4048,8 +4062,11 @@ function _effAttState(p,date,v){
 }
 // Fecha compacta DD/MM (sin año ni día de la semana) para filas estrechas.
 function fdCompact(d){
-  try{const dt=new Date(d+"T12:00:00");return dt.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit"});}
-  catch{return d;}
+  // B-DATE1 (auditoría): una fecha vacía/rota no lanza excepción, devuelve
+  // "Invalid Date" -- que se veía tal cual en pantalla (p.ej. "Última
+  // lesión: Invalid Date → Invalid Date").
+  try{const dt=new Date(d+"T12:00:00");if(isNaN(dt.getTime()))return"—";return dt.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit"});}
+  catch{return"—";}
 }
 /* ═══════════════════════════════════════
    INCIDENT HELPERS
@@ -4187,6 +4204,13 @@ function _initCharts(){
   }
 }
 function _buildStatsCharts(){
+  // v3.0.0-dev.114 · B-CHART1 (auditoría): render() programa esta función en
+  // diferido; si llegan dos render() seguidos estando en Gráficas (doble
+  // toque, o un cambio de otro entrenador que entra por la nube justo
+  // entonces), se ejecutaba dos veces sobre los mismos <canvas> y Chart.js
+  // lanzaba "Canvas is already in use" -- un error de JS real que además se
+  // subía al registro de errores de Firestore. Se destruyen siempre antes.
+  _destroyCharts();
   const tid=S.teamId;
   const players=pl(tid);
   const t=S.teams.find(x=>x.id===tid);
@@ -6177,7 +6201,7 @@ function openMvpNewModal(){
   document.body.appendChild(el);
   _attachModalDirtyTracking(id, ()=>saveMvp(id), "Nuevo MVP");
 }
-function saveMvp(mid){
+function saveMvp(mid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const t=S.teams.find(x=>x.id===S.teamId);if(!t)return false;
   const date=document.getElementById(mid+"-date")?.value||td();
   const playerId=document.getElementById(mid+"-player")?.value;
@@ -6193,7 +6217,7 @@ function saveMvp(mid){
   if(document.getElementById("m-mvps")){document.getElementById("m-mvps").remove();openMvpModal();}
   return true;
 }
-function deleteMvp(mvId){
+function deleteMvp(mvId){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const t=S.teams.find(x=>x.id===S.teamId);if(!t)return;
   _confirm("¿Borrar este MVP? No se puede deshacer.","🗑 Borrar MVP",()=>{
     const hist=mvpHistory(t).filter(x=>x.id!==mvId);
@@ -6591,7 +6615,7 @@ function shareEventoConv(){
   el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
   el.onclick=ev=>{if(ev.target===el)el.remove();};
   const togHtml=_coachToggleHtml(allCoaches,"ev","_refreshEvtPrev");
-  el.innerHTML=`<div class="modal"><div class="mhandle"></div><div class="mtitle">📤 Compartir convocatoria</div>${togHtml}<div style="font-size:12px;color:var(--td);margin-bottom:10px;background:var(--s2);border-radius:8px;padding:8px 10px;border:1px solid var(--border)">Vista previa</div><div class="share-preview" id="ev-prev" style="max-height:200px;overflow-y:auto;white-space:pre-wrap">${esc(text)}</div><button class="btn-wa" onclick="shareText(document.getElementById('ev-prev').innerText)">💬 Compartir por WhatsApp</button><button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('ev-prev').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar texto</button><button class="btn-s" onclick="document.getElementById('m-share-evento').remove()">Cerrar</button></div>`;
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div><div class="mtitle">📤 Compartir convocatoria</div>${togHtml}<div style="font-size:12px;color:var(--td);margin-bottom:10px;background:var(--s2);border-radius:8px;padding:8px 10px;border:1px solid var(--border)">Vista previa</div><div class="share-preview" id="ev-prev" style="max-height:200px;overflow-y:auto;white-space:pre-wrap">${esc(text)}</div><button class="btn-wa" onclick="shareText(document.getElementById('ev-prev').innerText)">💬 Compartir por WhatsApp</button><button class="btn-copy" onclick="_copyToClipboard(document.getElementById('ev-prev').innerText)">📋 Copiar texto</button><button class="btn-s" onclick="document.getElementById('m-share-evento').remove()">Cerrar</button></div>`;
   document.body.appendChild(el);
 }
 function openEventoModal(init){
@@ -6768,7 +6792,7 @@ function shareMatchResult(){
   const resColor=r==="W"?"#22c55e":r==="L"?"#ef4444":r==="D"?"#f59e0b":isLive?"#ef4444":"var(--td)";
   const hasCoachSR=allCoachesSR.length>0;const hasAsstSR=allCoachesSR.length>1;
   const srTog=_coachToggleHtml(allCoachesSR,"sr","_refreshSRPrev");
-  el.innerHTML=`<div class="modal"><div class="mhandle"></div><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="width:40px;height:40px;border-radius:10px;background:${resColor}22;border:1px solid ${resColor}44;display:flex;align-items:center;justify-content:center;font-size:20px">${isLive?"🔴":r==="W"?"🏆":r==="L"?"❌":r==="D"?"🤝":"📊"}</div><div><div class="mtitle" style="margin:0 0 2px">${isLive?"Marcador en vivo":"Compartir resultado"}</div><div style="font-size:12px;color:var(--td)">${esc(t.name)} vs ${esc(m.rival||"Rival")}${isLive?" · "+liveQLabel+" · "+liveClock:""}</div></div></div>${srTog}<div class="share-preview" id="sr-prev" data-base="${esc(baseText)}" style="max-height:180px;overflow-y:auto;white-space:pre-wrap">${esc(textWithCoach)}</div><button class="btn-wa" onclick="shareText(document.getElementById('sr-prev').innerText)">💬 Compartir por WhatsApp</button><button class="btn-copy" onclick="navigator.clipboard?.writeText(document.getElementById('sr-prev').innerText).then(()=>toast('📋 Copiado'))">📋 Copiar texto</button><button class="btn-s" onclick="document.getElementById('m-share-result').remove()">Cerrar</button></div>`;
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="width:40px;height:40px;border-radius:10px;background:${resColor}22;border:1px solid ${resColor}44;display:flex;align-items:center;justify-content:center;font-size:20px">${isLive?"🔴":r==="W"?"🏆":r==="L"?"❌":r==="D"?"🤝":"📊"}</div><div><div class="mtitle" style="margin:0 0 2px">${isLive?"Marcador en vivo":"Compartir resultado"}</div><div style="font-size:12px;color:var(--td)">${esc(t.name)} vs ${esc(m.rival||"Rival")}${isLive?" · "+liveQLabel+" · "+liveClock:""}</div></div></div>${srTog}<div class="share-preview" id="sr-prev" data-base="${esc(baseText)}" style="max-height:180px;overflow-y:auto;white-space:pre-wrap">${esc(textWithCoach)}</div><button class="btn-wa" onclick="shareText(document.getElementById('sr-prev').innerText)">💬 Compartir por WhatsApp</button><button class="btn-copy" onclick="_copyToClipboard(document.getElementById('sr-prev').innerText)">📋 Copiar texto</button><button class="btn-s" onclick="document.getElementById('m-share-result').remove()">Cerrar</button></div>`;
   document.body.appendChild(el);setTimeout(()=>{_refreshSRPrev();},0);
 }
 function _showOTPrompt(m,curQ,otCount){
@@ -6781,7 +6805,7 @@ function _showOTPrompt(m,curQ,otCount){
   el.innerHTML=`<div style="background:var(--s);border:2px solid rgba(245,158,11,.5);border-radius:16px;padding:26px 22px;width:100%;max-width:340px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.7)"><div style="font-size:44px;margin-bottom:8px">🤝</div><div style="font-family:var(--font-d);font-weight:900;font-size:22px;color:#f59e0b;margin-bottom:4px">¡EMPATE!</div><div style="font-size:15px;font-weight:700;margin-bottom:6px">Fin del ${esc(prevLabel)}</div><div style="font-family:var(--font-d);font-size:40px;font-weight:900;color:var(--tx);margin-bottom:16px">${ourT} — ${rivT}</div><div style="font-size:13px;color:var(--td);margin-bottom:20px">¿Se juega prórroga?</div><button onclick="activateOT()" style="width:100%;padding:14px;border:none;border-radius:10px;font-weight:900;font-size:17px;cursor:pointer;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;margin-bottom:10px;font-family:var(--font-d);letter-spacing:.5px">🏀 Jugar ${esc(otLabel)}</button><button onclick="document.getElementById('ot-prompt').remove();confirmFinishMatch('${S.teamId}','${S.matchId}')" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;background:var(--s2);color:var(--td)">🏁 Finalizar partido</button></div>`;
   document.body.appendChild(el);
 }
-function activateOT(){
+function activateOT(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   document.getElementById("ot-prompt")?.remove();const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   m.live.otCount=(m.live.otCount||0)+1;const newQ=(m.quarters||4)+m.live.otCount;
   if(!m.live.qScores)m.live.qScores=[];while(m.live.qScores.length<newQ)m.live.qScores.push([0,0]);
@@ -6804,13 +6828,13 @@ function activateOT(){
   }
   save();render();const otLabel=m.live.otCount===1?"OT":"OT"+m.live.otCount;_clockAlert("🏀 ¡"+otLabel+" — A jugar!",2000);
 }
-function addManualOT(){
+function addManualOT(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.live)m.live={otCount:0};
   m.live.otCount=(m.live.otCount||0)+1;
   save();render();
 }
-function removeLastOT(){
+function removeLastOT(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.otCount)return;
   // Limpiar los datos de esa OT antes de quitar
   const nQ=m.quarters||4;const otIdx=nQ+(m.live.otCount-1);
@@ -6884,7 +6908,7 @@ function _showEndMatchOverlay(m,ourT,rivT,periodName){
   </div>`;
   document.body.appendChild(el);
 }
-function _finishAndShowSummary(teamId,matchId){
+function _finishAndShowSummary(teamId,matchId){if(!_requireEdit(teamId))return false; /* B-PERM2 */
   const m=mById(teamId,matchId);if(!m)return;
   if(m.live){m.live.clockRunning=false;clearInterval(_liveTimer);_liveTimer=null;}
   m.finished=true;m.finishedAt=new Date().toISOString();
@@ -7032,7 +7056,7 @@ function _sessionDrills(){
 // Adjunta/quita un ejercicio del catalogo a la sesion de HOY. Es una accion
 // discreta (como marcar asistencia), se guarda al instante -- no usa el
 // mismo debounce que las notas/ejercicios en texto libre.
-function toggleSessionDrill(drillId){
+function toggleSessionDrill(drillId){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const k=_attK(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   const cur=sess.drills?[...sess.drills]:[];
@@ -7308,7 +7332,7 @@ function openDrillModal(init){
   document.body.appendChild(el);
   _attachModalDirtyTracking(id, ()=>saveDrill(id, init?.id||""), init?"Editar ejercicio":"Nuevo ejercicio");
 }
-function saveDrill(modalId,drillId){
+function saveDrill(modalId,drillId){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const name=(document.getElementById(modalId+"-name")?.value||"").trim();
   if(!name){toast("⚠️ Ponle un nombre al ejercicio");return false;}
   const category=document.getElementById(modalId+"-cat")?.value||"other";
@@ -7336,7 +7360,7 @@ function saveDrill(modalId,drillId){
   _refreshDrillPickerList();_refreshDrillLibraryList();
   return true;
 }
-function deleteDrill(drillId){
+function deleteDrill(drillId){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   _confirm("¿Eliminar este ejercicio del catálogo?<br><span style='font-size:12px;color:var(--td)'>Las sesiones pasadas que ya lo usaron conservan su nombre — solo desaparece del catálogo para sesiones nuevas.</span>","🗑 Eliminar",()=>{
     if(!S.drills||!S.drills[S.teamId])return;
     S.drills[S.teamId]=S.drills[S.teamId].filter(d=>d.id!==drillId);
@@ -7566,7 +7590,7 @@ function _dlsRemoveTemp(tid){
   const list=document.getElementById("dls-temps-list");
   if(list)list.innerHTML=_dlsTempsListHtml();
 }
-function startDls(){
+function startDls(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const setup=window._dlsSetup;
   if(!setup)return;
   const {drillId}=setup;
@@ -7737,13 +7761,13 @@ function startDlsTimer(){
     }
   },1000);
 }
-function toggleDlsClock(){
+function toggleDlsClock(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dls();if(!b||b.status==="finished")return;
   b.status=b.status==="running"?"paused":"running";
   if(b.status==="running")startDlsTimer();else{clearInterval(_dlsTimer);_dlsTimer=null;}
   save();render();
 }
-function addDlsMinutes(mins){
+function addDlsMinutes(mins){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dls();if(!b)return;
   b.remainingSec=Math.max(0,(b.remainingSec||0)+mins*60);
   save();render();
@@ -7859,7 +7883,7 @@ function _dlsMatchRemoveTemp(id){
   const list=document.getElementById("dls-match-roster-list");
   if(list)list.innerHTML=_dlsMatchRosterListHtml();
 }
-function startDlsMatch(){
+function startDlsMatch(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const setup=window._dlsMatchSetup;
   if(!setup)return;
   const {drillId}=setup;
@@ -7910,7 +7934,7 @@ function _dlsMatchTeamScore(b,team){
     return s+(st.p2m||0)*2+(st.p3m||0)*3;
   },0);
 }
-function dlsMatchScore(team,pts){
+function dlsMatchScore(team,pts){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dls();if(!b||b.trackIndividual)return;
   if(!b.manualScore)b.manualScore={A:0,B:0};
   b.manualScore[team]=(b.manualScore[team]||0)+pts;
@@ -8093,7 +8117,7 @@ function dlsSteal(){
     onPick:(pid)=>{_dlsLog(pid,"stl");_dlsChainEnd();}
   });
 }
-function undoDlsLast(){
+function undoDlsLast(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dls();if(!b||!b.log||!b.log.length){toast("Nada que deshacer");return;}
   const last=b.log[b.log.length-1];
   b.log=b.log.slice(0,-1);
@@ -8111,7 +8135,7 @@ function undoDlsLast(){
   const pname=(b.players.find(p=>p.id===last.pid)||{});
   toast("↩️ Deshecho: "+(_DLS_ACT_LABELS[last.action]||last.action)+" de "+_dlsPlayerLabel(pname));
 }
-function confirmEndDls(){
+function confirmEndDls(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dls();if(!b)return;
   _confirm("¿Terminar el ejercicio? Los datos quedan guardados igualmente — puedes volver a abrirlo luego para ver el resultado.","⏹ Terminar",()=>{
     const bb=_dls();if(!bb)return;
@@ -8565,7 +8589,7 @@ function _dlsHistoryRowsHtml(drillId,sessions){
 function _dlsConfirmDeleteSession(drillId,sessionId,from){
   _confirm("¿Borrar esta sesión? Sus estadísticas desaparecerán del histórico y no se puede deshacer.","🗑 Borrar sesión",()=>_dlsDeleteSession(drillId,sessionId,from));
 }
-function _dlsDeleteSession(drillId,sessionId,from){
+function _dlsDeleteSession(drillId,sessionId,from){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const list=_dlsList(S.teamId,drillId);
   const idx=list.findIndex(s=>s.id===sessionId);
   if(idx<0)return;
@@ -8593,7 +8617,7 @@ function _dlsConfirmRemovePlayer(drillId,sessionId,pid){
   if(!p)return;
   _confirm(`¿Quitar a "${esc(_dlsPlayerLabel(p))}" de esta sesión? Sus estadísticas de este ejercicio concreto se perderán. El resto de la sesión no se toca.`,"🗑 Quitar",()=>_dlsRemovePlayerFromSession(drillId,sessionId,pid));
 }
-function _dlsRemovePlayerFromSession(drillId,sessionId,pid){
+function _dlsRemovePlayerFromSession(drillId,sessionId,pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const b=_dlsList(S.teamId,drillId).find(s=>s.id===sessionId);
   if(!b)return;
   b.players=(b.players||[]).filter(p=>p.id!==pid);
@@ -9900,7 +9924,7 @@ function openGuestPlayerModal(opts){
 // Confirma TODA la selección de golpe (frecuentes reutilizados + copias
 // nuevas de categoría inferior), con dedup por nombre para no crear
 // duplicados si ya existe un puntual de este modo con ese mismo nombre.
-function _guestPickerCommit(){
+function _guestPickerCommit(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const picker=window._guestPicker;
   if(!picker)return;
   const mode=picker.mode;
@@ -10001,7 +10025,7 @@ function removeGuestFromSession(pid){
       save();render();toast("✕ "+p.name+" quitado de este día");
     });
 }
-function _guestPlayerCommit(mode){
+function _guestPlayerCommit(mode){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const name=(document.getElementById("gp-name")?.value||"").trim();
   if(!name){toast("Ponle un nombre al jugador");return;}
   const numV=(document.getElementById("gp-num")?.value||"").replace(/[^0-9]/g,"").slice(0,2);
@@ -10193,7 +10217,7 @@ function openGuestDuplicatesModal(){
   </div>`;
   document.body.appendChild(el);
 }
-function _confirmMergeAllGuestDuplicates(){
+function _confirmMergeAllGuestDuplicates(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const groups=_findDuplicateGuestGroups(S.teamId);
   if(!groups.length)return;
   _confirm(`¿Fusionar ${groups.length} grupo${groups.length>1?"s":""} de puntuales duplicados?<br><span style="font-size:12px;color:var(--td)">No se pierde ningún dato -- se combinan en una sola entrada por persona.</span>`,"🔗 Fusionar",()=>{
@@ -10318,7 +10342,7 @@ function toggleAttFilter(f){
 // v1.8.36 · B-SCORE1: sustituye setTeamScore(v) (clic en una de 10 estrellas
 // diminutas, dificil de acertar) por un stepper +/- -- bajar desde 1 vuelve a
 // 0 (sin valorar), sin necesidad de un boton de reset aparte.
-function stepTeamScore(delta){
+function stepTeamScore(delta){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const k=_attK(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   const cur=sess._teamScore||0;
@@ -10326,7 +10350,7 @@ function stepTeamScore(delta){
   sess._teamScoreManual=true;
   S.sessions[k]=sess;save();render();
 }
-function revertTeamScoreAuto(){
+function revertTeamScoreAuto(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const k=_attK(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   delete sess._teamScoreManual;
@@ -10350,7 +10374,7 @@ function _autoTeamScore(k,sess){
 // está cerca del máximo, sin tener que darle a "+" diez veces. Al alza
 // sigue tope en 10 igual que antes (no da la vuelta a 0, para no perder
 // sin querer una valoración ya puesta).
-function stepPlayerScore(pid,delta){
+function stepPlayerScore(pid,delta){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const k=_attK(S.teamId,S.date);
   const sess={...S.sessions[k]||{}};
   const cur=sess[pid+"_score"]||0;
@@ -10616,7 +10640,7 @@ function _compressPhoto(file,maxDim,quality){
 }
 // v1.8.1: handler con compresión adaptativa — prueba varios niveles hasta que el
 // resultado quepa en localStorage. Resuelve "Foto demasiado grande" con cámara móvil.
-async function handlePhoto(input){
+async function handlePhoto(input){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const file=input.files[0];if(!file)return;
   toast("⏳ Procesando foto…");
   const k=_attK(S.teamId,S.date);
@@ -10653,7 +10677,7 @@ async function handlePhoto(input){
   render();
   toast("📷 Foto guardada (~"+finalSize+" KB)");
 }
-function removePhoto(){const k=_attK(S.teamId,S.date);const sess={...S.sessions[k]||{}};delete sess._photo;S.sessions[k]=sess;save();render();}
+function removePhoto(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */const k=_attK(S.teamId,S.date);const sess={...S.sessions[k]||{}};delete sess._photo;S.sessions[k]=sess;save();render();}
 // v1.8.36 · B-PHOTO1: vista previa a tamaño completo de la foto de una
 // sesion, accesible desde att() (foto del dia) y desde las miniaturas del
 // Historial (foto de un dia pasado). Recibe teamId+fecha en vez del propio
@@ -10810,7 +10834,7 @@ function _tnRemoveObjetivo(tid,d,oid){
 // cambio necesita reflejarse ya en pantalla (checkbox, foto, observación) o
 // si viene de un campo de texto con autoguardado (que NO debe repintar en
 // cada pulsación, para no perder el foco -- ver _tnAutoSave/_tnFlushDraft).
-function _tnPatch(tid,d,patch){
+function _tnPatch(tid,d,patch){if(!_canEditTeam(tid))return false; /* B-PERM2 */
   const k=sk(tid,d);
   const cur=S.trainingNotes[k]||{habitos:[],observaciones:[]};
   S.trainingNotes[k]={...cur,...patch,updatedAt:Date.now(),coachName:cur.coachName||_getCoachName()||""};
@@ -10904,7 +10928,7 @@ function _tnRemoveObservation(obsId){
 // Foto del planteamiento -- misma compresión adaptativa que handlePhoto()
 // (att()), reutilizando _compressPhoto(), pero guardada en la nota de
 // entrenamiento en vez de en la sesión de asistencia.
-async function _tnHandlePhoto(input){
+async function _tnHandlePhoto(input){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const file=input.files[0];if(!file)return;
   toast("⏳ Procesando foto…");
   const tid=S.teamId,d=S.date;
@@ -10931,7 +10955,7 @@ async function _tnHandlePhoto(input){
   _flashTnSaved();
   toast("📷 Foto guardada (~"+finalSize+" KB)");
 }
-function _tnRemovePhoto(){
+function _tnRemovePhoto(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const k=sk(S.teamId,S.date);
   if(!S.trainingNotes[k])return;
   const cur={...S.trainingNotes[k]};delete cur.foto;
@@ -11497,7 +11521,7 @@ function matchDetail(){
   // live.qScores en CADA render (siempre al día, nunca una foto vieja) y
   // las cajas de abajo pasan a ser de solo lectura -- el partido en vivo
   // es la única fuente de verdad mientras exista.
-  if(hasLive){if(_syncQFromLive(m))save();}
+  if(hasLive&&_canEditTeam(S.teamId)){if(_syncQFromLive(m))save();} // B-PERM2: quien solo mira no reescribe el partido
   const players=pl(S.teamId);
   const sorted=[...players].sort((a,b)=>(a.number||99)-(b.number||99));
   const sc=mScore(m);const r=mResult(m);
@@ -12257,7 +12281,7 @@ function _convRefreshRow(pid){
 // tarde → justificado → auto. Independiente de si está convocado o no (se
 // puede marcar "ausente" a alguien aunque no esté en la convocatoria, p.ej.
 // para distinguir "no vino" de "vino pero no fue convocado").
-function _convCycleAtt(pid){
+function _convCycleAtt(pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.attOverride)m.attOverride={};
   const order=[null,"absent","late","excused"];
@@ -12290,7 +12314,7 @@ function _convRefreshCapBanner(){
     banner.innerHTML=`<span style="font-size:20px">⚠️</span><div style="flex:1;font-size:12.5px;color:#fbbf24;line-height:1.45"><b style="color:#f59e0b">Sin capitán designado</b><br/><span style="font-size:11px;color:var(--td)">FIBA: pulsa <b>(C)</b> junto a un convocado · dirige al equipo si te expulsan</span></div>`;
   }
 }
-function _convToggle(pid){
+function _convToggle(pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.convocados)m.convocados=[];
   if(m.convocados.includes(pid)){
@@ -12307,7 +12331,7 @@ function _convToggle(pid){
   _convRefreshRow(pid);
   _convRefreshHeader();
 }
-function _convTitular(pid){
+function _convTitular(pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.titulares)m.titulares=[];
   if(m.titulares.includes(pid)){m.titulares=m.titulares.filter(x=>x!==pid);}
@@ -12316,7 +12340,7 @@ function _convTitular(pid){
   _convRefreshRow(pid);
   _convRefreshHeader();
 }
-function _convCapitan(pid){
+function _convCapitan(pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   const prev=m.capitan;
   m.capitan=m.capitan===pid?null:pid;
@@ -12327,7 +12351,7 @@ function _convCapitan(pid){
   // v1.7.7: el banner del capitán también debe actualizarse
   _convRefreshCapBanner();
 }
-function _convSelectAll(){
+function _convSelectAll(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   // v3.0.0-dev.37 · B-GUEST3: "Todos" tampoco debe convocar a un puntual de
   // entrenamiento (attOnly) -- mismo criterio que _convSetupHtml.
@@ -12342,7 +12366,7 @@ function _convSelectAll(){
   const modal=el.querySelector(".modal");
   if(modal){modal.style.animation="none";modal.style.transform="translateX(-50%) translateY(0)";}
 }
-function _convClearAll(){
+function _convClearAll(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   m.convocados=[];m.titulares=[];m.capitan=null;
   save();
@@ -12354,7 +12378,7 @@ function _convClearAll(){
   const modal=el.querySelector(".modal");
   if(modal){modal.style.animation="none";modal.style.transform="translateX(-50%) translateY(0)";}
 }
-function _rivAdd(){
+function _rivAdd(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const num=(document.getElementById("riv-num")?.value||"").replace(/[^0-9]/g,"").slice(0,2);
   const name=document.getElementById("riv-name")?.value.trim();
   if(!name&&!num)return;
@@ -12366,7 +12390,7 @@ function _rivAdd(){
   const el=document.getElementById("m-conv-setup");if(!el)return;
   el.innerHTML=_convSetupHtml(m,t,el._step||1);
 }
-function _rivDel(id){
+function _rivDel(id){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   m.rivalPlayers=(m.rivalPlayers||[]).filter(p=>p.id!==id);
   save();
@@ -12569,7 +12593,7 @@ window.syncMatchQFromLive=function(){
   if(_syncQFromLive(m)){save();render();toast("🔄 Marcadores sincronizados con el live");}
   else toast("Sin datos live para sincronizar");
 };
-function _qStep(idx,delta){
+function _qStep(idx,delta){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.q)m.q=[null,null,null,null,null,null,null,null,null,null];
   const cur=m.q[idx]!==null&&m.q[idx]!==undefined?parseInt(m.q[idx])||0:0;
@@ -12579,7 +12603,7 @@ function _qStep(idx,delta){
   if(el&&el.tagName==="SPAN")el.textContent=next;
   save();
 }
-function _qInlineEdit(idx){
+function _qInlineEdit(idx){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const span=document.getElementById("qv-"+idx);
   if(!span||span.tagName!=="SPAN")return;
   const cur=span.textContent==="—"?"":span.textContent;
@@ -12714,7 +12738,7 @@ function toggleTitular(pid){
 // esto solo permite descartarlo (o restaurarlo) para ESTE partido concreto —
 // no toca el historial de incidencias del jugador, solo lo oculta si el
 // entrenador considera que no aplica.
-function toggleReducedMinutesDismiss(pid){
+function toggleReducedMinutesDismiss(pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.reducedMinutesDismissed)m.reducedMinutesDismissed=[];
   if(m.reducedMinutesDismissed.includes(pid)){m.reducedMinutesDismissed=m.reducedMinutesDismissed.filter(x=>x!==pid);}
@@ -12767,7 +12791,7 @@ function _mdConvRefreshRow(pid){
 // v3.0.0-dev.89 · B-MATCHATT4: cicla el override de asistencia (mismo dato
 // m.attOverride que usa el wizard, ver _convCycleAtt) pero refrescando la
 // fila de la lista de Convocatoria de matchDetail, no la del wizard.
-function _mdCycleAtt(pid){
+function _mdCycleAtt(pid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m)return;
   if(!m.attOverride)m.attOverride={};
   const order=[null,"absent","late","excused"];
@@ -12846,7 +12870,7 @@ function playTypeChipRow(live){
   }).join("");
   return`<div style="display:flex;gap:5px;padding:7px 10px;background:rgba(0,0,0,.15);border-bottom:1px solid var(--border)">${chips}</div>`;
 }
-function setPlayType(k){
+function setPlayType(k){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   m.live.playType=k;
   save();render();
@@ -13169,6 +13193,7 @@ function _checkLivePresence(m){
     const otherName=live.trackedByName;
     toast(`⚠️ ${otherName||"Otro dispositivo"} está registrando este partido en directo ahora mismo — evita hacerlo desde dos móviles a la vez, podríais pisaros cambios`);
   }
+  if(!_canEditTeam(S.teamId))return; // B-PERM2: quien solo mira no deja latido
   live.trackedBy=myId;live.trackedAt=Date.now();live.trackedByName=_getCoachName()||null;
   save();
 }
@@ -13223,6 +13248,14 @@ function liveGame(){
   // individual (ni quinteto en pista, ni sustituciones) -- exigir 5
   // convocados de la plantilla fija para poder empezar no tiene sentido, y
   // menos si el partido se apoya en jugadores puntuales/invitados.
+  // v3.0.0-dev.114 · B-PERM2 (auditoría): quien solo puede VER este equipo
+  // puede seguir un directo ya empezado, pero entrar aquí con el partido sin
+  // empezar lo INICIABA (creaba m.live) -- se le devuelve al detalle.
+  if(!m.live&&!_canEditTeam(S.teamId)){
+    S.screen="matchDetail";
+    setTimeout(()=>{try{toast("🔒 Solo lectura -- el partido en directo aún no ha empezado");render();}catch(e){}},0);
+    return"";
+  }
   if(!m.live&&!m.teamOnlyStats&&convP.length<5){
     // v3.0.0-dev.85 · B-LIVECONVGUARD1: Mario reportó que, al crear un
     // partido y saltar la convocatoria ("configurar después"), intentar
@@ -14359,18 +14392,8 @@ function _buildLiveStatsHtml(teamId,matchId){
   }
   return{ours,rival,rivalEnabled,t};
 }
-function _refreshLiveStatsModal(view){
-  const m=mById(S.teamId,S.matchId);if(!m?.live)return;
-  m.live.statsView=view;save();
-  const{ours,rival}=_buildLiveStatsHtml(S.teamId,S.matchId);
-  const tbl=document.getElementById('m-livestats-table');
-  if(tbl)tbl.innerHTML=view==='rival'?rival:ours;
-  const t=S.teams.find(x=>x.id===S.teamId);
-  const tc=t?.color||'var(--orange)';
-  const btns=document.querySelectorAll('#m-livestats .lstg-btn');
-  if(btns[0]){btns[0].style.background=view!=='rival'?tc:'transparent';btns[0].style.color=view!=='rival'?'white':'var(--td)';}
-  if(btns[1]){btns[1].style.background=view==='rival'?'#ef4444':'transparent';btns[1].style.color=view==='rival'?'white':'var(--td)';}
-}
+// (v3.0.0-dev.114: aquí había una primera definición de _refreshLiveStatsModal que
+// nunca se ejecutaba -- la tapaba la de más abajo, con el mismo nombre. Quitada.)
 // Construye las cards compactas de jugadores (vista landscape de un vistazo)
 function _buildLiveStatsCards(teamId,matchId,view){
   const m=mById(teamId,matchId);if(!m?.live)return'';
@@ -15590,7 +15613,7 @@ window.setTLResult=function(i,v){
   el._state[i]=v;
   el._render();
 };
-function saveTLResults(rpid, total, foulerPid){
+function saveTLResults(rpid, total, foulerPid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const el=document.getElementById("m-tlshoot");if(!el)return;
   const state=el._state;
   const made=state.filter(v=>v===true).length;
@@ -15807,7 +15830,7 @@ window.setTeamTLResult=function(i,v){
   const el=document.getElementById("m-teamtlshoot");if(!el)return;
   el._state[i]=v;el._render();
 };
-function confirmTeamTLShoot(total){
+function confirmTeamTLShoot(total){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const el=document.getElementById("m-teamtlshoot");if(!el)return;
   const made=(el._state||[]).filter(v=>v===true).length;
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
@@ -15820,7 +15843,7 @@ function confirmTeamTLShoot(total){
   el.remove();_syncLiveQ(m);save();render();
   toast("🎯 TL rival: "+made+"/"+total);
 }
-function rivalScoreLive(delta){
+function rivalScoreLive(delta){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   const qi=(m.live.q||1)-1;
   _ensureQSlot(m.live,qi);
@@ -15835,7 +15858,7 @@ function rivalScoreLive(delta){
   }
   _syncLiveQ(m);save();render();
 }
-function rivalFoulLive(delta){
+function rivalFoulLive(delta){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   if(!m.live.rivalFouls)m.live.rivalFouls=[0,0,0,0,0,0];
   const q=(m.live.q||1)-1;
@@ -15949,7 +15972,7 @@ window.setOurTeamOnlyTLResult=function(i,v){
   const el=document.getElementById("m-ourtlshoot-team");if(!el)return;
   el._state[i]=v;el._render();
 };
-function confirmOurTeamOnlyTLShoot(total){
+function confirmOurTeamOnlyTLShoot(total){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const el=document.getElementById("m-ourtlshoot-team");if(!el)return;
   const made=(el._state||[]).filter(v=>v===true).length;
   const missed=total-made;
@@ -16077,7 +16100,7 @@ window.setOurTLCount=function(n){
   const cb=document.getElementById("ourtl-confirm");
   if(cb&&!cb.disabled)cb.textContent=n===0?"Confirmar (sin TL)":"Continuar — marcar tiros";
 };
-function confirmOurTL(){
+function confirmOurTL(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const el=document.getElementById("m-ourtl");if(!el)return;
   const pid=el._pid;
   const total=el._tl||0;
@@ -16165,7 +16188,7 @@ window.setOurTLResult=function(i,v){
   const el=document.getElementById("m-ourtlshoot");if(!el)return;
   el._state[i]=v;el._render();
 };
-function confirmOurTLShoot(pid,total){
+function confirmOurTLShoot(pid,total){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const el=document.getElementById("m-ourtlshoot");if(!el)return;
   const made=(el._state||[]).filter(v=>v===true).length;
   const missed=total-made;
@@ -16223,7 +16246,7 @@ function openEditQModal(){
   </div>`;
   document.body.appendChild(el);
 }
-function setLiveQ(q){
+function setLiveQ(q){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // v1.7.9 · R1: bloquear salto a cuartos no alcanzados aún
   const maxQ=m.live.maxQ||1;
@@ -16271,12 +16294,12 @@ function _revertEntryStats(st,e){
     st[e.action]--;
   }
 }
-function undoLiveAction(){
+function undoLiveAction(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log||m.live.log.length===0)return;
   const last=m.live.log.pop();
   deleteLogEntry(-1,last,m);
 }
-function deleteLogEntry(idx,_preRemoved,_preM){
+function deleteLogEntry(idx,_preRemoved,_preM){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=_preM||mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
   const log=m.live.log;
   let e;
@@ -16368,7 +16391,7 @@ function openReassignLogModal(idx){
 // antiguo al nuevo. No aplica a entradas de equipo/rival genérico (pid "team",
 // "rival", "rival-team", "rival-foul", "rival-to") porque no hay un jugador
 // concreto del que restar.
-function reassignLogEntry(idx,newPid){
+function reassignLogEntry(idx,newPid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live||!m.live.log)return;
   const log=m.live.log;
   if(idx<0||idx>=log.length)return;
@@ -16412,7 +16435,7 @@ function _stopClockForSub(m){
     toast("⏱ Reloj parado — sustitución con balón en juego");
   }
 }
-function subPlayer(inId,outId){
+function subPlayer(inId,outId){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // v1.8.25 · B-ADV2: este check antes solo vivía en openSubModal(). El botón
   // directo "→ Pista" del banquillo (cuando hay hueco en pista) llamaba a
@@ -16462,7 +16485,7 @@ function openRivalPlayerModal(init){
   </div>`;
   document.body.appendChild(el);
 }
-function saveRivalPlayer(mid,eid){
+function saveRivalPlayer(mid,eid){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const name=document.getElementById(mid+"-n")?.value.trim();
   const num=(document.getElementById(mid+"-d")?.value||"").replace(/[^0-9]/g,"").slice(0,2);
   const m=mById(S.teamId,S.matchId);if(!m)return;
@@ -16596,7 +16619,7 @@ function setStatsView(view){
   m.live.statsView=view;
   render();
 }
-function subRivalPlayer(inId,outId){
+function subRivalPlayer(inId,outId){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // v1.8.25 · B-ADV6b: mismo hueco que en subPlayer() pero del lado rival —
   // el botón directo "→ Pista" del banquillo rival no comprobaba
@@ -16663,7 +16686,7 @@ function _syncLiveQ(m){
 }
 function exitLiveGame(){
   const m=mById(S.teamId,S.matchId);
-  if(m&&m.live){_syncLiveQ(m);save();}
+  if(m&&m.live&&_canEditTeam(S.teamId)){_syncLiveQ(m);save();} // B-PERM2
   navBack();
 }
 /* ── INIT ── */

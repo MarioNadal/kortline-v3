@@ -29,3 +29,18 @@ Sale con código de salida `1` si algo falla — se puede enganchar a un hook de
 1. Crear `tests/mi_caso.test.js` que exporte `async function run()` devolviendo `report.summary()` (ver `harness.js` → `newReporter`).
 2. `run-all.js` lo recoge solo con que el archivo termine en `.test.js` — no hace falta registrarlo en ningún sitio.
 3. Si el test necesita leer/escribir una variable `let`/`const` de scope global de `index.html` que hoy no esté expuesta, añadir su nombre a `EXPOSED_GLOBALS` en `harness.js`.
+
+
+## Pruebas a nivel usuario (Chromium)
+
+Aparte de la suite de jsdom, `tests/e2e/` tiene dos pruebas que abren la app real en Chromium a tamaño de móvil. No forman parte de `npm test` (necesitan Playwright y Chromium). Todo en local: nunca tocan Firebase.
+
+```bash
+cd tests
+npm ci --prefix cdn-mirror                      # una vez
+node e2e/user_flow.e2e.js                       # un entrenador de principio a fin (15 pasos)
+node e2e/monkey.e2e.js "Pixel 7"                # pulsa todos los botones de todas las pantallas
+MONKEY_ROLE=entrenador node e2e/monkey.e2e.js   # lo mismo como entrenador de solo lectura
+```
+
+Para probar la copia de `/test/` en vez de la raíz: `KORTLINE_TEST_INDEX=test/index.html` delante.

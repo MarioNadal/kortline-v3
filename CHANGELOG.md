@@ -3,6 +3,26 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Auditoría completa: permisos de solo lectura, Gráficas, copiar y prueba "mono" (B-PERM2 + B-CHART1 + B-DATE1, dev.114, 2026-11-12)
+
+Pedido por Mario: *"hazme una auditoría completa... auditala como un profesional pero también pruébala como un usuario real"*, con la app en uso real. Informe completo en [`AUDITORIA_2026-11-12.md`](AUDITORIA_2026-11-12.md). Todas las pruebas en local, sin tocar ninguna base de datos.
+
+### Corregido
+
+- **B-PERM2 · quien solo podía VER un equipo podía cambiarlo.** Unas 60 acciones de edición guardaban sin comprobar permiso (valoraciones, marcador por cuartos, prórroga, asistencia al partido, y en el directo reloj, cambios, tiempos muertos, tiros libres, deshacer, cambiar de cuarto, terminar...). Cada una empieza ahora con `_requireEdit` (marcadas `B-PERM2`). Sin roles activados no cambia nada.
+- **B-PERM2 · solo por abrir un directo ajeno se escribía en el partido**: latido de presencia (aviso falso al anotador real) y resincronización del marcador por cuartos, con lo que el móvil de quien miraba podía subir su copia vieja del partido entero. `save()`, `_checkLivePresence()`, `matchDetail()` y `exitLiveGame()` ya solo escriben si se puede editar el equipo. Un directo sin empezar tampoco se inicia por entrar en solo lectura.
+- **B-CHART1 · "Canvas is already in use" en Gráficas** con dos repintados seguidos: `_buildStatsCharts()` destruye siempre las gráficas anteriores.
+- **Copiar en Compartir evento / resultado**: usaban el portapapeles sin controlar el fallo; ahora `_copyToClipboard` (con alternativa).
+- **B-DATE1 · "Invalid Date"** en la ficha de lesión con fechas vacías: `fdCompact` devuelve "—".
+- Quitada una primera definición de `_refreshLiveStatsModal` que nunca se ejecutaba (la tapaba otra con el mismo nombre).
+
+### Probado
+
+- **Nueva prueba "mono"** (`tests/e2e/monkey.e2e.js`, Chromium a tamaño móvil): con una temporada completa de datos pulsa uno por uno todos los botones de 24 pantallas y de las ventanas que abren -- 1.269 botones, 0 errores de JavaScript, 0 textos rotos, nada se sale de pantalla (Pixel 7, iPhone SE, Galaxy S8). En modo `MONKEY_ROLE=entrenador`, un entrenador de solo lectura pulsa 474 botones (con un directo en marcha) sin conseguir cambiar ningún dato.
+- `permissions_readonly_guards.test.js` (nuevo, 25 aserciones) fija los casos de B-PERM2 en la suite normal; contra dev.113 fallan 16.
+- `user_flow.e2e.js`: 15/15.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.114` / `kortline-v3.0.0-dev.114`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Fix: la asistencia de voluntarios/tecnificaciones salía a 0 en Historial y plantilla + prueba E2E de usuario (B-VOLTECH7, dev.113, 2026-11-10)
 
 Reportado por Mario probando Alevín Femenino en `/test/`: *"sale en un entrenamiento voluntario al pasar lista que 0 asistieron de 15 en el historial y no sale en cada jugador lo del cuadrado morado, y sí que han asistido"*. Pidió además *"revisar absolutamente todo y hacer muchas pruebas también a nivel usuario"*.
