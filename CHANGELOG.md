@@ -3,6 +3,25 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Revisión a fondo: partido en directo completo y exportaciones abiertas (B-COURT7/8 + B-PDF1, dev.120, 2026-11-13)
+
+Mario: *"haz pruebas tú reales... pruebas los partidos en directo, todo... partidos, estadísticas, exportar"*. Todo en local (Chromium a tamaño móvil, sin Firebase).
+
+### Corregido
+
+- **B-COURT7 · quedaban 6 jugadoras en pista.** Al elegir una jugadora del banquillo para tirar los tiros libres de una falta del rival, se AÑADÍA a la pista sin que saliera nadie (descuadra minutos, +/- y quintetos). Ahora, con 5 en pista, se pregunta "¿Quién sale?" y se hace el cambio completo con `subPlayer()`. Encontrado con la nueva prueba de partido completo.
+- **B-COURT8 · cambio del rival sin límite de 5** (el mismo hueco que B-COURT6 cerró en el lado propio).
+- **B-PDF1 · emojis convertidos en basura en TODOS los PDF** ("Ø<ßà Casa", "Ø=Þ‘ lesionado", una comilla en vez del ✓ de FEB): las fuentes de jsPDF no tienen emojis. `_safeJsPDF()` limpia el texto de todos los PDF (✓→OK, ⚠→!, →→->; el resto se quita).
+- **Exportaciones**: "—" en vez de "0%" cuando no hubo ningún intento (T2%/T3%/TL%/eFG%, y celda vacía en Excel); dorsales de dos cifras ya no se parten en dos líneas en el PDF de temporada.
+- **Botones del banquillo en el directo** ("↔ Sub" / "→ Pista") medían 22 px de alto -- se agrandan a 38 px (objetivo de toque cómodo en pleno partido).
+
+### Probado
+
+- **Nueva prueba de partido en directo completo** (`tests/e2e/live_game.e2e.js`): empieza el partido desde Hoy, ~120 jugadas al azar pulsando los botones reales (canastas, fallos, rebotes, asistencias, robos, tapones, pérdidas, faltas de todo tipo con sus tiros libres, rival, cambios, tiempos muertos, deshacer), resuelve cada ventana, pasa los 4 cuartos con el reloj y cierra el partido. Tras CADA jugada comprueba que el marcador = suma de puntos de las jugadoras, 5 en pista sin repetidas ni descalificadas, y ninguna estadística negativa. Varias semillas en Pixel 7 e iPhone SE: 0 descuadres, 0 errores de JavaScript.
+- Se descargaron y abrieron las 7 exportaciones (PDF con `pdftotext`, Excel con `openpyxl`): cifras coherentes con el partido (marcador por cuartos, totales, KPIs); 0 caracteres basura tras B-PDF1.
+- `dq_guards_tl_shooter.test.js` actualizado (la tiradora del banquillo sustituye a alguien).
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.120` / `kortline-v3.0.0-dev.120`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Permisos: lo que no se puede hacer ni se ofrece (B-PERM3, dev.119, 2026-11-13)
 
 Mario, probando roles en `/test/`: *"estaba probando con un entrenador a archivar la temporada y salta el mensaje por debajo, que casi no se ve, y te deja hasta darle al botón... tienes que revisar todo lo que no puede hacer en la app de permisos y avisarle antes y no dejarle"*.

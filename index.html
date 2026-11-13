@@ -1133,6 +1133,9 @@ function _calcEFF(st){
   return pts+reb+(st.ast||0)+(st.stl||0)+(st.blk||0)-fallados-(st.to||0)-fouls;
 }
 // eFG% = (p2m + 1.5*p3m) / (p2m + p2a + p3m + p3a) * 100
+// B-PDF1: "0%" cuando no hubo ningún intento confundía (0 de 0 no es 0%) --
+// en las exportaciones se muestra "—", igual que ya hacía la pantalla.
+function _pctOrDash(pct,att){return att>0?pct+"%":"—";}
 function _calcEFGPct(st){
   if(!st)return 0;
   const made=(st.p2m||0)+1.5*(st.p3m||0);
@@ -2478,7 +2481,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.119";
+const APP_VERSION = "3.0.0-dev.120";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4357,9 +4360,33 @@ function sparkline(vals,color,w=64,h=24){
 /* ═══════════════════════════════════════
    EXPORT — PDF
 ═══════════════════════════════════════ */
+// v3.0.0-dev.120 · B-PDF1 (auditoría: se abrieron los PDF generados): las
+// fuentes estándar de jsPDF no tienen emojis ni la mayoría de símbolos, y
+// salían como basura ("Ø<ßà Casa", "Ø=Þ‘ lesionado", una comilla suelta en
+// vez del ✓ de la columna FEB). Todos los PDF pasan por aquí: los símbolos
+// con significado se traducen a texto y el resto se quita.
+function _pdfTxt(v){
+  if(typeof v!=="string")return v;
+  let t=v.replace(/[✓✔✅]/g,"OK").replace(/[✗✘❌]/g,"x").replace(/⚠️?/g,"!").replace(/[★⭐]/g,"*")
+    .replace(/→/g,"->").replace(/←/g,"<-").replace(/↔/g,"<->").replace(/🔴\s*Visitante/g,"Visitante").replace(/🟢\s*Casa/g,"Casa");
+  const keep="€–—‘’“”•…";
+  const out=[...t].filter(ch=>{const c=ch.codePointAt(0);return c<=0xFF||keep.includes(ch);}).join("");
+  return out.replace(/ {2,}/g," ").replace(/^ (?=\S)/,out.startsWith(" ")&&!t.startsWith(" ")?"":" ");
+}
+function _safeJsPDF(){
+  const {jsPDF}=window.jspdf;
+  const deep=x=>Array.isArray(x)?x.map(deep):(x&&typeof x==="object"&&!(x instanceof Date))?Object.fromEntries(Object.entries(x).map(([k,v])=>[k,k==="styles"?v:deep(v)])):_pdfTxt(x);
+  return function(opts){
+    const doc=new jsPDF(opts);
+    const t=doc.text.bind(doc);
+    doc.text=(txt,...a)=>t(Array.isArray(txt)?txt.map(_pdfTxt):_pdfTxt(txt),...a);
+    if(doc.autoTable){const at=doc.autoTable.bind(doc);doc.autoTable=o=>at({...o,head:o.head&&deep(o.head),body:o.body&&deep(o.body),foot:o.foot&&deep(o.foot)});}
+    return doc;
+  };
+}
 function exportPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
-  const {jsPDF}=window.jspdf;
+  const jsPDF=_safeJsPDF();
   const t=S.teams.find(x=>x.id===S.teamId);
   // v3.0.0-dev · B-GUEST2: informe de asistencia de TEMPORADA -- los
   // puntuales de partido (matchOnly) no entrenan, no pintan nada aquí
@@ -4435,7 +4462,7 @@ function exportPDF(){
     styles:{fontSize:9,cellPadding:3.5,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
     headStyles:{fillColor:[13,34,68],textColor:[240,99,24],fontStyle:"bold",fontSize:9},
     alternateRowStyles:{fillColor:[17,31,52]},
-    columnStyles:{0:{halign:"center",cellWidth:10},2:{cellWidth:18},3:{halign:"center"},4:{halign:"center"},5:{halign:"center"},6:{halign:"center"},7:{halign:"center",fontStyle:"bold"},8:{halign:"center"},9:{halign:"center"}},
+    columnStyles:{0:{halign:"center",cellWidth:13},2:{cellWidth:18},3:{halign:"center"},4:{halign:"center"},5:{halign:"center"},6:{halign:"center"},7:{halign:"center",fontStyle:"bold"},8:{halign:"center"},9:{halign:"center"}},
     didParseCell(data){
       if(data.column.index===7&&data.section==="body"){
         const txt=data.cell.text[0];
@@ -4649,7 +4676,7 @@ function _matchAggRows(){
 }
 function exportMatchesPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
-  const {jsPDF}=window.jspdf;
+  const jsPDF=_safeJsPDF();
   const t=S.teams.find(x=>x.id===S.teamId);
   const{matchList,rows}=_matchAggRows();
   if(!rows.length){toast("⚠️ Sin partidos con estadísticas");return;}
@@ -4664,7 +4691,7 @@ function exportMatchesPDF(){
   doc.text(`${matchList.length} partido${matchList.length===1?"":"s"}${S.statsMonth?" · "+cap(fMonth(S.statsMonth)):""}`,283,10,{align:"right"});
   doc.autoTable({
     head:[["#","Jugador","PJ","MIN","PTS","PPP","T2%","T3%","TL%","RO","RD","AST","F","FR","ROB","TAP","PER","VAL"]],
-    body:rows.map(r=>[r.p.number!=null?r.p.number:"—",r.p.name,r.a.pj,r.avgMin,r.a.pts,r.ppp,r.t2pct+"%",r.t3pct+"%",r.tlpct+"%",r.a.ro,r.a.rd,r.a.ast,r.a.foul,r.a.frecv,r.a.stl,r.a.blk,r.a.to,r.avgEff]),
+    body:rows.map(r=>[r.p.number!=null?r.p.number:"—",r.p.name,r.a.pj,r.avgMin,r.a.pts,r.ppp,_pctOrDash(r.t2pct,r.a.p2m+r.a.p2a),_pctOrDash(r.t3pct,r.a.p3m+r.a.p3a),_pctOrDash(r.tlpct,r.a.p1m+r.a.p1a),r.a.ro,r.a.rd,r.a.ast,r.a.foul,r.a.frecv,r.a.stl,r.a.blk,r.a.to,r.avgEff]),
     startY:38,
     styles:{fontSize:8,cellPadding:3,textColor:[240,244,255],fillColor:[12,24,41],font:"helvetica"},
     headStyles:{fillColor:[13,34,68],textColor:[240,99,24],fontStyle:"bold",fontSize:8},
@@ -4690,7 +4717,7 @@ function exportMatchesExcel(){
   if(!rows.length){toast("⚠️ Sin partidos con estadísticas");return;}
   const wb=XLSX.utils.book_new();
   const head=["#","Jugador","PJ","MIN","PTS","PPP","T2%","T3%","TL%","RO","RD","AST","F","FR","ROB","TAP","PER","VAL"];
-  const body=rows.map(r=>[r.p.number!=null?r.p.number:"",r.p.name,r.a.pj,r.avgMin,r.a.pts,parseFloat(r.ppp),r.t2pct/100,r.t3pct/100,r.tlpct/100,r.a.ro,r.a.rd,r.a.ast,r.a.foul,r.a.frecv,r.a.stl,r.a.blk,r.a.to,parseFloat(r.avgEff)]);
+  const body=rows.map(r=>[r.p.number!=null?r.p.number:"",r.p.name,r.a.pj,r.avgMin,r.a.pts,parseFloat(r.ppp),(r.a.p2m+r.a.p2a)?r.t2pct/100:"",(r.a.p3m+r.a.p3a)?r.t3pct/100:"",(r.a.p1m+r.a.p1a)?r.tlpct/100:"",r.a.ro,r.a.rd,r.a.ast,r.a.foul,r.a.frecv,r.a.stl,r.a.blk,r.a.to,parseFloat(r.avgEff)]);
   const ws=XLSX.utils.aoa_to_sheet([head,...body]);
   ws["!cols"]=head.map((h,i)=>({wch:i===1?22:8}));
   const rg=XLSX.utils.decode_range(ws["!ref"]||"A1");
@@ -4718,7 +4745,7 @@ function _teamKPIRows(k){
 }
 function exportTeamKPIsPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
-  const {jsPDF}=window.jspdf;
+  const jsPDF=_safeJsPDF();
   const t=S.teams.find(x=>x.id===S.teamId);
   const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
   if(!matchList.length){toast("⚠️ Sin partidos con estadísticas");return;}
@@ -13741,8 +13768,8 @@ function liveGame(){
           ${disq?
             `<button onclick="toast('⛔ Jugador descalificado, no puede entrar')" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;cursor:not-allowed;padding:4px 7px;flex-shrink:0">⛔</button>`:
           onCourt.length<5?
-            `<button onclick="subPlayer('${p.id}',null)" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);border-radius:6px;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;padding:4px 7px;flex-shrink:0">→ Pista</button>`:
-            `<button onclick="openSubModal('${p.id}')" style="background:rgba(240,99,24,.12);border:1px solid rgba(240,99,24,.3);border-radius:6px;color:var(--orange);font-size:11px;font-weight:700;cursor:pointer;padding:4px 7px;flex-shrink:0">↔ Sub</button>`
+            `<button onclick="subPlayer('${p.id}',null)" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);border-radius:6px;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;padding:8px 12px;min-height:38px;min-width:64px">→ Pista</button>`:
+            `<button onclick="openSubModal('${p.id}')" style="background:rgba(240,99,24,.12);border:1px solid rgba(240,99,24,.3);border-radius:8px;color:var(--orange);font-size:13px;font-weight:800;cursor:pointer;padding:8px 12px;min-height:38px;min-width:64px;flex-shrink:0">↔ Sub</button>`
           }
         </div>`;
       }).join("")}
@@ -15173,7 +15200,7 @@ function _copyMatchStats(){
 }
 function exportMatchStatsPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
-  const{jsPDF}=window.jspdf;
+  const jsPDF=_safeJsPDF();
   const t=S.teams.find(x=>x.id===S.teamId);const m=mById(S.teamId,S.matchId);if(!t||!m)return;
   const live=m.live||{};
   const nQ=m.quarters||4;const pL=nQ===4?"Q":"P";const otC=live.otCount||0;
@@ -15234,7 +15261,7 @@ function exportMatchStatsPDF(){
   // debajo del marcador, dejando mucho más margen antes del pie de página
   // para que el partido quepa en una sola página en el caso normal.
   const head=[["#","Jugador","MIN","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","FR","ROB","TAP","PER","+/-","EFF"]];
-  const body=rows.map(r=>[r.number!=null?r.number:"—",r.name,_fmtMin(r.minSec||0),r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.frecv,r.stl,r.blk,r.to,(r.pm>0?"+":"")+(r.pm||0),r.eff]);
+  const body=rows.map(r=>[r.number!=null?r.number:"—",r.name,_fmtMin(r.minSec||0),r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,(r.t2a+r.t3a)>0?r.efg+"%":"—",r.ro,r.rd,r.ast,r.f,r.frecv,r.stl,r.blk,r.to,(r.pm>0?"+":"")+(r.pm||0),r.eff]);
   body.push(["—","Totales","—",totals.pts,`${totals.t2m}/${totals.t2a}`,`${totals.t3m}/${totals.t3a}`,`${totals.t1m}/${totals.t1a}`,totals.efg+"%",totals.ro,totals.rd,totals.ast,totals.f,totals.frecv,totals.stl,totals.blk,totals.to,"—",totals.eff]);
   doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(240,99,24);
   doc.text("ESTADÍSTICAS DEL PARTIDO",14,80);
@@ -15264,7 +15291,7 @@ function exportMatchStatsPDF(){
     doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(239,68,68);
     doc.text(`ESTADÍSTICAS — ${(m.rival||"RIVAL").toUpperCase()}`,14,afterY);
     const rHead=[["#","Jugador","PTS","T2","T3","TL","eFG%","RO","RD","AST","F","ROB","TAP","PER","EFF"]];
-    const rBody=rivalRows.map(r=>[r.number!=null?r.number:"—",r.name,r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,r.efg+"%",r.ro,r.rd,r.ast,r.f,r.stl,r.blk,r.to,r.eff]);
+    const rBody=rivalRows.map(r=>[r.number!=null?r.number:"—",r.name,r.pts,`${r.t2m}/${r.t2a}`,`${r.t3m}/${r.t3a}`,`${r.t1m}/${r.t1a}`,(r.t2a+r.t3a)>0?r.efg+"%":"—",r.ro,r.rd,r.ast,r.f,r.stl,r.blk,r.to,r.eff]);
     rBody.push(["—","Totales",rivalTotals.pts,`${rivalTotals.t2m}/${rivalTotals.t2a}`,`${rivalTotals.t3m}/${rivalTotals.t3a}`,`${rivalTotals.t1m}/${rivalTotals.t1a}`,rivalTotals.efg+"%",rivalTotals.ro,rivalTotals.rd,rivalTotals.ast,rivalTotals.f,rivalTotals.stl,rivalTotals.blk,rivalTotals.to,rivalTotals.eff]);
     doc.autoTable({
       head:rHead,body:rBody,startY:afterY+4,
@@ -16247,19 +16274,43 @@ function confirmOurTL(){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const fromBench=el._fromBench;
   el.remove();
   const m=mById(S.teamId,S.matchId);
-  if(fromBench&&m&&m.live){
-    if(!m.live.onCourt.includes(pid)){
-      m.live.onCourt=[...m.live.onCourt,pid];
-      const nowMs=Date.now();
-      if(!m.live.inSince)m.live.inSince={};
-      m.live.inSince[pid]=nowMs;
-      if(!m.live.minTracked)m.live.minTracked={};
-      if(!m.live.minTracked[pid])m.live.minTracked[pid]=0;
-      const p=pl(S.teamId).find(x=>x.id===pid);
-      const pname=_shortName(p?.name||"?");
-      toast("🔄 "+pname+" entra en pista para tirar TL");
-    }
+  if(fromBench&&m&&m.live&&!m.live.onCourt.includes(pid)){
+    // v3.0.0-dev.120 · B-COURT7 (encontrado con la prueba de partido
+    // completo en Chromium): antes la tiradora del banquillo se AÑADÍA a la
+    // pista sin que saliera nadie -- quedaban 6 en pista, descuadrando
+    // minutos, +/- y quintetos. Si tira una suplente es porque SUSTITUYE a
+    // alguien: con 5 en pista se pregunta quién sale y se hace el cambio
+    // completo con subPlayer() (minutos, registro y +/- correctos).
+    if((m.live.onCourt||[]).length>=5){ _ourTLPickOut(pid,total); return; }
+    subPlayer(pid,null);
   }
+  _ourTLAfterShooter(pid,total);
+}
+function _ourTLPickOut(inPid,total){
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  const inP=pl(S.teamId).find(x=>x.id===inPid);
+  document.getElementById("m-ourtl-out")?.remove();
+  const el=document.createElement("div");el.id="m-ourtl-out";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  const court=(m.live.onCourt||[]).map(id=>pl(S.teamId).find(p=>p.id===id)).filter(Boolean);
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div>
+    <div class="mtitle">🔄 ¿Quién sale?</div>
+    <div class="msub">${esc(_shortName(inP?.name||"?"))} entra desde el banquillo para tirar los tiros libres. Elige quién sale de la pista.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">${court.map(p=>`<button onclick="_ourTLDoSub('${inPid}','${p.id}',${total})" style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-weight:700;font-size:15px;cursor:pointer;text-align:left"><span style="min-width:30px;font-family:var(--font-d);font-weight:900">#${p.number!=null?esc(String(p.number)):"?"}</span>${esc(p.name)}</button>`).join("")}</div>
+    <button class="btn-s" onclick="document.getElementById('m-ourtl-out').remove()">Cancelar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _ourTLDoSub(inPid,outPid,total){
+  if(!_requireEdit(S.teamId))return false;
+  document.getElementById("m-ourtl-out")?.remove();
+  subPlayer(inPid,outPid);
+  const m=mById(S.teamId,S.matchId);
+  if(!m||!m.live||!(m.live.onCourt||[]).includes(inPid))return; // el cambio no se pudo hacer (p.ej. descalificada)
+  _ourTLAfterShooter(inPid,total);
+}
+function _ourTLAfterShooter(pid,total){
+  const m=mById(S.teamId,S.matchId);
   // v1.8.11 · B-8: registrar "Falta Recibida" automáticamente cuando se asigna tirador
   if(m&&m.live&&pid){
     const live=m.live;
@@ -16757,6 +16808,9 @@ function subRivalPlayer(inId,outId){if(!_requireEdit(S.teamId))return false; /* 
   // descalificación antes de meter al jugador.
   const inP=(m.rivalPlayers||[]).find(p=>p.id===inId);
   if(inP&&_isDQ((m.live.rivalStats||{})[inP.id]||{})){toast("⛔ Jugador rival descalificado, no puede entrar");return;}
+  // v3.0.0-dev.120 · B-COURT8: el mismo límite de 5 en pista que B-COURT6
+  // puso en subPlayer() faltaba en el lado rival.
+  if(outId===null&&(m.live.rivalOnCourt||[]).length>=5){toast("⚠️ El rival ya tiene 5 en pista — elige a quién sacar");return;}
   _stopClockForSub(m);
   if(outId===null){
     if(!m.live.rivalOnCourt.includes(inId))m.live.rivalOnCourt.push(inId);
