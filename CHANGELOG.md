@@ -10,7 +10,7 @@ Encontrado al preparar la lista de pruebas de "Archivar temporada" para Mario en
 ### Corregido
 
 - **`deleteArchivedSeason`**: si se quita la ÚLTIMA temporada archivada y la temporada actual empezó justo al día siguiente de su fin, se recupera su fecha de inicio (deshacer de verdad). Quitar una temporada más antigua, o una cuya fecha de inicio se cambió a mano después, sigue quitando solo la etiqueta. El diálogo explica en cada caso qué va a pasar ("↩️ Deshacer archivado" / "🗑 Quitar").
-- **Archivar y deshacer temporadas, solo superadmin** cuando hay roles activados (afecta a los % de todos los equipos). Sin roles, como siempre.
+- **Archivar y deshacer temporadas, solo superadmin o director deportivo** cuando hay roles activados (afecta a los % de todos los equipos); un entrenador no puede. Sin roles, como siempre.
 
 ### Probado
 

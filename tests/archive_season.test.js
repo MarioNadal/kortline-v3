@@ -109,7 +109,7 @@ async function run() {
   win._setCurrentCoachId("e1");
   const nBefore = win.S.cfg.seasons.length, startBefore = win.S.cfg.seasonStart;
   const r5 = win.archiveSeason("No debería", d(-1));
-  assert(r5.ok === false && win.S.cfg.seasons.length === nBefore && win.S.cfg.seasonStart === startBefore, "con roles: un entrenador NO puede archivar la temporada (afecta a todos los equipos)");
+  assert(r5.ok === false && win.S.cfg.seasons.length === nBefore && win.S.cfg.seasonStart === startBefore, "con roles: un entrenador NO puede archivar la temporada (afecta a todos los equipos; sí superadmin y director deportivo)");
   win._setCurrentCoachId("sa");
   const r6 = win.archiveSeason("Sí", d(-1));
   assert(r6.ok === true, "con roles: el superadmin sí puede");

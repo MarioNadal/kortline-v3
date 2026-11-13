@@ -3580,8 +3580,8 @@ function _isDateInSeason(date){
 // tener que tocar ni un solo sitio más. endDate por defecto: hoy.
 function archiveSeason(label,endDate){
   // v3.0.0-dev.117: cambiar de temporada afecta a los % de TODOS los
-  // equipos -- con roles activados, solo el superadmin.
-  if(_permissionsActive()&&!_isSuperadmin())return{ok:false,error:"Solo el superadmin puede archivar la temporada."};
+  // equipos -- con roles activados, solo superadmin o director deportivo.
+  if(!_canManageSeasons())return{ok:false,error:"Solo el superadmin o el director deportivo pueden archivar la temporada."};
   const end=endDate||td();
   const prevStart=S.cfg.seasonStart||null;
   if(prevStart&&end<prevStart)return{ok:false,error:"La fecha de fin no puede ser anterior al inicio de la temporada actual."};
@@ -3601,13 +3601,16 @@ function archiveSeason(label,endDate){
 // siguiente de su fin (no se ha cambiado a mano después), se recupera su
 // fecha de inicio: deshacer es deshacer de verdad. Quitar una temporada más
 // antigua sigue quitando solo su etiqueta.
+// Archivar/deshacer temporadas: superadmin o director deportivo (afecta a
+// los % de todos los equipos); nunca un entrenador. Sin roles, todos.
+function _canManageSeasons(){ return !_permissionsActive()||["superadmin","director_deportivo"].includes(_myRole()); }
 function _archivedSeasonUndoable(id){
   const list=S.cfg.seasons||[];
   const last=list[list.length-1];
   return !!last&&last.id===id&&!!last.endDate&&S.cfg.seasonStart===_addDaysISO(last.endDate,1);
 }
 function deleteArchivedSeason(id){
-  if(_permissionsActive()&&!_isSuperadmin()){toast("🔒 Solo el superadmin gestiona las temporadas");return false;}
+  if(!_canManageSeasons()){toast("🔒 Solo el superadmin o el director deportivo gestionan las temporadas");return false;}
   const list=S.cfg.seasons||[];
   const sea=list.find(x=>x.id===id);
   const restore=_archivedSeasonUndoable(id);
