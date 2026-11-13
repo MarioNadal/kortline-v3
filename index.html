@@ -2526,7 +2526,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.125";
+const APP_VERSION = "3.0.0-dev.127";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3822,7 +3822,15 @@ function _optSessionTouched(tid,date,data,isOpt){
   if(!data)return false;
   return _attRosterFor(tid,date,isOpt||"voluntario").some(p=>data[p.id]!==undefined);
 }
-function _optAttendedIn(p,tid,e){
+function _optAttendedIn(p,tid,e,all){
+  // v3.0.0-dev.127 · B-GUEST12: solo cuenta si la jugadora ERA de esa
+  // sesión (puntual apuntado a ese voluntario/tecnificación, o de la
+  // plantilla y ya de alta ese día). Antes el informe del mes no lo
+  // comprobaba: un puntual de otro día (o una jugadora dada de alta después)
+  // salía como "presente" en todas las sesiones opcionales del mes, porque
+  // sin marca cuenta como presente por defecto.
+  if(!p||p.matchOnly)return false;
+  if(p.attOnly?!_attOnlyActiveOn(p,e.date,e.optType):!_isPlayerActiveOn(p,e.date,all||_teamSessionEntries(tid,{includeOptional:true})))return false;
   if(!_optSessionTouched(tid,e.date,e.data,e.optType))return false;
   const v=_effAttState(p,e.date,e.data[p.id]);
   return v==="present"||v==="late";
@@ -3833,7 +3841,7 @@ function _optionalAttCount(p,tid,optType){
   const entries=all.filter(e=>e.isOpt&&(!optType||e.optType===optType)&&_optSessionTouched(tid,e.date,e.data,e.optType)&&
     (p.attOnly?_attOnlyActiveOn(p,e.date,e.optType):_isPlayerActiveOn(p,e.date,all)));
   let asistidas=0;
-  entries.forEach(e=>{if(_optAttendedIn(p,tid,e))asistidas++;});
+  entries.forEach(e=>{if(_optAttendedIn(p,tid,e,all))asistidas++;});
   return{asistidas,total:entries.length};
 }
 // v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
@@ -4762,7 +4770,7 @@ function _monthReportData(tid,ym){
     mine.forEach(e=>{const v=_effAttState(p,e.date,e.data[p.id]);if(v==="present")pr++;else if(v==="absent")ab++;else if(v==="late")la++;else ex++;});
     const counted=pr+ab+la; // justificadas no penalizan
     const pct=counted?Math.round(100*(pr+la)/counted):null;
-    const optC=opt.filter(e=>_optAttendedIn(p,tid,e)).length;
+    const optC=opt.filter(e=>_optAttendedIn(p,tid,e,all)).length;
     return{p,tot:mine.length,pr,ab,la,ex,pct,optC};
   }).filter(r=>r.tot>0||r.optC>0);
   const withPct=rows.filter(r=>r.pct!==null);
@@ -5125,7 +5133,7 @@ function exportExcel(){
 // para no acoplar el export al render y arriesgar romper la pantalla en vivo.
 function _matchAggRows(){
   const players=pl(S.teamId);
-  const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+  const matchList=_statsMatches(S.teamId);
   // v3.0.0-dev · B-MAGG1: los partidos "solo equipo" (m.teamOnlyStats) pasan
   // _hasMatchStats() por tener live.teamAgg, pero nunca rellenan
   // live.stats[pid] (no hay desglose por jugador, por diseño) -- se saltan
@@ -5140,6 +5148,11 @@ function _matchAggRows(){
   // estadísticas a mano por cuarto (sin seguimiento en vivo), normalizadas
   // por _matchPlayerStats() al mismo formato que live.stats.
   matchList.forEach(mm=>{const _mst=_matchPlayerStats(mm);if(!_mst)return;Object.entries(_mst).forEach(([pid,st])=>{
+    // v3.0.0-dev.126 · B-PJ1: en directo, live.stats tiene una entrada (a
+    // cero) para CADA convocada -- una jugadora que no salió del banquillo
+    // contaba como partido jugado (PJ) y le bajaba la media por partido.
+    // Ahora solo cuenta si jugó minutos o tiene alguna estadística.
+    if(!_getMinSec(mm,pid)&&!Object.values(st||{}).some(v=>typeof v==="number"&&v>0))return;
     if(!matchAgg[pid])matchAgg[pid]={pj:0,pts:0,p2m:0,p2a:0,p3m:0,p3a:0,p1m:0,p1a:0,ro:0,rd:0,ast:0,foul:0,frecv:0,stl:0,blk:0,to:0,minSec:0,eff:0};
     const a=matchAgg[pid];
     a.pj++;a.pts+=(st.p2m||0)*2+(st.p3m||0)*3+(st.p1m||0);
@@ -5177,7 +5190,7 @@ function exportMatchesPDF(){
   doc.setFontSize(13);doc.setTextColor(240,244,255);
   doc.text((t?.name||"")+" · Estadísticas de partidos",14,23);
   doc.setFontSize(8);doc.setTextColor(122,156,200);
-  doc.text(`${matchList.length} partido${matchList.length===1?"":"s"}${S.statsMonth?" · "+cap(fMonth(S.statsMonth)):""}`,283,10,{align:"right"});
+  doc.text(`${matchList.length} partido${matchList.length===1?"":"s"}${_statsSeasonRange().label?" · "+_statsSeasonRange().label:""}${S.statsMonth?" · "+cap(fMonth(S.statsMonth)):""}`,283,10,{align:"right"});
   doc.autoTable({
     head:[["#","Jugador","PJ","MIN","PTS","PPP","T2%","T3%","TL%","RO","RD","AST","F","FR","ROB","TAP","PER","VAL"]],
     body:rows.map(r=>[r.p.number!=null?r.p.number:"—",r.p.name,r.a.pj,r.avgMin,r.a.pts,r.ppp,_pctOrDash(r.t2pct,r.a.p2m+r.a.p2a),_pctOrDash(r.t3pct,r.a.p3m+r.a.p3a),_pctOrDash(r.tlpct,r.a.p1m+r.a.p1a),r.a.ro,r.a.rd,r.a.ast,r.a.foul,r.a.frecv,r.a.stl,r.a.blk,r.a.to,r.avgEff]),
@@ -5236,7 +5249,7 @@ function exportTeamKPIsPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
   const jsPDF=_safeJsPDF();
   const t=S.teams.find(x=>x.id===S.teamId);
-  const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+  const matchList=_statsMatches(S.teamId);
   if(!matchList.length){toast("⚠️ Sin partidos con estadísticas");return;}
   const k=computeTeamKPIs(matchList);
   const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
@@ -5273,7 +5286,7 @@ function exportTeamKPIsPDF(){
 function exportTeamKPIsExcel(){
   if(typeof XLSX==="undefined"){toast("⚠️ Excel no disponible (cargando...)");return;}
   const t=S.teams.find(x=>x.id===S.teamId);
-  const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+  const matchList=_statsMatches(S.teamId);
   if(!matchList.length){toast("⚠️ Sin partidos con estadísticas");return;}
   const k=computeTeamKPIs(matchList);
   const wb=XLSX.utils.book_new();
@@ -5807,7 +5820,11 @@ function hoy(){
     const sessO=soO(t.id,today,type);
     const time=fixedTime||sessO._time||"";
     const effType=type;
-    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today,true)));
+    // v3.0.0-dev.127 · B-GUEST11: antes pasaba `true` en vez del tipo -- se
+    // buscaba a los puntuales con la marca de VOLUNTARIO también en la
+    // tarjeta de TECNIFICACIÓN: no contaba a los puntuales que sí vinieron
+    // a la tecnificación y contaba como presentes a los del voluntario.
+    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today,type)));
     const marked=players.filter(p=>sessO[p.id]).length;
     const done=players.length>0&&marked>0;
     const effSt=players.map(p=>_effAttState(p,today,sessO[p.id]));
@@ -6346,9 +6363,16 @@ function stats(){
   const rawSessList=_teamSessionEntries(S.teamId);
   const thr=S.cfg.riskThreshold;
   const feat=S.cfg.features;
+  // v3.0.0-dev.126 · B-STATSEMPTY1: si el equipo tiene partidos con
+  // estadísticas pero aún no hay entrenamientos en la temporada (p.ej. justo
+  // tras archivar), antes esta pantalla salía vacía y no dejaba ver los
+  // partidos de ninguna temporada. Ahora se abre directamente en 🏀 Partidos.
+  const _anyMatchStats=(S.matches[S.teamId]||[]).some(_hasMatchStats);
+  const _noSeasonSess=!rawSessList.some(s=>_isDateInSeason(s.date));
+  if(_anyMatchStats&&_noSeasonSess&&(!S.statsView||S.statsView==="table"||S.statsView==="charts"))S.statsView="matches";
   const view=S.statsView||"table";
   const totalAll=rawSessList.length;
-  if(totalAll===0)return`<header class="header"><div class="hrow">
+  if(totalAll===0&&!_anyMatchStats)return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")}</div></div>
   </div></header>
@@ -6358,7 +6382,7 @@ function stats(){
   // diferencia de Historial, que sigue enseñando todo el histórico) -- a
   // partir de aquí, todo se calcula solo sobre sesiones de temporada.
   const sessList=rawSessList.filter(s=>_isDateInSeason(s.date));
-  if(sessList.length===0)return`<header class="header"><div class="hrow">
+  if(sessList.length===0&&!_anyMatchStats)return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
     <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📊 Estadísticas</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")}</div></div>
   </div></header>
@@ -6366,7 +6390,7 @@ function stats(){
   ${navBar()}`;
   // ── Mes seleccionado ──────────────────────────────────────────────────────
   const sessMonths=[...new Set(sessList.map(s=>s.date.slice(0,7)))].sort().reverse();
-  const matchMonthsSrc=(S.matches[S.teamId]||[]).filter(mm=>mm.date&&_hasMatchStats(mm)).map(mm=>mm.date.slice(0,7));
+  const matchMonthsSrc=_statsMatches(S.teamId,{allMonths:true}).filter(mm=>mm.date).map(mm=>mm.date.slice(0,7));
   const allMonths=[...new Set([...sessMonths,...matchMonthsSrc])].sort().reverse();
   const filteredSess=S.statsMonth?sessList.filter(s=>s.date.startsWith(S.statsMonth)):sessList;
   const allSess=filteredSess.map(s=>s.data);
@@ -6460,7 +6484,7 @@ function stats(){
   const sumPs=pst.reduce((a,p)=>a+p.tot,0);
   const avgAll=pc(sumPr,sumPs);
   // Estadísticas de partidos — agregado por jugador
-  const matchList=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)&&(!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+  const matchList=_statsMatches(S.teamId);
   // v3.0.0-dev · B-MAGG1: los partidos "solo equipo" (m.teamOnlyStats) pasan
   // _hasMatchStats() por tener live.teamAgg, pero nunca rellenan
   // live.stats[pid] (no hay desglose por jugador, por diseño) -- se saltan
@@ -6475,6 +6499,11 @@ function stats(){
   // estadísticas a mano por cuarto (sin seguimiento en vivo), normalizadas
   // por _matchPlayerStats() al mismo formato que live.stats.
   matchList.forEach(mm=>{const _mst=_matchPlayerStats(mm);if(!_mst)return;Object.entries(_mst).forEach(([pid,st])=>{
+    // v3.0.0-dev.126 · B-PJ1: en directo, live.stats tiene una entrada (a
+    // cero) para CADA convocada -- una jugadora que no salió del banquillo
+    // contaba como partido jugado (PJ) y le bajaba la media por partido.
+    // Ahora solo cuenta si jugó minutos o tiene alguna estadística.
+    if(!_getMinSec(mm,pid)&&!Object.values(st||{}).some(v=>typeof v==="number"&&v>0))return;
     if(!matchAgg[pid])matchAgg[pid]={pj:0,pts:0,p2m:0,p2a:0,p3m:0,p3a:0,p1m:0,p1a:0,ro:0,rd:0,ast:0,foul:0,frecv:0,stl:0,blk:0,to:0,minSec:0,eff:0};
     const a=matchAgg[pid];
     a.pj++;a.pts+=(st.p2m||0)*2+(st.p3m||0)*3+(st.p1m||0);
@@ -6550,8 +6579,8 @@ function stats(){
   </div></header>
   <div class="content stats-content">
     ${allMonths.length>1?`<div class="month-row" style="margin-bottom:10px"><select class="fi" style="flex:1" onchange="S.statsMonth=this.value||null;render()">
-      <option value="" ${!S.statsMonth?"selected":""}>📅 Todos los meses (${totalAll} entr.${(()=>{const n=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)).length;return n?" · "+n+" part.":"";})()})</option>
-      ${allMonths.map(m=>{const sc=sessList.filter(s=>s.date.startsWith(m)).length;const mc=(S.matches[S.teamId]||[]).filter(mm=>mm.date?.startsWith(m)&&_hasMatchStats(mm)).length;const parts=[];if(sc)parts.push(sc+" entr.");if(mc)parts.push(mc+" part.");return`<option value="${m}" ${S.statsMonth===m?"selected":""}>${cap(fMonth(m))}  —  ${parts.join(", ")||"sin datos"}</option>`;}).join("")}
+      <option value="" ${!S.statsMonth?"selected":""}>📅 Todos los meses (${totalAll} entr.${(()=>{const n=_statsMatches(S.teamId,{allMonths:true}).length;return n?" · "+n+" part.":"";})()})</option>
+      ${allMonths.map(m=>{const sc=sessList.filter(s=>s.date.startsWith(m)).length;const mc=_statsMatches(S.teamId,{allMonths:true}).filter(mm=>mm.date?.startsWith(m)).length;const parts=[];if(sc)parts.push(sc+" entr.");if(mc)parts.push(mc+" part.");return`<option value="${m}" ${S.statsMonth===m?"selected":""}>${cap(fMonth(m))}  —  ${parts.join(", ")||"sin datos"}</option>`;}).join("")}
     </select></div>`:""}
     <!-- Overview row -->
     <div style="display:flex;gap:8px;margin-bottom:14px">
@@ -6569,12 +6598,14 @@ function stats(){
       </div>
     </div>
     <!-- View toggle + export -->
+    ${_noSeasonSess?`<div style="font-size:12px;color:var(--td);background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:10px">🏋️ Aún no hay entrenamientos en esta temporada: la asistencia (📋 Tabla y 📊 Gráficas) aparecerá cuando pases lista.</div>`:""}
     <div class="view-tabs">
-      <button class="view-tab ${view==="table"?"on":""}" onclick="S.statsView='table';render()">📋 Tabla</button>
-      <button class="view-tab ${view==="charts"?"on":""}" onclick="S.statsView='charts';render()">📊 Gráficas</button>
+      ${_noSeasonSess?"":`<button class="view-tab ${view==="table"?"on":""}" onclick="S.statsView='table';render()">📋 Tabla</button>
+      <button class="view-tab ${view==="charts"?"on":""}" onclick="S.statsView='charts';render()">📊 Gráficas</button>`}
       <button class="view-tab ${view==="matches"?"on":""}" onclick="S.statsView='matches';render()">🏀 Partidos</button>
       <button class="view-tab ${view==="team"?"on":""}" onclick="S.statsView='team';render()">📈 Equipo</button>
     </div>
+    ${(view==="matches"||view==="team")?_histSeasonSelectorHtml(0,{key:"statsSeason",setter:"_statsSetSeason",note:"estás viendo sus partidos, no los de esta temporada"}):""}
     ${view==="table"?`<div class="export-bar">
       <button class="btn-xpdf" onclick="exportPDF()">📄 PDF</button>
       <button class="btn-xxls" onclick="exportExcel()">📊 Excel</button>
@@ -6619,11 +6650,33 @@ function _histSeasonRange(){
   return{kind:"current",from:S.cfg.seasonStart||null,to:null,label:"Temporada actual"};
 }
 function _inDateRange(d,r){ return (!r.from||d>=r.from)&&(!r.to||d<=r.to); }
+// v3.0.0-dev.126 · B-SEASON5: las estadísticas de PARTIDOS (pestañas 🏀
+// Partidos / 📈 Equipo, sus PDF/Excel y el balance V-D de la lista de
+// partidos) no miraban la temporada: al archivar, la asistencia empezaba de
+// cero pero los partidos de la temporada anterior se seguían sumando. Ahora,
+// en cuanto hay alguna temporada archivada, se ve la temporada actual por
+// defecto, con selector para consultar las archivadas o todo. Sin
+// temporadas archivadas: exactamente igual que siempre (todos los partidos).
+function _statsSeasonRange(){
+  const seasons=S.cfg.seasons||[];
+  if(!seasons.length)return{kind:"none",from:null,to:null,label:""};
+  const sel=S.statsSeason||"current";
+  if(sel==="all")return{kind:"all",from:null,to:null,label:"Todo el historial"};
+  const x=seasons.find(y=>y.id===sel);
+  if(x)return{kind:"archived",from:x.startDate||null,to:x.endDate||null,label:x.label||"Temporada archivada"};
+  return{kind:"current",from:S.cfg.seasonStart||null,to:null,label:"Temporada actual"};
+}
+function _statsMatches(tid,opts){
+  const r=_statsSeasonRange();const allMonths=opts&&opts.allMonths;
+  return (S.matches[tid]||[]).filter(mm=>_hasMatchStats(mm)&&(r.kind==="none"||_inDateRange(mm.date||"",r))&&(allMonths||!S.statsMonth||(mm.date||"").startsWith(S.statsMonth)));
+}
+function _statsSetSeason(v){ S.statsSeason=v||"current"; S.statsMonth=null; render(); }
 function _histSetSeason(v){ S.histSeason=v||"current"; S.histMonth=null; render(); }
-function _histSeasonSelectorHtml(count){
+function _histSeasonSelectorHtml(count,o){
+  o=o||{};const cur=o.key?S[o.key]:S.histSeason;
   const seasons=S.cfg.seasons||[];
   if(!seasons.length)return"";
-  const sel=S.histSeason&&(S.histSeason==="all"||seasons.some(x=>x.id===S.histSeason))?S.histSeason:"current";
+  const sel=cur&&(cur==="all"||seasons.some(x=>x.id===cur))?cur:"current";
   // Fechas cortas (mes y año) para que el nombre de la temporada quepa en
   // el desplegable en móviles estrechos.
   const fdc=d=>{try{const x=new Date(d+"T12:00:00");return x.toLocaleDateString("es-ES",{month:"short"}).replace(".","")+" "+d.slice(2,4);}catch(e){return d;}};
@@ -6633,8 +6686,8 @@ function _histSeasonSelectorHtml(count){
     .concat([`<option value="all" ${sel==="all"?"selected":""}>🗂 Todo el historial</option>`]).join("");
   const archived=sel!=="current"&&sel!=="all";
   return`<div style="margin-bottom:10px">
-    <select class="fi" aria-label="Temporada" onchange="_histSetSeason(this.value)" style="font-weight:800${archived?";border-color:rgba(245,158,11,.6);background:rgba(245,158,11,.08)":""}">${opts}</select>
-    ${archived?`<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:700;color:#f59e0b">📦 Temporada archivada · sus entrenamientos no cuentan en las estadísticas de la temporada actual</div>`:""}
+    <select class="fi" aria-label="Temporada" onchange="${o.setter||"_histSetSeason"}(this.value)" style="font-weight:800${archived?";border-color:rgba(245,158,11,.6);background:rgba(245,158,11,.08)":""}">${opts}</select>
+    ${archived?`<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:700;color:#f59e0b">📦 Temporada archivada · ${o.note||"sus entrenamientos no cuentan en las estadísticas de la temporada actual"}</div>`:""}
   </div>`;
 }
 function hist(){
@@ -6741,7 +6794,7 @@ function hist(){
     <div class="card">${optEntries.map((e,i)=>{
       // B-VOLTECH7: mismo criterio que el pase de lista (ver _optAttendedIn)
       const activeP=players.filter(p=>!p.matchOnly&&(p.attOnly?_attOnlyActiveOn(p,e.date,e.optType):_isPlayerActiveOn(p,e.date,allEntries)));
-      let pr=0;activeP.forEach(p=>{if(_optAttendedIn(p,S.teamId,e))pr++;});
+      let pr=0;activeP.forEach(p=>{if(_optAttendedIn(p,S.teamId,e,allEntries))pr++;});
       // Si todavía no se ha tocado nada en un día de horario fijo (ver
       // t.optSchedule), el registro aún no tiene _optType propio -- se usa
       // el tipo configurado para el equipo como respaldo, solo para la
@@ -12044,7 +12097,8 @@ function mTheirScore(m){
 }
 function mResultLabel(r){return r==="W"?"Victoria":r==="L"?"Derrota":r==="D"?"Empate":"Pendiente";}
 function mSeasonStats(tid){
-  const ms=mlist(tid);
+  // B-SEASON5: con temporadas archivadas, el balance es el de la actual.
+  const ms=(S.cfg.seasons||[]).length?mlist(tid).filter(m=>_isDateInSeason(m.date||"")):mlist(tid);
   let w=0,l=0,d=0,p=0,pf=0,pa=0;
   ms.forEach(m=>{
     const r=mResult(m);const sc=mScore(m);
@@ -12107,7 +12161,7 @@ function matchList(){
   const matches=[...mlist(S.teamId)].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const st=mSeasonStats(S.teamId);
   const players=pl(S.teamId);
-  const seasonBar=matches.length===0?"":`<div class="season-bar">
+  const seasonBar=matches.length===0?"":`${(S.cfg.seasons||[]).length?`<div style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--td);margin:0 2px 6px">🟢 Balance de la temporada actual</div>`:""}<div class="season-bar">
     <div style="flex:1;text-align:center"><div class="season-sv" style="color:#22c55e">${st.w}</div><div class="season-sl">Victorias</div></div>
     <div style="width:1px;background:var(--border);height:36px"></div>
     <div style="flex:1;text-align:center"><div class="season-sv" style="color:#ef4444">${st.l}</div><div class="season-sl">Derrotas</div></div>

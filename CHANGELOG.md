@@ -3,6 +3,35 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Puntuales en voluntarios y tecnificaciones (B-GUEST11 + B-GUEST12, dev.127, 2026-11-13)
+
+Mario: *"las puntuales en la tecnificación, fuera del entrenamiento, en el Hoy, en el resumen no salen, por lo menos no las cuenta como presentes, y debería. Puede haber muchos errores de eso, haz muchas pruebas y arréglalo"*.
+
+### Corregido
+
+- **B-GUEST11 · la tarjeta de TECNIFICACIÓN en Hoy contaba a los puntuales equivocados.** Buscaba a los puntuales con la marca del voluntario también en la tecnificación, así que **no contaba a los puntuales que sí vinieron a la tecnificación** (ni los de "categoría inferior") y **sí contaba como presentes a los del voluntario**, que no habían ido. Que a veces cuadrase era casualidad, porque un error tapaba al otro.
+- **B-GUEST12 · informe del mes: voluntarios y tecnificaciones de más.** No comprobaba si la persona era de esa sesión: un puntual de otro día, o una jugadora dada de alta después, salía como presente en **todas** las sesiones opcionales del mes (sin marca cuenta como presente por defecto). Se ha arreglado en la función común (`_optAttendedIn`), así que vale para el informe, el contador 🙋 de la plantilla y el historial.
+
+### Probado
+
+- `guests_optional_sessions.test.js` (nuevo, 31 aserciones): entreno, voluntario y tecnificación **el mismo día**, cada uno con un número distinto de puntuales (para que un error no quede tapado por otro). Se comprueba para cada sesión: tarjeta de Hoy (presentes y ausentes), pase de lista, texto de WhatsApp, contadores de voluntario y tecnificación, % oficial, reutilizar un puntual de "Más frecuentes" otro día, traer a una jugadora de categoría inferior, quitar un puntual solo de una sesión, tecnificación con solo puntuales, alta de hoy que no suma sesiones anteriores, informe del mes e historial. Se ha comprobado que **falla con el código anterior** y pasa con el arreglo.
+- En Chromium (iPhone 13), como un usuario: Hoy → tecnificación → Pasar lista → "+ Invitado puntual" → volver a Hoy. La tarjeta de tecnificación marca 6 presentes (5 + la puntual) y la de voluntario no se toca.
+
+## [Sin publicar] · kortline-v3 · Temporadas y estadísticas de partidos (B-SEASON5 + B-PJ1 + B-STATSEMPTY1, dev.126, 2026-11-13)
+
+Mario: *"haz muchas más pruebas del marcador en vivo para poner partidos y algo de temporadas con las estadísticas de los partidos y todo de jugadores"*.
+
+### Corregido
+
+- **B-SEASON5 · al archivar la temporada, los partidos se seguían sumando.** La asistencia empezaba de cero, pero las pestañas 🏀 Partidos y 📈 Equipo, sus PDF/Excel y el balance V-D de la lista de partidos seguían contando los partidos de la temporada anterior. Ahora, en cuanto hay una temporada archivada, se ve **la temporada actual** por defecto, con un **selector de temporada** en Partidos y Equipo para consultar las archivadas o todo el historial. El PDF dice qué temporada es. Sin temporadas archivadas, todo queda igual que antes.
+- **B-PJ1 · "partidos jugados" contaba a las que no salían del banquillo.** En directo, cada convocada tenía su ficha a cero desde el principio, así que una jugadora que no jugó sumaba PJ y le bajaba la media de puntos por partido. Ahora cuenta solo si jugó minutos o tiene alguna estadística (en pantalla y en las exportaciones).
+- **B-STATSEMPTY1 · Estadísticas vacía si no había entrenamientos.** Un equipo con partidos pero sin entrenamientos en la temporada (por ejemplo, justo después de archivar) veía "Solo hay pretemporada" o "Sin sesiones" y no podía consultar sus partidos. Ahora se abre directamente en 🏀 Partidos, con un aviso de que la asistencia saldrá cuando se pase lista.
+
+### Probado
+
+- `season_match_stats.test.js` (nuevo, 26 aserciones): una temporada completa con 5 partidos en directo (460 jugadas, en casa y fuera, con el **marcador para familias activo**), 2 con estadísticas a mano y 1 solo con marcador, repartidos en dos temporadas. Tras **cada jugada** se comprueba que el marcador es la suma de los puntos de las jugadoras, que hay 5 en pista y que el marcador para familias coincide con el directo (con parciales y "Final"), sin nombres. Al final, por jugadora (puntos, tiros de 1/2/3, rebotes, asistencias, robos, tapones, pérdidas y PJ), KPIs de equipo, balance V-D, puntos a favor y en contra, y Excel de partidos, antes y después de archivar, viendo la temporada actual, la archivada y todo el historial. Archivar no borra ningún partido.
+- `live_game.e2e.js` (partido completo pulsando los botones reales) con 8 semillas en Pixel 7, iPhone 13, iPhone SE y Galaxy S9+: 0 errores de JavaScript. En la semilla 99, todo el banquillo acabó descalificado y la app dejó correctamente 4 en pista ("sacar sin sustituir", como permite FIBA); la prueba se ha ajustado para aceptar menos de 5 solo en ese caso.
+
 ## [Sin publicar] · kortline-v3 · Plantilla con fila limpia + menú (B-ROSTER2, dev.125, 2026-11-13)
 
 Mario eligió la **opción A** de la propuesta de la plantilla.
