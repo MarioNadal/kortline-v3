@@ -2526,7 +2526,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.126";
+const APP_VERSION = "3.0.0-dev.127";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3822,7 +3822,15 @@ function _optSessionTouched(tid,date,data,isOpt){
   if(!data)return false;
   return _attRosterFor(tid,date,isOpt||"voluntario").some(p=>data[p.id]!==undefined);
 }
-function _optAttendedIn(p,tid,e){
+function _optAttendedIn(p,tid,e,all){
+  // v3.0.0-dev.127 · B-GUEST12: solo cuenta si la jugadora ERA de esa
+  // sesión (puntual apuntado a ese voluntario/tecnificación, o de la
+  // plantilla y ya de alta ese día). Antes el informe del mes no lo
+  // comprobaba: un puntual de otro día (o una jugadora dada de alta después)
+  // salía como "presente" en todas las sesiones opcionales del mes, porque
+  // sin marca cuenta como presente por defecto.
+  if(!p||p.matchOnly)return false;
+  if(p.attOnly?!_attOnlyActiveOn(p,e.date,e.optType):!_isPlayerActiveOn(p,e.date,all||_teamSessionEntries(tid,{includeOptional:true})))return false;
   if(!_optSessionTouched(tid,e.date,e.data,e.optType))return false;
   const v=_effAttState(p,e.date,e.data[p.id]);
   return v==="present"||v==="late";
@@ -3833,7 +3841,7 @@ function _optionalAttCount(p,tid,optType){
   const entries=all.filter(e=>e.isOpt&&(!optType||e.optType===optType)&&_optSessionTouched(tid,e.date,e.data,e.optType)&&
     (p.attOnly?_attOnlyActiveOn(p,e.date,e.optType):_isPlayerActiveOn(p,e.date,all)));
   let asistidas=0;
-  entries.forEach(e=>{if(_optAttendedIn(p,tid,e))asistidas++;});
+  entries.forEach(e=>{if(_optAttendedIn(p,tid,e,all))asistidas++;});
   return{asistidas,total:entries.length};
 }
 // v3.0.0-dev.37 · B-GUEST3: punto único para decidir si un jugador "cuenta"
@@ -4762,7 +4770,7 @@ function _monthReportData(tid,ym){
     mine.forEach(e=>{const v=_effAttState(p,e.date,e.data[p.id]);if(v==="present")pr++;else if(v==="absent")ab++;else if(v==="late")la++;else ex++;});
     const counted=pr+ab+la; // justificadas no penalizan
     const pct=counted?Math.round(100*(pr+la)/counted):null;
-    const optC=opt.filter(e=>_optAttendedIn(p,tid,e)).length;
+    const optC=opt.filter(e=>_optAttendedIn(p,tid,e,all)).length;
     return{p,tot:mine.length,pr,ab,la,ex,pct,optC};
   }).filter(r=>r.tot>0||r.optC>0);
   const withPct=rows.filter(r=>r.pct!==null);
@@ -5812,7 +5820,11 @@ function hoy(){
     const sessO=soO(t.id,today,type);
     const time=fixedTime||sessO._time||"";
     const effType=type;
-    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today,true)));
+    // v3.0.0-dev.127 · B-GUEST11: antes pasaba `true` en vez del tipo -- se
+    // buscaba a los puntuales con la marca de VOLUNTARIO también en la
+    // tarjeta de TECNIFICACIÓN: no contaba a los puntuales que sí vinieron
+    // a la tecnificación y contaba como presentes a los del voluntario.
+    const players=pl(t.id).filter(p=>!p.matchOnly&&(!p.attOnly||_attOnlyActiveOn(p,today,type)));
     const marked=players.filter(p=>sessO[p.id]).length;
     const done=players.length>0&&marked>0;
     const effSt=players.map(p=>_effAttState(p,today,sessO[p.id]));
@@ -6782,7 +6794,7 @@ function hist(){
     <div class="card">${optEntries.map((e,i)=>{
       // B-VOLTECH7: mismo criterio que el pase de lista (ver _optAttendedIn)
       const activeP=players.filter(p=>!p.matchOnly&&(p.attOnly?_attOnlyActiveOn(p,e.date,e.optType):_isPlayerActiveOn(p,e.date,allEntries)));
-      let pr=0;activeP.forEach(p=>{if(_optAttendedIn(p,S.teamId,e))pr++;});
+      let pr=0;activeP.forEach(p=>{if(_optAttendedIn(p,S.teamId,e,allEntries))pr++;});
       // Si todavía no se ha tocado nada en un día de horario fijo (ver
       // t.optSchedule), el registro aún no tiene _optType propio -- se usa
       // el tipo configurado para el equipo como respaldo, solo para la

@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Puntuales en voluntarios y tecnificaciones (B-GUEST11 + B-GUEST12, dev.127, 2026-11-13)
+
+Mario: *"las puntuales en la tecnificación, fuera del entrenamiento, en el Hoy, en el resumen no salen, por lo menos no las cuenta como presentes, y debería. Puede haber muchos errores de eso, haz muchas pruebas y arréglalo"*.
+
+### Corregido
+
+- **B-GUEST11 · la tarjeta de TECNIFICACIÓN en Hoy contaba a los puntuales equivocados.** Buscaba a los puntuales con la marca del voluntario también en la tecnificación, así que **no contaba a los puntuales que sí vinieron a la tecnificación** (ni los de "categoría inferior") y **sí contaba como presentes a los del voluntario**, que no habían ido. Que a veces cuadrase era casualidad, porque un error tapaba al otro.
+- **B-GUEST12 · informe del mes: voluntarios y tecnificaciones de más.** No comprobaba si la persona era de esa sesión: un puntual de otro día, o una jugadora dada de alta después, salía como presente en **todas** las sesiones opcionales del mes (sin marca cuenta como presente por defecto). Se ha arreglado en la función común (`_optAttendedIn`), así que vale para el informe, el contador 🙋 de la plantilla y el historial.
+
+### Probado
+
+- `guests_optional_sessions.test.js` (nuevo, 31 aserciones): entreno, voluntario y tecnificación **el mismo día**, cada uno con un número distinto de puntuales (para que un error no quede tapado por otro). Se comprueba para cada sesión: tarjeta de Hoy (presentes y ausentes), pase de lista, texto de WhatsApp, contadores de voluntario y tecnificación, % oficial, reutilizar un puntual de "Más frecuentes" otro día, traer a una jugadora de categoría inferior, quitar un puntual solo de una sesión, tecnificación con solo puntuales, alta de hoy que no suma sesiones anteriores, informe del mes e historial. Se ha comprobado que **falla con el código anterior** y pasa con el arreglo.
+- En Chromium (iPhone 13), como un usuario: Hoy → tecnificación → Pasar lista → "+ Invitado puntual" → volver a Hoy. La tarjeta de tecnificación marca 6 presentes (5 + la puntual) y la de voluntario no se toca.
+
 ## [Sin publicar] · kortline-v3 · Temporadas y estadísticas de partidos (B-SEASON5 + B-PJ1 + B-STATSEMPTY1, dev.126, 2026-11-13)
 
 Mario: *"haz muchas más pruebas del marcador en vivo para poner partidos y algo de temporadas con las estadísticas de los partidos y todo de jugadores"*.
