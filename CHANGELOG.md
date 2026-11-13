@@ -3,6 +3,33 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Guía de instalación, iconos y repaso visual (dev.124, 2026-11-13)
+
+Mario, sobre la revisión: *"1 sí, 3 me parece bien, 4 sí, 5 sí, 6 sí, 7 creo que sí, 8 vale, 9 sí (la papelera no la veo mal), 10 sí: piénsalo para iPhone pero también Android, tablets y algún ordenador aunque sea online"*.
+
+### Añadido
+
+- **📲 Guía de instalación** (`instalar.html`): detecta si es iPhone, iPad, Android (Chrome o Samsung), un ordenador con Chrome/Edge o un Mac con Safari, y enseña **solo sus pasos**, con dibujos de los iconos. En Android y en ordenador sale el botón **Instalar** de un toque. Avisa si se ha abierto dentro de WhatsApp o Instagram, donde no se puede instalar. En ordenador muestra un **QR** para abrirla en el móvil y la opción **"Usar sin instalar"**. Las guías de los demás dispositivos están plegadas debajo. La librería del QR va en el repo (`assets/vendor/qrcode.js`, MIT), sin depender de ningún CDN.
+- **Ajustes → "📲 Invitar a un entrenador"**: un mensaje para WhatsApp con el enlace a la guía y los pasos (código del club → nombre → contraseña). **El código del club no va en el mensaje.**
+- Los avisos de instalación de iPhone/Android de la app enlazan a la guía ("📖 Ver la guía con dibujos").
+- **Aviso "sin subir"** (B-SYNCCHIP1): con internet no se ve nunca. Solo aparece arriba, discreto, si hay cambios de este móvil que llevan más de 8 s sin llegar a la nube (por ejemplo, sin cobertura en el pabellón) y desaparece solo al subir. Es solo un indicador: la sincronización no cambia.
+- **Historial por meses** (B-HISTMONTH1): con "Todos los meses", el listado se separa por mes con su cabecera (mes · nº de entrenos · %). La papelera de cada día se mantiene.
+
+### Cambiado
+
+- **Iconos de la app** (B-ICON1): `icon-192.png`/`icon-512.png` seguían con un diseño antiguo ("DRIVELINE"), y era lo que se veía al instalar en **Android y ordenador** (el iPhone ya usaba el logo bueno). Ahora salen del logo actual de Kortline, con versiones "maskable" propias para que Android no deje esquinas oscuras.
+- Sin "—" debajo de las jugadoras que no tienen posición (plantilla, estadísticas, convocatoria).
+- Hoy: fuera el "·" suelto delante de la hora.
+- Partido ya jugado: no ofrece "Iniciar en vivo"; si no se apuntó convocatoria, sale plegada ("Apuntarla"); y el botón verde "Notas guardadas" no aparece si no hay notas.
+- Equipos: sin la etiqueta "—" cuando el equipo no tiene categoría.
+- Estadísticas: el selector de mes ya no se corta ("30 entr. · 3 part.").
+- "Formulario reducido (categoría sin categoría)" → "Formulario reducido".
+
+### Probado
+
+- `review_fixes_124.test.js` (nuevo, 19 aserciones).
+- Guía de instalación renderizada en Chromium como iPhone, iPad, Pixel, Samsung, ordenador, Mac e iPhone dentro de WhatsApp: el dispositivo se detecta bien, el QR solo sale en ordenador, sin scroll lateral y sin errores.
+
 ## [Sin publicar] · kortline-v3 · Contraseña por entrenador (B-PIN1, dev.123, 2026-11-13)
 
 Mario: *"al cambiar de entrenador que tengas que poner su contraseña y que pueda cambiar un entrenador su contraseña"*.

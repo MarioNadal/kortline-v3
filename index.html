@@ -2526,7 +2526,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.123";
+const APP_VERSION = "3.0.0-dev.124";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -2986,12 +2986,17 @@ async function _runCloudSync(){
       if(chunks[chunks.length-1].length+group.length>SYNC_BATCH_MAX_OPS) chunks.push([]);
       chunks[chunks.length-1].push(...group);
     }
+    const _hasOps=chunks.some(ch=>ch.length);
+    if(_hasOps){ _syncInFlight++; if(!_syncUnsentSince)_syncUnsentSince=Date.now(); try{_armSyncChip();}catch(e){} }
+    try{
     for(const ch of chunks){
       if(!ch.length) continue;
       const batch=db.batch();
       ch.forEach(o=>{ if(o.op==="set"){ if(o.opts) batch.set(o.ref,o.data,o.opts); else batch.set(o.ref,o.data); } else batch.delete(o.ref); });
       await batch.commit();
     }
+    }finally{ if(_hasOps)_syncInFlight=Math.max(0,_syncInFlight-1); }
+    if(_hasOps&&_syncInFlight===0){ _syncUnsentSince=0; _syncFailed=false; try{_updateSyncChip();}catch(e){} }
     // Todo subido: los trozos conocidos pasan a valer lo que acabamos de subir.
     for(const [kind,tid,curK,prevK] of synced){
       if(kind==="sessions"||kind==="trainingNotes"){
@@ -3018,9 +3023,33 @@ async function _runCloudSync(){
     // recoja igual que si acabara de pasar -- sin necesidad de ningún cambio
     // nuevo del usuario. El propio debounce de _scheduleCloudSync (mínimo
     // ~3s entre intentos) evita que esto reintente en bucle sin freno.
+    _syncFailed=true; if(!_syncUnsentSince)_syncUnsentSince=Date.now(); try{_armSyncChip();}catch(e){}
     _scheduleCloudSync();
   }
 }
+/* v3.0.0-dev.124 · B-SYNCCHIP1: aviso discreto de "sin subir". Con internet
+   todo sube al instante, así que NO se ve nunca en el uso normal: solo
+   aparece si hay cambios de este móvil que llevan más de 8 s sin llegar a la
+   nube (sin cobertura en el pabellón, por ejemplo) y desaparece solo en
+   cuanto suben. Es solo un indicador: no cambia nada de la sincronización. */
+let _syncInFlight=0,_syncUnsentSince=0,_syncFailed=false;
+function _updateSyncChip(){
+  const pending=_cloudEnabled&&_syncUnsentSince&&(Date.now()-_syncUnsentSince>8000);
+  let el=document.getElementById("sync-chip");
+  if(!pending){ if(el)el.remove(); return; }
+  if(!el){ el=document.createElement("div"); el.id="sync-chip"; el.setAttribute("role","status");
+    el.style.cssText="position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:9000;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.5);color:#f59e0b;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;pointer-events:auto;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);white-space:nowrap";
+    el.onclick=()=>toast(navigator.onLine===false?"📵 Sin conexión: los cambios están guardados en este móvil y se subirán solos al volver la cobertura. No cierres sesión ni borres datos del navegador.":"☁️ Subiendo cambios... están guardados en este móvil y se subirán solos.");
+    document.body.appendChild(el); }
+  el.textContent=navigator.onLine===false?"📵 Sin conexión · cambios guardados en el móvil":"☁️ Cambios pendientes de subir";
+}
+// Solo hay temporizador mientras haya algo pendiente (nada en el uso normal).
+let _syncChipTimer=null;
+function _armSyncChip(){
+  if(_syncChipTimer)return;
+  _syncChipTimer=setInterval(()=>{ try{_updateSyncChip();}catch(e){} if(!_syncUnsentSince){clearInterval(_syncChipTimer);_syncChipTimer=null;} },2000);
+}
+window.addEventListener("offline",()=>{try{_updateSyncChip();}catch(e){}});
 // v3.0.0-dev.75 · B-SYNC3: además del reintento automático de arriba, dos
 // momentos en los que vale la pena comprobar activamente si hay algo
 // pendiente de subir: en cuanto el dispositivo recupera conexión (evento
@@ -5461,7 +5490,7 @@ function equiposScreen(){
               <div style="font-weight:800;font-size:17px">${esc(t.name)}</div>
               ${coaches.length?`<div style="font-size:12px;color:var(--td);margin-top:2px">👟 ${coaches.map(esc).join(" · ")}</div>`:""}
             </div>
-            <div class="team-badge">${esc(t.category||"—")}</div>
+            ${t.category?`<div class="team-badge">${esc(t.category)}</div>`:""}
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr ${played>0?"1fr":""};gap:8px;margin-top:12px">
             <div style="background:var(--s3);border-radius:8px;padding:10px 6px;text-align:center">
@@ -5739,7 +5768,7 @@ function hoy(){
           <div>
             <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:3px">${optLabel}</div>
             <div style="font-weight:900;font-size:18px">${esc(t.name)}</div>
-            <div style="font-size:12px;color:var(--td);margin-top:2px">${esc(t.category||"")}${time?" · 🕐 "+time+"h":""}</div>
+            <div style="font-size:12px;color:var(--td);margin-top:2px">${esc([t.category,time?"🕐 "+time+"h":""].filter(Boolean).join(" · "))}</div>
             ${coaches.length?`<div style="font-size:12px;color:var(--td);margin-top:1px">👟 ${coaches.map(esc).join(" · ")}</div>`:""}
           </div>
           ${done
@@ -5796,7 +5825,7 @@ function hoy(){
           <div>
             <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#a855f7;margin-bottom:3px">${optLabel}</div>
             <div style="font-weight:900;font-size:18px">${esc(t.name)}</div>
-            <div style="font-size:12px;color:var(--td);margin-top:2px">${esc(t.category||"")}${time?" · 🕐 "+time+"h":""}</div>
+            <div style="font-size:12px;color:var(--td);margin-top:2px">${esc([t.category,time?"🕐 "+time+"h":""].filter(Boolean).join(" · "))}</div>
             ${coaches.length?`<div style="font-size:12px;color:var(--td);margin-top:1px">👟 ${coaches.map(esc).join(" · ")}</div>`:""}
           </div>
           ${done
@@ -6414,7 +6443,7 @@ function stats(){
     return`<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <div class="pnum" style="background:linear-gradient(135deg,${t?.color||"#F06318"},${t?.color||"#F06318"}80);width:34px;height:34px;border-radius:8px;font-size:14px">${p.number!=null?p.number:"?"}</div>
-        <div style="flex:1"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${p.isInj?`<span class="injury-badge" title="Lesionado">🚑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}${noData?" · sin sesiones":""}</div></div>
+        <div style="flex:1"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;flex-wrap:wrap">${esc(p.name)}${p.isInj?`<span class="injury-badge" title="Lesionado">🚑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc([p.position,noData?"sin sesiones":""].filter(Boolean).join(" · "))}</div></div>
         <div style="font-family:var(--font-d);font-weight:900;font-size:${noData?"22":"30"}px;color:${c};line-height:1">${noData?"—":p.pct+"<span style=\"font-size:13px\">%</span>"}</div>
       </div>
       <div style="height:5px;background:var(--s3);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;border-radius:3px;background:${c};width:${noData?0:p.pct}%;transition:width .4s"></div></div>
@@ -6521,7 +6550,7 @@ function stats(){
   </div></header>
   <div class="content stats-content">
     ${allMonths.length>1?`<div class="month-row" style="margin-bottom:10px"><select class="fi" style="flex:1" onchange="S.statsMonth=this.value||null;render()">
-      <option value="" ${!S.statsMonth?"selected":""}>📅 Todos los meses (${totalAll} entrenos · ${(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)).length} partidos)</option>
+      <option value="" ${!S.statsMonth?"selected":""}>📅 Todos los meses (${totalAll} entr.${(()=>{const n=(S.matches[S.teamId]||[]).filter(mm=>_hasMatchStats(mm)).length;return n?" · "+n+" part.":"";})()})</option>
       ${allMonths.map(m=>{const sc=sessList.filter(s=>s.date.startsWith(m)).length;const mc=(S.matches[S.teamId]||[]).filter(mm=>mm.date?.startsWith(m)&&_hasMatchStats(mm)).length;const parts=[];if(sc)parts.push(sc+" entr.");if(mc)parts.push(mc+" part.");return`<option value="${m}" ${S.statsMonth===m?"selected":""}>${cap(fMonth(m))}  —  ${parts.join(", ")||"sin datos"}</option>`;}).join("")}
     </select></div>`:""}
     <!-- Overview row -->
@@ -6629,6 +6658,11 @@ function hist(){
   const entries=S.histMonth?seasonEntries.filter(e=>e.date.startsWith(S.histMonth)):seasonEntries;
   const seasonSel=_histSeasonSelectorHtml(seasonEntries.length);
   const monthSel=months.length>0?`<div class="month-row"><select class="fi" style="flex:1" onchange="S.histMonth=this.value||null;render()"><option value="" ${!S.histMonth?"selected":""}>📅 Todos los meses (${seasonEntries.length})</option>${months.map(m=>`<option value="${m}" ${S.histMonth===m?"selected":""}>${cap(fMonth(m))} — ${allEntries.filter(e=>e.date.startsWith(m)).length} ses.</option>`).join("")}</select></div>`:"";
+  // B-HISTMONTH1: media ponderada de una lista de sesiones (la misma cuenta
+  // que la cabecera), reutilizada para el % de cada mes en el listado.
+  const _histAvgPct=list=>{let a=0,b=0;list.forEach(e=>players.forEach(p=>{
+    if(!((_hr.kind==="archived"||_hr.kind==="all")?true:_isDateInSeason(e.date))||!_isPlayerActiveOn(p,e.date,allEntries))return;
+    b++;const v=_effAttState(p,e.date,e.data[p.id]);if(v==="present"||v==="late")a++;}));return b?pc(a,b):null;};
   let mStats="";
   if(entries.length>0&&players.length>0){
     const mTot=entries.length;
@@ -6661,7 +6695,7 @@ function hist(){
     </div>`;
   }
   const rows=entries.length===0?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📅</div><div style="font-size:14px;color:var(--tm)">Sin entrenamientos ${S.histMonth?"este mes":_hr.kind==="archived"?"en esta temporada":""}</div></div>`:
-    `<div class="card">${entries.map((e,i)=>{
+    (()=>{const _rowHtml=(e,i,list)=>{
       // Solo cuenta jugadores de alta en la fecha de la sesión
       const activeP=players.filter(p=>_isPlayerActiveOn(p,e.date,allEntries));
       // v3.0.0-dev.60 · B-INJ2: _effAttState() por jugador -- ver _countAtt.
@@ -6672,7 +6706,7 @@ function hist(){
       const ex=activeSt.filter(v=>v==="excused").length;
       const p2=activeP.length?pc(pr+la,activeP.length):0;const c=p2>=90?"#22c55e":p2>=thr?"#f59e0b":"#ef4444";
       const ts=e.data._teamScore;
-      return`<div class="he" style="${i===entries.length-1?"border-bottom:none":""}">
+      return`<div class="he" style="${i===list.length-1?"border-bottom:none":""}">
         <div style="display:flex;align-items:center;gap:8px">
           <div onclick="S.attOpt=false;S.date='${e.date}';navTo('att')" style="flex:1;cursor:pointer">
             <div style="display:flex;align-items:center;gap:6px"><div style="font-family:var(--font-d);font-weight:700;font-size:16px">${fd(e.date,true)}</div>${ts?`<span style="color:${_scoreColor(ts)};font-size:11px;font-weight:800;background:${_scoreColor(ts)}1a;border-radius:5px;padding:1px 6px">⭐ ${ts}/10</span>`:""}</div>
@@ -6688,7 +6722,16 @@ function hist(){
           <button onclick="openDeleteConfirm('${S.teamId}','${e.date}',false)" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;padding:6px 9px;cursor:pointer;font-size:16px">🗑</button>
         </div>
       </div>`;
-    }).join("")}</div>`;
+    };
+    // B-HISTMONTH1: viendo "Todos los meses", el listado se separa por mes
+    // con su propia cabecera (mes · entrenos · %), para no perderse en una
+    // temporada entera. Con un mes elegido, igual que siempre.
+    const groups=[];entries.forEach(e=>{const ym=e.date.slice(0,7);if(!groups.length||groups[groups.length-1].ym!==ym)groups.push({ym,list:[]});groups[groups.length-1].list.push(e);});
+    if(S.histMonth||groups.length<2)return`<div class="card">${entries.map((e,i)=>_rowHtml(e,i,entries)).join("")}</div>`;
+    return groups.map(g=>{const pct=_histAvgPct(g.list);const col=pct===null?"var(--td)":pct>=90?"#22c55e":pct>=thr?"#f59e0b":"#ef4444";
+      return`<div class="hist-month-h" style="display:flex;align-items:baseline;gap:8px;margin:14px 2px 6px"><div style="font-family:var(--font-d);font-weight:900;font-size:15px">${esc(_monthLabel(g.ym))}</div><div style="font-size:12px;color:var(--td)">${g.list.length} entreno${g.list.length===1?"":"s"}</div>${pct!==null?`<div style="margin-left:auto;font-family:var(--font-d);font-weight:900;font-size:15px;color:${col}">${pct}%</div>`:""}</div>
+      <div class="card">${g.list.map((e,i)=>_rowHtml(e,i,g.list)).join("")}</div>`;}).join("");
+    })();
   // v3.0.0-dev.100 · B-VOLTECH1: lista aparte de entrenamientos voluntarios/
   // tecnificación -- NUNCA mezclados con el listado de arriba (que es de
   // temporada oficial) para que quede clarísimo que esto es un registro
@@ -6866,7 +6909,7 @@ function team(){
       // Mario ("también en la plantilla y en Riesgo FEB").
       const injEst=isInj?injuryEstimatedReturnShort(p):"";
       const injLine=isInj?`🚑 ${iStart?fdCompact(iStart):""}${iDays?` (${iDays}d)`:""}${injEst?` · ${injEst}`:""}`:"";
-      const subLine=[p.position||"—",injLine,p.notes].filter(Boolean).join(" · ");
+      const subLine=[p.position,injLine,p.notes].filter(Boolean).join(" · ");
       // Botón dedicado de lesión entre ✏️ y 🗑. Rojo si activa (abre alta rápida),
       // gris si no (abre modal para marcar).
       const injBtnStyle=isInj
@@ -7298,7 +7341,7 @@ function openEventoConvModal(){
     // exclusión de entrenamientos opcionales (ver _teamSessionEntries).
     const allSess=_teamSessionEntries(S.teamId).filter(s=>_isDateInSeason(s.date));
     return players.map(p=>{const inc=cids.includes(p.id);const _c=_countAtt(p,allSess);const att=_c.tot>0?pc(_c.pr+_c.la,_c.tot):null;
-      return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
+      return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
     }).join("");
   }
   const cids=e.convocados||[];const typeLabel=e.tipo==="partido"?`🏟️ vs ${esc(e.rival||"Rival")}`:e.tipo==="tecnificacion"?"🔧 Tecnificación":esc(e.titulo||"Evento");
@@ -7326,7 +7369,7 @@ function evtTogglePlayer(pid){
   const cids=e.convocados;const allSess=_teamSessionEntries(S.teamId).filter(s=>_isDateInSeason(s.date));
   const list=document.getElementById("ev-conv-list");
   if(list){list.innerHTML=players.map(p=>{const inc=cids.includes(p.id);const _c=_countAtt(p,allSess);const att=_c.tot>0?pc(_c.pr+_c.la,_c.tot):null;
-    return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
+    return`<div class="conv-row" onclick="evtTogglePlayer('${p.id}')"><div class="conv-cb ${inc?"on":""}">${inc?"✓":""}</div><div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div><div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"")}</div></div>${att!==null?`<div style="font-size:12px;font-weight:700;color:${att>=90?"#22c55e":att>=75?"#f59e0b":"#ef4444"}">${att}%</div>`:""}</div>`;
   }).join("");}
   const cnt=document.getElementById("ev-conv-count");if(cnt)cnt.textContent=cids.length+" convocado"+(cids.length!==1?"s":"");
 }
@@ -7537,6 +7580,7 @@ function openClubSettings(){
       <div class="stg-sec-title">👤 Tu perfil en este dispositivo</div>
       <div class="fg"><label class="fl">Tu nombre</label><input class="fi" id="cfg-coachname" value="${esc(_getCoachName())}" placeholder="ej. María" maxlength="40"/><div style="font-size:11px;color:var(--tm);margin-top:4px">Solo se guarda en este móvil (no es una cuenta). Sirve para que el aviso de "partido en directo ya seguido por otro dispositivo" diga quién es en vez de un aviso genérico.</div></div>
       ${_permissionsActive()?(()=>{const c=_currentCoach();return`<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:4px"><div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--td)">Entras como</div><div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c?esc(c.name)+" · "+_roleLabel(c.role):"—"}</div></div><button type="button" class="btn-s" onclick="switchCoachIdentity()" style="width:auto;margin:0;font-size:13px;padding:9px 12px;white-space:nowrap">🔄 Cambiar de entrenador</button></div>${c?`<button type="button" class="btn-s" onclick="openChangeCoachPin()" style="margin-top:8px;font-size:13px;${c.pinHash?"":"border-color:#f59e0b;color:#f59e0b"}">${c.pinHash?"🔑 Cambiar mi contraseña":"🔑 Crear mi contraseña (recomendado)"}</button>`:""}`;})():""}
+      <button type="button" class="btn-s" onclick="openInviteCoach()" style="margin-top:8px;font-size:13px">📲 Invitar a un entrenador (enlace para instalar)</button>
     </div>
     <div class="stg-sec">
       <div class="stg-sec-title">👥 Entrenadores y permisos</div>
@@ -12310,7 +12354,7 @@ function matchDetail(){
     return`<div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:8px">📊 Estadísticas por jugador</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${chips}</div>
-      <div style="font-size:11px;color:var(--tm)">Anota lo que tengas en papel o en Swish, cuarto a cuarto -- se suma solo a Stats y a los exports, igual que un partido en directo.${isSenior?"":" Formulario reducido (categoría "+esc(t.category||"sin categoría")+"): minutos, 2P/3P anotados y tiros libres."}</div>
+      <div style="font-size:11px;color:var(--tm)">Anota lo que tengas en papel o en Swish, cuarto a cuarto -- se suma solo a Stats y a los exports, igual que un partido en directo.${isSenior?"":" Formulario reducido"+(t.category?" (categoría "+esc(t.category)+")":"")+": minutos, 2P/3P anotados y tiros libres."}</div>
       ${summaryHtml}
     </div>`;
   })();
@@ -12326,6 +12370,10 @@ function matchDetail(){
   }).join("");
   const convCount=convIds.length;
   const titCount=titIds.length;
+  // B-MD1: partido ya jugado (con resultado o terminado en directo) y que no
+  // está a medias en directo -- no se ofrece "Iniciar en vivo" ni se
+  // despliega una convocatoria vacía.
+  const _mdPlayed=(!!sc||!!m.finished)&&!(m.live&&!m.finished);
   // Result badge
   const resultBadge=sc?`<span id="match-result-badge" class="result-pill ${r}" style="font-size:15px;padding:4px 14px">${r==="W"?"🏆 Victoria":r==="L"?"❌ Derrota":"🤝 Empate"} ${our}–${their}</span>`:`<span id="match-result-badge" class="result-pill P" style="font-size:13px;padding:3px 10px">⏳ Pendiente</span>`;
   return`<header class="header"><div class="hrow">
@@ -12361,10 +12409,10 @@ function matchDetail(){
         <button onclick="openConvSetup()" style="background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.3);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:700">✏️ Editar</button>
       </div>
     </div>
-    ${sorted.length===0?`<div style="text-align:center;padding:20px;color:var(--tm);font-size:14px">Sin jugadores en la plantilla.</div>`:`<div class="card" style="margin-bottom:14px">${convRows}</div>`}
+    ${sorted.length===0?`<div style="text-align:center;padding:20px;color:var(--tm);font-size:14px">Sin jugadores en la plantilla.</div>`:(_mdPlayed&&convCount===0&&_mdShowConvFor!==m.id)?`<div class="card" style="margin-bottom:14px;padding:14px;text-align:center;color:var(--td);font-size:13px">No se apuntó la convocatoria de este partido. <button onclick="_mdShowConvFor=S.matchId;render()" style="background:none;border:none;color:var(--orange);font-weight:700;cursor:pointer;font-size:13px;padding:4px">Apuntarla</button></div>`:`<div class="card" style="margin-bottom:14px">${convRows}</div>`}
     <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--td);margin-bottom:6px">📝 Notas del partido</div>
-    <textarea class="fi" id="match-notes" rows="3" style="resize:none;margin-bottom:14px" oninput="markDirty({save:saveMatchNotes,label:'Notas del partido',ctx:'matchNotes'})">${esc((S._matchNotesDraft&&S._matchNotesDraft.matchId===S.matchId)?S._matchNotesDraft.notes:(m.notes||""))}</textarea>
-    <button class="btn-s" id="btn-save-match-notes" onclick="saveMatchNotes()" style="${(_dirty&&_dirty.ctx==="matchNotes")?"":"background:#0d3320;color:#22c55e"}">${(_dirty&&_dirty.ctx==="matchNotes")?"💾 Guardar notas":"✅ Notas guardadas"}</button>
+    <textarea class="fi" id="match-notes" rows="3" style="resize:none;margin-bottom:14px" oninput="markDirty({save:saveMatchNotes,label:'Notas del partido',ctx:'matchNotes'});const b=document.getElementById('btn-save-match-notes');if(b){b.style.display='';b.textContent='💾 Guardar notas';b.style.background='';b.style.color='';}">${esc((S._matchNotesDraft&&S._matchNotesDraft.matchId===S.matchId)?S._matchNotesDraft.notes:(m.notes||""))}</textarea>
+    <button class="btn-s" id="btn-save-match-notes" onclick="saveMatchNotes()" style="${(_dirty&&_dirty.ctx==="matchNotes")?"":"background:#0d3320;color:#22c55e"}${!(_dirty&&_dirty.ctx==="matchNotes")&&!(m.notes||"").trim()?";display:none":""}">${(_dirty&&_dirty.ctx==="matchNotes")?"💾 Guardar notas":"✅ Notas guardadas"}</button>
     ${m.rivalStatsEnabled?`
     <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:10px 14px;margin-top:14px;display:flex;align-items:center;gap:10px">
       <span style="font-size:20px">🔴</span>
@@ -12374,11 +12422,12 @@ function matchDetail(){
       </div>
       <button onclick="openConvSetup()" style="background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:700">✏️ Editar</button>
     </div>`:""}
-        ${FEATURE_LIVE_GAME?`<button class="btn-p" style="margin-top:16px" onclick="S.screen='liveGame';render()">🔴 Iniciar en Vivo</button>`:""}
+        ${FEATURE_LIVE_GAME&&!_mdPlayed&&!(m.live&&!m.finished)?`<button class="btn-p" style="margin-top:16px" onclick="S.screen='liveGame';render()">🔴 Iniciar en Vivo</button>`:""}
     <button class="btn-d" style="margin-top:8px" onclick="deleteMatchConfirm(S.matchId)">🗑 Eliminar partido</button>
   </div>
   ${navBar()}`;
 }
+let _mdShowConvFor=null; // B-MD1
 /* ═══════════════════════════════════════
    MATCH MODAL (crear / editar)
 ═══════════════════════════════════════ */
@@ -12864,7 +12913,7 @@ function _convRowInner(p,t,m,inConv,isTit,isCap){
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
     <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?'<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>':""}${guestBadge}</div>
-      <div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div>
+      <div style="font-size:12px;color:var(--td)">${esc(p.position||"")}</div>
     </div>
     ${attControlHtml}
     ${inConv?`<div style="display:flex;gap:5px" onclick="event.stopPropagation()">
@@ -13380,7 +13429,7 @@ function toggleReducedMinutesDismiss(pid){if(!_requireEdit(S.teamId))return fals
 function _mdConvRowHtml(p,t,m,inConv,isTit,isCap,redInfo){
   return`<div class="conv-check ${inConv?"on":""}">${inConv?"✓":""}</div>
     <div class="pnum" style="background:linear-gradient(135deg,${t.color},${t.color}88);width:32px;height:32px;border-radius:8px;font-size:13px">${p.number||"?"}</div>
-    <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${redInfo?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="${redInfo.label}">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"—")}</div></div>
+    <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(p.name)}${isCap?`<span style="background:rgba(234,179,8,.2);color:#eab308;border:1px solid rgba(234,179,8,.3);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px">(C)</span>`:""}${redInfo?`<span style="background:rgba(107,114,128,.25);color:#9ca3af;border:1px solid rgba(107,114,128,.4);border-radius:5px;font-size:10px;font-weight:800;padding:1px 5px;margin-left:6px" title="${redInfo.label}">🪑</span>`:""}</div><div style="font-size:12px;color:var(--td)">${esc(p.position||"")}</div></div>
     ${inConv?`<div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
       ${_attControlBtnHtml(m,p.id,"_mdCycleAtt")}
       <button onclick="event.stopPropagation();toggleTitular('${p.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid ${isTit?"rgba(240,99,24,.4)":"var(--border)"};background:${isTit?"rgba(240,99,24,.15)":"var(--s2)"};color:${isTit?"var(--orange)":"var(--td)"};cursor:pointer;font-size:12px;font-weight:700">⭐</button>
@@ -13613,6 +13662,29 @@ function _showIdentityGate(){
 // "🔄 Cambiar de entrenador" olvida la identidad de ESTE dispositivo y
 // vuelve a mostrar "¿Quién eres?". No toca ningún dato del club ni la sesión
 // de Firebase (el código del club sigue puesto).
+// v3.0.0-dev.124 · B-INSTALL1: enlace a la guía de instalación (instalar.html),
+// que detecta iPhone/iPad/Android/ordenador y enseña solo sus pasos.
+function _installGuideUrl(){ return location.href.split("#")[0].split("?")[0].replace(/[^/]*$/,"")+"instalar.html"; }
+function openInviteCoach(){
+  document.getElementById("m-invite")?.remove();
+  const url=_installGuideUrl();
+  const msg=`🏀 Te paso Kortline, la app del club para pasar lista, partidos y estadísticas.\n\n1️⃣ Abre este enlace y sigue los pasos para instalarla (20 segundos):\n${url}\n\n2️⃣ Entra con el código del club que te daré aparte.\n3️⃣ Elige tu nombre y crea tu contraseña.`;
+  const el=document.createElement("div");el.id="m-invite";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:10050;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div>
+    <div class="mtitle">📲 Invitar a un entrenador</div>
+    <div class="msub">Mándale este mensaje. El enlace abre una guía que detecta su móvil (iPhone, Android, tablet u ordenador) y le enseña solo sus pasos. <b>El código del club no va en el mensaje</b>: dáselo aparte.</div>
+    <div class="share-preview" style="white-space:pre-wrap;margin-bottom:10px">${esc(msg)}</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn-wa" style="flex:1;margin:0" onclick="shareText(${esc(JSON.stringify(msg))})">💬 WhatsApp</button>
+      <button class="btn-copy" style="flex:1;margin:0" onclick="_copyToClipboard(${esc(JSON.stringify(msg))})">📋 Copiar</button>
+    </div>
+    <a class="btn-s" href="${esc(url)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">👀 Ver la guía</a>
+    <button class="btn-s" onclick="document.getElementById('m-invite').remove()">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+}
 function switchCoachIdentity(){
   if(!_permissionsActive())return;
   _confirm("¿Cambiar de entrenador en este móvil?<br><span style='font-size:12px;color:var(--td)'>Volverás a elegir quién eres. No se borra ningún dato.</span>","🔄 Cambiar",()=>{
@@ -17781,8 +17853,8 @@ try{
     if(dirty){save();render();}
   }catch(e){}
 })();
-var _isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&"ontouchend" in document);var _isSA=window.matchMedia("(display-mode:standalone)").matches||window.navigator.standalone===true;var _isAndroid=/Android/.test(navigator.userAgent);if(_isIOS&&!_isSA&&!localStorage.getItem("cbj-ios-never")&&!sessionStorage.getItem("cbj-ios-dismiss")){setTimeout(function(){var el=document.createElement("div");el.id="ios-ig";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:flex-end;justify-content:center;";el.onclick=function(e){if(e.target===el){el.remove();sessionStorage.setItem("cbj-ios-dismiss","1");}};el.innerHTML='<div style="background:#0d1a2e;border-radius:20px 20px 0 0;border-top:1px solid #1e3a5f;width:100%;max-width:430px;padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:slideUp .3s ease-out"><div style="width:34px;height:4px;background:#1a3050;border-radius:2px;margin:0 auto 20px"></div><div style="text-align:center;margin-bottom:20px"><img src="'+_FULL_SVG_URL+'" style="height:48px;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto"/><div style="font-size:14px;color:#7a9cc8;line-height:1.5">A\u00f1ade la app a tu pantalla de inicio</div></div><div style="background:#122236;border:1px solid #1e3a5f;border-radius:14px;padding:18px;margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">1</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Pulsa Compartir</div><div style="font-size:13px;color:#7a9cc8">El icono &#x2B06;&#xFE0F; en la barra inferior de Safari</div></div></div><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">2</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Desliza hacia abajo</div><div style="font-size:13px;color:#7a9cc8">Baja en el men\u00fa y busca <b style=\"color:#f0f4ff\">A\u00f1adir a pantalla de inicio</b></div></div></div><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">3</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Pulsa A\u00f1adir</div><div style="font-size:13px;color:#7a9cc8">\u00a1Listo! Aparecer\u00e1 como una app m\u00e1s</div></div></div></div><button onclick="document.getElementById(\'ios-ig\').remove();sessionStorage.setItem(\'cbj-ios-dismiss\',\'1\')" style="width:100%;padding:14px;border-radius:10px;border:none;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#f97316,#c2410c);color:white">\u{1F44D} Entendido</button><div style="text-align:center;margin-top:12px"><button onclick="document.getElementById(\'ios-ig\').remove();localStorage.setItem(\'cbj-ios-never\',\'1\')" style="background:none;border:none;color:#3a5a80;font-size:13px;cursor:pointer">No volver a mostrar</button></div></div>';document.body.appendChild(el);},2000);}
-if(_isAndroid&&!_isSA&&!localStorage.getItem("cbj-android-never")&&!sessionStorage.getItem("cbj-android-dismiss")){setTimeout(function(){if(document.getElementById("install-banner"))return;var b=document.createElement("div");b.id="android-ig";b.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:flex-end;justify-content:center;";b.onclick=function(e){if(e.target===b){b.remove();sessionStorage.setItem("cbj-android-dismiss","1");}};b.innerHTML='<div style="background:#0d1a2e;border-radius:20px 20px 0 0;border-top:1px solid #1e3a5f;width:100%;max-width:430px;padding:24px 20px 32px;animation:slideUp .3s ease-out"><div style="width:34px;height:4px;background:#1a3050;border-radius:2px;margin:0 auto 20px"></div><div style="text-align:center;margin-bottom:20px"><img src="'+_FULL_SVG_URL+'" style="height:48px;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto"/><div style="font-size:14px;color:#7a9cc8;line-height:1.5">A\u00f1ade la app a tu pantalla de inicio</div></div><div style="background:#122236;border:1px solid #1e3a5f;border-radius:14px;padding:18px;margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">1</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Abre el men\u00fa de Chrome</div><div style="font-size:13px;color:#7a9cc8">Pulsa los 3 puntos \u22EE en la esquina superior</div></div></div><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">2</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">A\u00f1adir a pantalla de inicio</div><div style="font-size:13px;color:#7a9cc8">O \u201cInstalar aplicaci\u00f3n\u201d si aparece</div></div></div><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">3</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Confirma con Instalar</div><div style="font-size:13px;color:#7a9cc8">\u00a1Listo! Se crear\u00e1 el icono en tu inicio</div></div></div></div><button onclick="document.getElementById(\'android-ig\').remove();sessionStorage.setItem(\'cbj-android-dismiss\',\'1\')" style="width:100%;padding:14px;border-radius:10px;border:none;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#f97316,#c2410c);color:white">\u{1F44D} Entendido</button><div style="text-align:center;margin-top:12px"><button onclick="document.getElementById(\'android-ig\').remove();localStorage.setItem(\'cbj-android-never\',\'1\')" style="background:none;border:none;color:#3a5a80;font-size:13px;cursor:pointer">No volver a mostrar</button></div></div>';document.body.appendChild(b);},3000);}
+var _isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&"ontouchend" in document);var _isSA=window.matchMedia("(display-mode:standalone)").matches||window.navigator.standalone===true;var _isAndroid=/Android/.test(navigator.userAgent);if(_isIOS&&!_isSA&&!localStorage.getItem("cbj-ios-never")&&!sessionStorage.getItem("cbj-ios-dismiss")){setTimeout(function(){var el=document.createElement("div");el.id="ios-ig";el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:flex-end;justify-content:center;";el.onclick=function(e){if(e.target===el){el.remove();sessionStorage.setItem("cbj-ios-dismiss","1");}};el.innerHTML='<div style="background:#0d1a2e;border-radius:20px 20px 0 0;border-top:1px solid #1e3a5f;width:100%;max-width:430px;padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:slideUp .3s ease-out"><div style="width:34px;height:4px;background:#1a3050;border-radius:2px;margin:0 auto 20px"></div><div style="text-align:center;margin-bottom:20px"><img src="'+_FULL_SVG_URL+'" style="height:48px;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto"/><div style="font-size:14px;color:#7a9cc8;line-height:1.5">A\u00f1ade la app a tu pantalla de inicio</div></div><div style="background:#122236;border:1px solid #1e3a5f;border-radius:14px;padding:18px;margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">1</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Pulsa Compartir</div><div style="font-size:13px;color:#7a9cc8">El icono &#x2B06;&#xFE0F; en la barra inferior de Safari</div></div></div><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">2</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Desliza hacia abajo</div><div style="font-size:13px;color:#7a9cc8">Baja en el men\u00fa y busca <b style=\"color:#f0f4ff\">A\u00f1adir a pantalla de inicio</b></div></div></div><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">3</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Pulsa A\u00f1adir</div><div style="font-size:13px;color:#7a9cc8">\u00a1Listo! Aparecer\u00e1 como una app m\u00e1s</div></div></div></div><button onclick="document.getElementById(\'ios-ig\').remove();sessionStorage.setItem(\'cbj-ios-dismiss\',\'1\')" style="width:100%;padding:14px;border-radius:10px;border:none;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#f97316,#c2410c);color:white">\u{1F44D} Entendido</button><a href="instalar.html" style="display:block;text-align:center;margin-top:12px;color:#f97316;font-size:13px;font-weight:700;text-decoration:none">📖 Ver la guía con dibujos</a><div style="text-align:center;margin-top:6px"><button onclick="document.getElementById(\'ios-ig\').remove();localStorage.setItem(\'cbj-ios-never\',\'1\')" style="background:none;border:none;color:#3a5a80;font-size:13px;cursor:pointer">No volver a mostrar</button></div></div>';document.body.appendChild(el);},2000);}
+if(_isAndroid&&!_isSA&&!localStorage.getItem("cbj-android-never")&&!sessionStorage.getItem("cbj-android-dismiss")){setTimeout(function(){if(document.getElementById("install-banner"))return;var b=document.createElement("div");b.id="android-ig";b.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:flex-end;justify-content:center;";b.onclick=function(e){if(e.target===b){b.remove();sessionStorage.setItem("cbj-android-dismiss","1");}};b.innerHTML='<div style="background:#0d1a2e;border-radius:20px 20px 0 0;border-top:1px solid #1e3a5f;width:100%;max-width:430px;padding:24px 20px 32px;animation:slideUp .3s ease-out"><div style="width:34px;height:4px;background:#1a3050;border-radius:2px;margin:0 auto 20px"></div><div style="text-align:center;margin-bottom:20px"><img src="'+_FULL_SVG_URL+'" style="height:48px;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto"/><div style="font-size:14px;color:#7a9cc8;line-height:1.5">A\u00f1ade la app a tu pantalla de inicio</div></div><div style="background:#122236;border:1px solid #1e3a5f;border-radius:14px;padding:18px;margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">1</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Abre el men\u00fa de Chrome</div><div style="font-size:13px;color:#7a9cc8">Pulsa los 3 puntos \u22EE en la esquina superior</div></div></div><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #1e3a5f"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">2</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">A\u00f1adir a pantalla de inicio</div><div style="font-size:13px;color:#7a9cc8">O \u201cInstalar aplicaci\u00f3n\u201d si aparece</div></div></div><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:10px;background:rgba(249,115,22,.15);display:flex;align-items:center;justify-content:center;font-weight:900;color:#f97316">3</div><div><div style="font-weight:700;font-size:15px;color:#f0f4ff">Confirma con Instalar</div><div style="font-size:13px;color:#7a9cc8">\u00a1Listo! Se crear\u00e1 el icono en tu inicio</div></div></div></div><button onclick="document.getElementById(\'android-ig\').remove();sessionStorage.setItem(\'cbj-android-dismiss\',\'1\')" style="width:100%;padding:14px;border-radius:10px;border:none;font-weight:800;font-size:15px;cursor:pointer;background:linear-gradient(135deg,#f97316,#c2410c);color:white">\u{1F44D} Entendido</button><a href="instalar.html" style="display:block;text-align:center;margin-top:12px;color:#f97316;font-size:13px;font-weight:700;text-decoration:none">📖 Ver la guía con dibujos</a><div style="text-align:center;margin-top:6px"><button onclick="document.getElementById(\'android-ig\').remove();localStorage.setItem(\'cbj-android-never\',\'1\')" style="background:none;border:none;color:#3a5a80;font-size:13px;cursor:pointer">No volver a mostrar</button></div></div>';document.body.appendChild(b);},3000);}
 </script>
 <div id="logoCropModal">
   <p class="crop-title">Ajusta el logo del club</p>
