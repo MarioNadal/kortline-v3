@@ -88,7 +88,10 @@ const pick = a => a[Math.floor(rnd() * a.length)];
       const teamPts = (L.teamStats && ((L.teamStats.p1m || 0) + 2 * (L.teamStats.p2m || 0) + 3 * (L.teamStats.p3m || 0))) || 0;
       if (our !== pts + teamPts) out.push(`marcador propio ${our} ≠ puntos de las jugadoras ${pts}${teamPts ? " + equipo " + teamPts : ""}`);
       const oc = L.onCourt || [];
-      if (oc.length !== 5) out.push("en pista hay " + oc.length + " jugadoras");
+      // Menos de 5 solo es válido si TODO el banquillo está descalificado
+      // (FIBA: el equipo sigue jugando con las que le quedan).
+      const benchOk = (m.convocados || []).filter(pid => !oc.includes(pid)).every(pid => typeof _isDQ === "function" && _isDQ((L.stats || {})[pid]));
+      if (oc.length > 5 || (oc.length < 5 && !benchOk)) out.push("en pista hay " + oc.length + " jugadoras");
       if (new Set(oc).size !== oc.length) out.push("jugadora repetida en pista");
       oc.forEach(pid => { if (!(m.convocados || []).includes(pid)) out.push("en pista una no convocada " + pid); if (typeof _isDQ === "function" && _isDQ(m, pid)) out.push("descalificada en pista " + pid); });
       (L.qScores || []).forEach((q, i) => { if (q && (q[0] < 0 || q[1] < 0)) out.push("marcador negativo en el periodo " + (i + 1)); });

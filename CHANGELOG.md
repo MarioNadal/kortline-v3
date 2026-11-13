@@ -16,7 +16,7 @@ Mario: *"haz muchas más pruebas del marcador en vivo para poner partidos y algo
 ### Probado
 
 - `season_match_stats.test.js` (nuevo, 26 aserciones): una temporada completa con 5 partidos en directo (460 jugadas, en casa y fuera, con el **marcador para familias activo**), 2 con estadísticas a mano y 1 solo con marcador, repartidos en dos temporadas. Tras **cada jugada** se comprueba que el marcador es la suma de los puntos de las jugadoras, que hay 5 en pista y que el marcador para familias coincide con el directo (con parciales y "Final"), sin nombres. Al final, por jugadora (puntos, tiros de 1/2/3, rebotes, asistencias, robos, tapones, pérdidas y PJ), KPIs de equipo, balance V-D, puntos a favor y en contra, y Excel de partidos, antes y después de archivar, viendo la temporada actual, la archivada y todo el historial. Archivar no borra ningún partido.
-- `live_game.e2e.js` (partido completo pulsando los botones reales) con 7 semillas en Pixel 7, iPhone 13, iPhone SE y Galaxy S9+: 0 fallos de invariantes y 0 errores de JavaScript.
+- `live_game.e2e.js` (partido completo pulsando los botones reales) con 8 semillas en Pixel 7, iPhone 13, iPhone SE y Galaxy S9+: 0 errores de JavaScript. En la semilla 99, todo el banquillo acabó descalificado y la app dejó correctamente 4 en pista ("sacar sin sustituir", como permite FIBA); la prueba se ha ajustado para aceptar menos de 5 solo en ese caso.
 
 ## [Sin publicar] · kortline-v3 · Plantilla con fila limpia + menú (B-ROSTER2, dev.125, 2026-11-13)
 
