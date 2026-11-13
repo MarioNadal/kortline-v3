@@ -3,6 +3,26 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Contraseña por entrenador (B-PIN1, dev.123, 2026-11-13)
+
+Mario: *"al cambiar de entrenador que tengas que poner su contraseña y que pueda cambiar un entrenador su contraseña"*.
+
+### Añadido
+
+- **🔑 Contraseña por entrenador**: al elegir el nombre en "¿Quién eres?" (también después de "🔄 Cambiar de entrenador") se pide su contraseña. Quien todavía no tiene la crea en ese momento (mínimo 4 caracteres, repetida). El móvil recuerda a quien ya ha entrado, así que no se pide cada vez que se abre la app.
+- **Cambiar mi contraseña** (Ajustes → Tu perfil): pide la actual y la nueva dos veces. Si aún no tienes contraseña, el botón sale en naranja: "Crear mi contraseña (recomendado)".
+- **El superadmin la restablece** (Ajustes → Entrenadores → ✏️ → Restablecer), para cuando alguien la olvida. En la lista sale "🔑" o "sin contraseña" junto a cada entrenador.
+- Tras 5 intentos fallidos hay que esperar 30 s.
+- Solo se guarda la huella (SHA-256 con sal, 2000 vueltas), nunca la contraseña. Editar un entrenador (rol o equipos) no borra su contraseña.
+
+### Límite
+
+Igual que los permisos, es una barrera entre los entrenadores dentro de la app, no de la base de datos: la cuenta de Firebase sigue siendo una única cuenta por club.
+
+### Probado
+
+- `coach_pin.test.js` (nuevo, 20 aserciones): crear, mínimo de caracteres, coincidencia, entrar, contraseña mala, bloqueo y espera, cambiar con la actual, que editar el entrenador no la borre, restablecer (solo el superadmin) y que "Cambiar de entrenador" la vuelva a pedir. SHA-256 comprobado contra el de Node.
+
 ## [Sin publicar] · kortline-v3 · Calendario, bandeja de solicitudes y marcador para familias (B-ICS1 + B-REQ2 + B-PUBLIC1, dev.122, 2026-11-13)
 
 Mario: *"Calendario exportable del equipo al calendario del móvil... Bandeja de solicitudes dentro de la app, para que el superadmin apruebe con un toque... Marcador en directo para las familias, con un enlace de solo lectura."*

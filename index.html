@@ -2526,7 +2526,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.122";
+const APP_VERSION = "3.0.0-dev.123";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -7536,7 +7536,7 @@ function openClubSettings(){
     <div class="stg-sec">
       <div class="stg-sec-title">👤 Tu perfil en este dispositivo</div>
       <div class="fg"><label class="fl">Tu nombre</label><input class="fi" id="cfg-coachname" value="${esc(_getCoachName())}" placeholder="ej. María" maxlength="40"/><div style="font-size:11px;color:var(--tm);margin-top:4px">Solo se guarda en este móvil (no es una cuenta). Sirve para que el aviso de "partido en directo ya seguido por otro dispositivo" diga quién es en vez de un aviso genérico.</div></div>
-      ${_permissionsActive()?(()=>{const c=_currentCoach();return`<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:4px"><div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--td)">Entras como</div><div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c?esc(c.name)+" · "+_roleLabel(c.role):"—"}</div></div><button type="button" class="btn-s" onclick="switchCoachIdentity()" style="width:auto;margin:0;font-size:13px;padding:9px 12px;white-space:nowrap">🔄 Cambiar de entrenador</button></div>`;})():""}
+      ${_permissionsActive()?(()=>{const c=_currentCoach();return`<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:4px"><div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--td)">Entras como</div><div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c?esc(c.name)+" · "+_roleLabel(c.role):"—"}</div></div><button type="button" class="btn-s" onclick="switchCoachIdentity()" style="width:auto;margin:0;font-size:13px;padding:9px 12px;white-space:nowrap">🔄 Cambiar de entrenador</button></div>${c?`<button type="button" class="btn-s" onclick="openChangeCoachPin()" style="margin-top:8px;font-size:13px;${c.pinHash?"":"border-color:#f59e0b;color:#f59e0b"}">${c.pinHash?"🔑 Cambiar mi contraseña":"🔑 Crear mi contraseña (recomendado)"}</button>`:""}`;})():""}
     </div>
     <div class="stg-sec">
       <div class="stg-sec-title">👥 Entrenadores y permisos</div>
@@ -10151,7 +10151,7 @@ function _coachesListHtml(){
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:6px">
       <div style="min-width:0">
         <div style="font-weight:700;font-size:13px">${esc(c.name)}${mine?' <span style="color:var(--td);font-weight:600">(tú)</span>':""}</div>
-        <div style="font-size:11px;color:var(--tm)">${_roleLabel(c.role)} · ${scope}</div>
+        <div style="font-size:11px;color:var(--tm)">${_roleLabel(c.role)} · ${scope}${c.pinHash?" · 🔑":' · <span style="color:#f59e0b">sin contraseña</span>'}</div>
       </div>
       ${canManage?`<div style="display:flex;gap:2px;flex-shrink:0">
         <button type="button" onclick="openCoachEditModal('${c.id}')" style="background:none;border:none;color:var(--tm);font-size:15px;cursor:pointer;padding:4px 6px" title="Editar">✏️</button>
@@ -10202,6 +10202,7 @@ function openCoachEditModal(id){
       <div style="font-size:11px;color:var(--tm);margin-bottom:6px">Para un segundo/tercer entrenador que ayuda en otro equipo: lo ve, pero no lo edita.</div>
       <div style="display:flex;flex-direction:column;gap:6px">${S.teams.map(t=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" class="coach-edit-teamview" value="${t.id}" ${teamsView.includes(t.id)?"checked":""}/> <span style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;display:inline-block"></span> ${esc(t.name)}</label>`).join("")||`<div style="font-size:12px;color:var(--tm)">Sin equipos todavía.</div>`}</div>
     </div>
+    ${c?`<div class="fg"><label class="fl">Contraseña</label><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;font-size:12px;color:var(--td)">${c.pinHash?"🔑 Tiene contraseña":"Sin contraseña todavía -- la creará al entrar"}</div>${c.pinHash?`<button type="button" class="btn-s" style="width:auto;margin:0;font-size:12px;padding:8px 10px" onclick="resetCoachPin('${c.id}')">Restablecer</button>`:""}</div></div>`:""}
     <button class="btn-p" onclick="saveCoachEdit(${c?`'${c.id}'`:"null"})">Guardar</button>
     <button class="btn-s" onclick="document.getElementById('m-coach-edit').remove()">Cancelar</button>
   </div>`;
@@ -10215,7 +10216,9 @@ function saveCoachEdit(id){
   const teamsEdit=[...document.querySelectorAll(".coach-edit-teamedit:checked")].map(cb=>cb.value);
   const teamsView=[...document.querySelectorAll(".coach-edit-teamview:checked")].map(cb=>cb.value);
   const coaches=[...(S.cfg.coaches||[])];
+  const prev=id?coaches.find(c=>c.id===id):null;
   const entry={id:id||uid(),name,role,teamsEdit:role==="superadmin"?[]:teamsEdit,teamsView:role==="entrenador"?teamsView:[]};
+  if(prev&&prev.pinHash){entry.pinHash=prev.pinHash;entry.pinSalt=prev.pinSalt;} // B-PIN1: editar no borra la contraseña
   const idx=coaches.findIndex(c=>c.id===entry.id);
   // v3.0.0-dev.101 · B-ROLES1: nunca se guarda una lista sin NINGÚN
   // superadmin -- si no, nadie podría volver a entrar a gestionar permisos
@@ -13598,7 +13601,7 @@ function _showIdentityGate(){
     <div style="font-size:22px;font-weight:900;color:#f0f4ff;margin-bottom:6px">🏀 Kortline</div>
     <div style="font-size:13px;color:#7a9cc8;margin-bottom:20px">¿Quién eres? Elige tu nombre para entrar con tus permisos.</div>
     <div style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto">
-      ${coaches.map(c=>`<button onclick="_pickIdentity('${c.id}')" style="width:100%;padding:14px;border:1.5px solid #1e3a5f;border-radius:10px;background:#0d1a2e;color:#f0f4ff;font-size:15px;font-weight:700;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</span><span style="font-size:10.5px;color:#7a9cc8;font-weight:600;white-space:nowrap">${_roleLabel(c.role)}</span></button>`).join("")}
+      ${coaches.map(c=>`<button onclick="_identityTap('${c.id}')" style="width:100%;padding:14px;border:1.5px solid #1e3a5f;border-radius:10px;background:#0d1a2e;color:#f0f4ff;font-size:15px;font-weight:700;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</span><span style="font-size:10.5px;color:#7a9cc8;font-weight:600;white-space:nowrap">${_roleLabel(c.role)}</span></button>`).join("")}
     </div>
     <div style="font-size:11px;color:#3a5a80;margin-top:16px;line-height:1.5">¿No apareces en la lista? Pide al superadmin del club que te añada desde Ajustes → Entrenadores y permisos.</div>
   </div>`;
@@ -13618,6 +13621,116 @@ function switchCoachIdentity(){
     S.screen="hoy";S.teamId=null;S.navStack=[];
     render();
     _showIdentityGate();
+  });
+}
+/* ═══════════════════════════════════════
+   CONTRASEÑA POR ENTRENADOR · v3.0.0-dev.123 · B-PIN1
+   Mario: "al cambiar de entrenador que tengas que poner su contraseña y que
+   pueda cambiar un entrenador su contraseña".
+   · Cada entrenador tiene una contraseña propia (mín. 4 caracteres). Se
+     guarda SOLO su huella (SHA-256 con sal, 2000 vueltas) en
+     S.cfg.coaches[i].pinHash/pinSalt -- nunca la contraseña.
+   · Se pide al elegir "¿Quién eres?" (también tras "🔄 Cambiar de
+     entrenador"). El móvil recuerda a quien ya entró: no se pide cada vez
+     que se abre la app.
+   · Quien aún no tiene contraseña la crea al entrar (o desde Ajustes).
+   · Se cambia desde Ajustes → "🔑 Cambiar mi contraseña" (pide la actual).
+   · El superadmin puede restablecerla (Ajustes → Entrenadores → ✏️): el
+     entrenador creará una nueva al entrar.
+   · 5 intentos fallidos → espera de 30 s.
+   Límite (igual que los permisos): es una barrera de la interfaz entre los
+   entrenadores del club, no de la base de datos (ver ROLES Y PERMISOS).
+═══════════════════════════════════════ */
+function _sha256Hex(str){
+  const K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  const bytes=[...unescape(encodeURIComponent(str))].map(ch=>ch.charCodeAt(0));const l=bytes.length*8;
+  bytes.push(0x80);while(bytes.length%64!==56)bytes.push(0);
+  for(let i=7;i>=0;i--)bytes.push(i>3?0:(l>>>(i*8))&255);
+  let h=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const r=(x,n)=>(x>>>n)|(x<<(32-n));const w=new Array(64);
+  for(let o=0;o<bytes.length;o+=64){
+    for(let i=0;i<16;i++)w[i]=(bytes[o+i*4]<<24)|(bytes[o+i*4+1]<<16)|(bytes[o+i*4+2]<<8)|bytes[o+i*4+3];
+    for(let i=16;i<64;i++){const s0=r(w[i-15],7)^r(w[i-15],18)^(w[i-15]>>>3),s1=r(w[i-2],17)^r(w[i-2],19)^(w[i-2]>>>10);w[i]=(w[i-16]+s0+w[i-7]+s1)|0;}
+    let [a,b,c,d,e,f,g,hh]=h;
+    for(let i=0;i<64;i++){const S1=r(e,6)^r(e,11)^r(e,25),ch=(e&f)^(~e&g),t1=(hh+S1+ch+K[i]+w[i])|0,S0=r(a,2)^r(a,13)^r(a,22),mj=(a&b)^(a&c)^(b&c),t2=(S0+mj)|0;hh=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;}
+    h=[h[0]+a,h[1]+b,h[2]+c,h[3]+d,h[4]+e,h[5]+f,h[6]+g,h[7]+hh].map(x=>x|0);
+  }
+  return h.map(x=>(x>>>0).toString(16).padStart(8,"0")).join("");
+}
+function _pinHash(pin,salt){ let x=salt+"|"+String(pin); for(let i=0;i<2000;i++)x=_sha256Hex(salt+x); return x; }
+function _newPinSalt(){ const a=new Uint8Array(8); try{crypto.getRandomValues(a);}catch(e){a.forEach((_,i)=>a[i]=Math.floor(Math.random()*256));} return [...a].map(b=>b.toString(16).padStart(2,"0")).join(""); }
+function _checkCoachPin(c,pin){ return !!(c&&c.pinHash&&c.pinSalt&&_pinHash(pin,c.pinSalt)===c.pinHash); }
+function _setCoachPin(coachId,pin){
+  const c=(S.cfg.coaches||[]).find(x=>x.id===coachId);if(!c)return false;
+  c.pinSalt=_newPinSalt();c.pinHash=_pinHash(pin,c.pinSalt);save();return true;
+}
+let _pinFails=0,_pinLockUntil=0;
+function _identityTap(id){
+  const c=(S.cfg.coaches||[]).find(x=>x.id===id);if(!c)return;
+  _showPinModal(c,c.pinHash?"enter":"create");
+}
+// mode: "enter" (entrar), "create" (crear al entrar), "change" (Ajustes)
+function _showPinModal(c,mode){
+  document.getElementById("m-coach-pin")?.remove();
+  const el=document.createElement("div");el.id="m-coach-pin";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,15,30,.97);z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;";
+  const inp=(id,ph)=>`<input id="${id}" type="password" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="${ph}" style="width:100%;padding:14px;border-radius:10px;border:1.5px solid #1e3a5f;background:#0d1a2e;color:#f0f4ff;font-size:18px;text-align:center;letter-spacing:3px;margin-bottom:10px"/>`;
+  const title=mode==="enter"?`Hola, ${esc(c.name)}`:mode==="create"?`Crea tu contraseña, ${esc(c.name)}`:"🔑 Cambiar mi contraseña";
+  const sub=mode==="enter"?"Escribe tu contraseña para entrar.":mode==="create"?"Así nadie más podrá entrar con tu nombre. Mínimo 4 caracteres (puede ser un número).":"Escribe la actual y la nueva.";
+  el.innerHTML=`<div style="width:100%;max-width:340px;text-align:center">
+    <div style="font-size:20px;font-weight:900;color:#f0f4ff;margin-bottom:6px">${title}</div>
+    <div style="font-size:13px;color:#7a9cc8;margin-bottom:18px;line-height:1.5">${sub}</div>
+    ${mode==="change"&&c.pinHash?inp("pin-old","Contraseña actual"):""}
+    ${mode==="enter"?inp("pin-1","Contraseña"):inp("pin-1","Nueva contraseña")+inp("pin-2","Repítela")}
+    <div id="pin-msg" style="color:#ef4444;font-size:13px;min-height:18px;margin-bottom:10px"></div>
+    <button id="pin-ok" class="btn-p" style="margin:0 0 8px" onclick="_submitPinModal('${c.id}','${mode}')">${mode==="enter"?"Entrar":"Guardar contraseña"}</button>
+    <button class="btn-s" style="margin:0" onclick="_cancelPinModal('${mode}')">${mode==="change"?"Cancelar":"← Elegir otro nombre"}</button>
+    ${mode==="enter"?`<div style="font-size:11px;color:#3a5a80;margin-top:14px;line-height:1.5">¿La has olvidado? Pide al superadmin que la restablezca (Ajustes → Entrenadores).</div>`:""}
+  </div>`;
+  document.body.appendChild(el);
+  el.querySelectorAll("input").forEach(i=>i.addEventListener("keydown",e=>{if(e.key==="Enter")_submitPinModal(c.id,mode);}));
+  setTimeout(()=>{try{el.querySelector("input").focus();}catch(e){}},50);
+}
+function _cancelPinModal(mode){
+  document.getElementById("m-coach-pin")?.remove();
+  if(mode!=="change"&&_needsIdentityPick())_showIdentityGate();
+}
+function _submitPinModal(id,mode){
+  const c=(S.cfg.coaches||[]).find(x=>x.id===id);if(!c)return;
+  const v=k=>(document.getElementById(k)?.value||"").trim();
+  const msg=t=>{const m=document.getElementById("pin-msg");if(m)m.textContent=t;};
+  if((mode==="enter"||(mode==="change"&&c.pinHash))&&Date.now()<_pinLockUntil){msg(`Demasiados intentos. Espera ${Math.ceil((_pinLockUntil-Date.now())/1000)} s.`);return;}
+  if(mode==="enter"||(mode==="change"&&c.pinHash)){
+    const given=mode==="enter"?v("pin-1"):v("pin-old");
+    if(!_checkCoachPin(c,given)){
+      _pinFails++;if(_pinFails>=5){_pinFails=0;_pinLockUntil=Date.now()+30000;}
+      msg(mode==="enter"?"Contraseña incorrecta":"La contraseña actual no es correcta");
+      const f=document.getElementById(mode==="enter"?"pin-1":"pin-old");if(f){f.value="";f.focus();}
+      return;
+    }
+    _pinFails=0;
+    if(mode==="enter"){document.getElementById("m-coach-pin")?.remove();_pickIdentity(id);return;}
+  }
+  const p1=v("pin-1"),p2=v("pin-2");
+  if(p1.length<4){msg("Mínimo 4 caracteres");return;}
+  if(p1!==p2){msg("Las dos no coinciden");return;}
+  _setCoachPin(id,p1);
+  document.getElementById("m-coach-pin")?.remove();
+  if(mode==="create"){_pickIdentity(id);toast("🔑 Contraseña creada");}
+  else{toast("🔑 Contraseña cambiada");try{if(document.getElementById("m-club-settings"))openClubSettings();}catch(e){}}
+}
+function openChangeCoachPin(){
+  const c=_currentCoach();if(!c)return;
+  _showPinModal(c,"change");
+}
+function resetCoachPin(id){
+  if(!_isSuperadmin()){toast("🔒 Solo el superadmin gestiona entrenadores y permisos");return;}
+  const c=(S.cfg.coaches||[]).find(x=>x.id===id);if(!c)return;
+  _confirm(`¿Restablecer la contraseña de <b>${esc(c.name)}</b>?<br><span style="font-size:12px;color:var(--td)">Creará una nueva la próxima vez que elija su nombre. En los móviles donde ya ha entrado sigue dentro.</span>`,"🔑 Restablecer",()=>{
+    delete c.pinHash;delete c.pinSalt;save();
+    document.getElementById("m-coach-edit")?.remove();
+    try{openCoachEditModal(id);}catch(e){}
+    toast("🔑 Contraseña restablecida");
   });
 }
 function _pickIdentity(id){
