@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Temporadas y estadísticas de partidos (B-SEASON5 + B-PJ1 + B-STATSEMPTY1, dev.126, 2026-11-13)
+
+Mario: *"haz muchas más pruebas del marcador en vivo para poner partidos y algo de temporadas con las estadísticas de los partidos y todo de jugadores"*.
+
+### Corregido
+
+- **B-SEASON5 · al archivar la temporada, los partidos se seguían sumando.** La asistencia empezaba de cero, pero las pestañas 🏀 Partidos y 📈 Equipo, sus PDF/Excel y el balance V-D de la lista de partidos seguían contando los partidos de la temporada anterior. Ahora, en cuanto hay una temporada archivada, se ve **la temporada actual** por defecto, con un **selector de temporada** en Partidos y Equipo para consultar las archivadas o todo el historial. El PDF dice qué temporada es. Sin temporadas archivadas, todo queda igual que antes.
+- **B-PJ1 · "partidos jugados" contaba a las que no salían del banquillo.** En directo, cada convocada tenía su ficha a cero desde el principio, así que una jugadora que no jugó sumaba PJ y le bajaba la media de puntos por partido. Ahora cuenta solo si jugó minutos o tiene alguna estadística (en pantalla y en las exportaciones).
+- **B-STATSEMPTY1 · Estadísticas vacía si no había entrenamientos.** Un equipo con partidos pero sin entrenamientos en la temporada (por ejemplo, justo después de archivar) veía "Solo hay pretemporada" o "Sin sesiones" y no podía consultar sus partidos. Ahora se abre directamente en 🏀 Partidos, con un aviso de que la asistencia saldrá cuando se pase lista.
+
+### Probado
+
+- `season_match_stats.test.js` (nuevo, 26 aserciones): una temporada completa con 5 partidos en directo (460 jugadas, en casa y fuera, con el **marcador para familias activo**), 2 con estadísticas a mano y 1 solo con marcador, repartidos en dos temporadas. Tras **cada jugada** se comprueba que el marcador es la suma de los puntos de las jugadoras, que hay 5 en pista y que el marcador para familias coincide con el directo (con parciales y "Final"), sin nombres. Al final, por jugadora (puntos, tiros de 1/2/3, rebotes, asistencias, robos, tapones, pérdidas y PJ), KPIs de equipo, balance V-D, puntos a favor y en contra, y Excel de partidos, antes y después de archivar, viendo la temporada actual, la archivada y todo el historial. Archivar no borra ningún partido.
+- `live_game.e2e.js` (partido completo pulsando los botones reales) con 7 semillas en Pixel 7, iPhone 13, iPhone SE y Galaxy S9+: 0 fallos de invariantes y 0 errores de JavaScript.
+
 ## [Sin publicar] · kortline-v3 · Plantilla con fila limpia + menú (B-ROSTER2, dev.125, 2026-11-13)
 
 Mario eligió la **opción A** de la propuesta de la plantilla.
