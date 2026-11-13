@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Plantilla con fila limpia + menú (B-ROSTER2, dev.125, 2026-11-13)
+
+Mario eligió la **opción A** de la propuesta de la plantilla.
+
+### Cambiado
+
+- **Plantilla del equipo**: cada jugadora sale en una fila limpia (dorsal, nombre, posición y avisos: 🚑 lesión, ⚠️ nº de incidencias) con un solo botón **⋯**. Al tocar la fila o ⋯ se abre su menú: **✏️ Editar datos · 🚑 Marcar lesión / dar de alta · ⚠️ Incidencias (n) · 🗑 Quitar de la plantilla** (en rojo, y con la misma confirmación de siempre). Se acabaron los cuatro botones por fila y los toques sin querer en la papelera.
+- En **Modo ver** no hay menú: la fila solo se lee.
+
+### Probado
+
+- `roster_sheet.test.js` (nuevo, 10 aserciones): fila sin botones sueltos, ⋯ por jugadora, incidencias visibles, opciones del menú, que "Quitar" pide confirmación y no borra sin ella, que "Editar" abre la ficha correcta, y Modo ver sin menú (ni forzándolo).
+- En Chromium (iPhone): tocar una jugadora → menú → "Editar datos" abre su ficha.
+
 ## [Sin publicar] · kortline-v3 · Guía de instalación, iconos y repaso visual (dev.124, 2026-11-13)
 
 Mario, sobre la revisión: *"1 sí, 3 me parece bien, 4 sí, 5 sí, 6 sí, 7 creo que sí, 8 vale, 9 sí (la papelera no la veo mal), 10 sí: piénsalo para iPhone pero también Android, tablets y algún ordenador aunque sea online"*.
