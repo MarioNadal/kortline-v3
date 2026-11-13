@@ -3,6 +3,29 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Calendario, bandeja de solicitudes y marcador para familias (B-ICS1 + B-REQ2 + B-PUBLIC1, dev.122, 2026-11-13)
+
+Mario: *"Calendario exportable del equipo al calendario del móvil... Bandeja de solicitudes dentro de la app, para que el superadmin apruebe con un toque... Marcador en directo para las familias, con un enlace de solo lectura."*
+
+> ⚠️ **Antes de fusionar: publicar `firestore.rules`** (añade `requests` y `public`). Sin las reglas nuevas, la bandeja y el marcador avisan de que no pueden escribir. El resto de la app no se ve afectado.
+
+### Añadido
+
+- **🗓️ Añadir al calendario** (pantalla del equipo): genera un archivo `.ics` con los entrenos semanales, voluntarios y tecnificaciones, partidos y eventos de las próximas 4/8/12 semanas. Se abre con el calendario del móvil (iPhone y Android). Incluye la zona horaria de Madrid, un UID fijo por evento (reimportar no duplica) y nunca nombres de jugadoras. Solo genera un archivo.
+- **📥 Bandeja de solicitudes**: "✋ Pedir un cambio" ahora tiene un botón **📨 Enviar al superadmin**, y WhatsApp/copiar quedan como alternativa. El superadmin ve "📥 N solicitudes pendientes" en Hoy y en Ajustes → Entrenadores, y aprueba o rechaza con un toque. Aprobar un "permiso para editar" se lo concede directamente, con confirmación. El entrenador ve el estado de sus solicitudes. Se guardan en `clubs/{club}/requests`, **fuera del motor de sincronización**, así que un fallo ahí no afecta a asistencia ni partidos.
+- **📡 Marcador para familias** (botón en el partido en directo): crea un enlace de solo lectura (`marcador.html?c=…&t=…`, con un token aleatorio de 96 bits) para enviarlo por WhatsApp. La página muestra equipos, marcador, cuarto, reloj y parciales, y se actualiza sola. **No publica nombres de jugadoras.** Solo escribe cuando cambia algo (el reloj corre en el móvil de la familia), así que el coste en Firestore es mínimo. "⏹ Dejar de compartir" borra el documento y el enlace deja de funcionar.
+
+### Reglas de Firestore
+
+- `requests`: solo la cuenta del club; se crean como pendientes con un detalle de 400 caracteres como máximo; solo pasan a aprobada o rechazada y nunca se borran.
+- `public`: **lectura sin cuenta de un documento concreto** (nunca listar), escritura solo de la cuenta del club y con campos fijos.
+
+### Probado
+
+- `calendar_requests_public.test.js` (nuevo, 27 aserciones): formato del .ics (CRLF, VTIMEZONE, escapes, UID únicos, horas), flujo de solicitudes (enviar, no duplicar, solo el superadmin aprueba, el permiso se concede, nada entra en el estado sincronizado) y marcador (token, cifras, sin nombres, solo campos permitidos por las reglas, en Modo ver no se puede compartir).
+- En Chromium: .ics validado con la librería `icalendar`; bandeja de punta a punta (Laura pide → Mario aprueba → Laura edita); `marcador.html` con un Firestore simulado: en directo, final (VICTORIA) y retirado.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.122`, `/test/` regenerado (incluye `marcador.html`).
+
 ## [Sin publicar] · kortline-v3 · Informe mensual y "Pedir un cambio" (B-MONTH1 + B-REQ1, dev.121, 2026-11-13)
 
 Mario: *"informes mensuales de todo y compara con la posible competencia, cosas que se podrían añadir... como solicitar un entrenador un cambio, pero usable, simple, profesional"*. Comparativa en [`COMPETENCIA_2026-11-13.md`](COMPETENCIA_2026-11-13.md).

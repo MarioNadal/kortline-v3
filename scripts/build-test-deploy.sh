@@ -20,6 +20,7 @@ mkdir -p test
 cp index.html test/index.html
 cp sw.js test/sw.js
 cp manifest.json test/manifest.json
+cp marcador.html test/marcador.html   # marcador para familias (el club va en el enlace: ?c=cbjaca-test)
 cp icon-192.png test/icon-192.png 2>/dev/null || true
 cp icon-512.png test/icon-512.png 2>/dev/null || true
 rm -rf test/assets
