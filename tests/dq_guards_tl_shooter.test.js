@@ -39,7 +39,15 @@ async function run() {
   report.assert(el._pid === "p6", "selectOurTLShooter SI selecciona a un jugador de banquillo sin descalificar");
   win.setOurTLCount(0);
   win.confirmOurTL();
+  // v3.0.0-dev.120 · B-COURT7: con 5 en pista, la suplente que va a tirar
+  // SUSTITUYE a alguien -- antes se añadía sin que saliera nadie (6 en pista).
+  const outModal = win.document.getElementById("m-ourtl-out");
+  report.assert(!!outModal, "B-COURT7: con 5 en pista, se pregunta quién sale para que entre la tiradora del banquillo");
+  const before = match.live.onCourt.slice();
+  const outBtn = outModal && outModal.querySelector('button[onclick^="_ourTLDoSub("]');
+  if (outBtn) outBtn.click();
   report.assert(match.live.onCourt.includes("p6"), "confirmOurTL SI mete en pista a un jugador de banquillo valido (no regresion)");
+  report.assert(match.live.onCourt.length === before.length && new Set(match.live.onCourt).size === match.live.onCourt.length, "B-COURT7: tras el cambio sigue habiendo el mismo número en pista (sale una, entra la tiradora), sin repetidas");
 
   return report.summary();
 }

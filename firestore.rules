@@ -55,6 +55,36 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // v3.0.0-dev.122 · B-REQ2: bandeja de solicitudes ("✋ Pedir un
+      // cambio" → el superadmin aprueba o rechaza). Se crean siempre como
+      // pendientes; solo se pueden cambiar a aprobada/rechazada y nunca se
+      // borran. Tamaño acotado.
+      match /requests/{id} {
+        allow read: if ok(clubId);
+        allow create: if ok(clubId)
+          && request.resource.data.status == "pending"
+          && request.resource.data.detail is string
+          && request.resource.data.detail.size() <= 400;
+        allow update: if ok(clubId)
+          && request.resource.data.status in ["pending", "approved", "rejected"]
+          && request.resource.data.detail == resource.data.detail;
+        allow delete: if false;
+      }
+
+      // v3.0.0-dev.122 · B-PUBLIC1: marcador en directo para familias
+      // (marcador.html). Se puede LEER un documento concreto SIN cuenta (las
+      // familias no tienen el código del club) -- pero no LISTAR la
+      // colección: solo quien tiene el enlace, con su token aleatorio, llega
+      // a un marcador. Solo la cuenta del club escribe, con campos fijos y
+      // sin nombres de jugadoras.
+      match /public/{token} {
+        allow get: if knownClub(clubId);
+        allow list: if false;
+        allow create, update: if ok(clubId)
+          && request.resource.data.keys().hasOnly(["team", "club", "rival", "location", "quarters", "q", "periods", "ours", "theirs", "clockSec", "clockRunning", "started", "finished", "date", "time", "updatedAt"]);
+        allow delete: if ok(clubId);
+      }
+
       // Errores de JS en producción (ver _logClientError). Solo añadir + leer,
       // con tamaño acotado para que nadie pueda llenar la base de datos.
       match /errorLogs/{id} {

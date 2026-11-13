@@ -3,6 +3,124 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Plantilla con fila limpia + menú (B-ROSTER2, dev.125, 2026-11-13)
+
+Mario eligió la **opción A** de la propuesta de la plantilla.
+
+### Cambiado
+
+- **Plantilla del equipo**: cada jugadora sale en una fila limpia (dorsal, nombre, posición y avisos: 🚑 lesión, ⚠️ nº de incidencias) con un solo botón **⋯**. Al tocar la fila o ⋯ se abre su menú: **✏️ Editar datos · 🚑 Marcar lesión / dar de alta · ⚠️ Incidencias (n) · 🗑 Quitar de la plantilla** (en rojo, y con la misma confirmación de siempre). Se acabaron los cuatro botones por fila y los toques sin querer en la papelera.
+- En **Modo ver** no hay menú: la fila solo se lee.
+
+### Probado
+
+- `roster_sheet.test.js` (nuevo, 10 aserciones): fila sin botones sueltos, ⋯ por jugadora, incidencias visibles, opciones del menú, que "Quitar" pide confirmación y no borra sin ella, que "Editar" abre la ficha correcta, y Modo ver sin menú (ni forzándolo).
+- En Chromium (iPhone): tocar una jugadora → menú → "Editar datos" abre su ficha.
+
+## [Sin publicar] · kortline-v3 · Guía de instalación, iconos y repaso visual (dev.124, 2026-11-13)
+
+Mario, sobre la revisión: *"1 sí, 3 me parece bien, 4 sí, 5 sí, 6 sí, 7 creo que sí, 8 vale, 9 sí (la papelera no la veo mal), 10 sí: piénsalo para iPhone pero también Android, tablets y algún ordenador aunque sea online"*.
+
+### Añadido
+
+- **📲 Guía de instalación** (`instalar.html`): detecta si es iPhone, iPad, Android (Chrome o Samsung), un ordenador con Chrome/Edge o un Mac con Safari, y enseña **solo sus pasos**, con dibujos de los iconos. En Android y en ordenador sale el botón **Instalar** de un toque. Avisa si se ha abierto dentro de WhatsApp o Instagram, donde no se puede instalar. En ordenador muestra un **QR** para abrirla en el móvil y la opción **"Usar sin instalar"**. Las guías de los demás dispositivos están plegadas debajo. La librería del QR va en el repo (`assets/vendor/qrcode.js`, MIT), sin depender de ningún CDN.
+- **Ajustes → "📲 Invitar a un entrenador"**: un mensaje para WhatsApp con el enlace a la guía y los pasos (código del club → nombre → contraseña). **El código del club no va en el mensaje.**
+- Los avisos de instalación de iPhone/Android de la app enlazan a la guía ("📖 Ver la guía con dibujos").
+- **Aviso "sin subir"** (B-SYNCCHIP1): con internet no se ve nunca. Solo aparece arriba, discreto, si hay cambios de este móvil que llevan más de 8 s sin llegar a la nube (por ejemplo, sin cobertura en el pabellón) y desaparece solo al subir. Es solo un indicador: la sincronización no cambia.
+- **Historial por meses** (B-HISTMONTH1): con "Todos los meses", el listado se separa por mes con su cabecera (mes · nº de entrenos · %). La papelera de cada día se mantiene.
+
+### Cambiado
+
+- **Iconos de la app** (B-ICON1): `icon-192.png`/`icon-512.png` seguían con un diseño antiguo ("DRIVELINE"), y era lo que se veía al instalar en **Android y ordenador** (el iPhone ya usaba el logo bueno). Ahora salen del logo actual de Kortline, con versiones "maskable" propias para que Android no deje esquinas oscuras.
+- Sin "—" debajo de las jugadoras que no tienen posición (plantilla, estadísticas, convocatoria).
+- Hoy: fuera el "·" suelto delante de la hora.
+- Partido ya jugado: no ofrece "Iniciar en vivo"; si no se apuntó convocatoria, sale plegada ("Apuntarla"); y el botón verde "Notas guardadas" no aparece si no hay notas.
+- Equipos: sin la etiqueta "—" cuando el equipo no tiene categoría.
+- Estadísticas: el selector de mes ya no se corta ("30 entr. · 3 part.").
+- "Formulario reducido (categoría sin categoría)" → "Formulario reducido".
+
+### Probado
+
+- `review_fixes_124.test.js` (nuevo, 19 aserciones).
+- Guía de instalación renderizada en Chromium como iPhone, iPad, Pixel, Samsung, ordenador, Mac e iPhone dentro de WhatsApp: el dispositivo se detecta bien, el QR solo sale en ordenador, sin scroll lateral y sin errores.
+
+## [Sin publicar] · kortline-v3 · Contraseña por entrenador (B-PIN1, dev.123, 2026-11-13)
+
+Mario: *"al cambiar de entrenador que tengas que poner su contraseña y que pueda cambiar un entrenador su contraseña"*.
+
+### Añadido
+
+- **🔑 Contraseña por entrenador**: al elegir el nombre en "¿Quién eres?" (también después de "🔄 Cambiar de entrenador") se pide su contraseña. Quien todavía no tiene la crea en ese momento (mínimo 4 caracteres, repetida). El móvil recuerda a quien ya ha entrado, así que no se pide cada vez que se abre la app.
+- **Cambiar mi contraseña** (Ajustes → Tu perfil): pide la actual y la nueva dos veces. Si aún no tienes contraseña, el botón sale en naranja: "Crear mi contraseña (recomendado)".
+- **El superadmin la restablece** (Ajustes → Entrenadores → ✏️ → Restablecer), para cuando alguien la olvida. En la lista sale "🔑" o "sin contraseña" junto a cada entrenador.
+- Tras 5 intentos fallidos hay que esperar 30 s.
+- Solo se guarda la huella (SHA-256 con sal, 2000 vueltas), nunca la contraseña. Editar un entrenador (rol o equipos) no borra su contraseña.
+
+### Límite
+
+Igual que los permisos, es una barrera entre los entrenadores dentro de la app, no de la base de datos: la cuenta de Firebase sigue siendo una única cuenta por club.
+
+### Probado
+
+- `coach_pin.test.js` (nuevo, 20 aserciones): crear, mínimo de caracteres, coincidencia, entrar, contraseña mala, bloqueo y espera, cambiar con la actual, que editar el entrenador no la borre, restablecer (solo el superadmin) y que "Cambiar de entrenador" la vuelva a pedir. SHA-256 comprobado contra el de Node.
+
+## [Sin publicar] · kortline-v3 · Calendario, bandeja de solicitudes y marcador para familias (B-ICS1 + B-REQ2 + B-PUBLIC1, dev.122, 2026-11-13)
+
+Mario: *"Calendario exportable del equipo al calendario del móvil... Bandeja de solicitudes dentro de la app, para que el superadmin apruebe con un toque... Marcador en directo para las familias, con un enlace de solo lectura."*
+
+> ⚠️ **Antes de fusionar: publicar `firestore.rules`** (añade `requests` y `public`). Sin las reglas nuevas, la bandeja y el marcador avisan de que no pueden escribir. El resto de la app no se ve afectado.
+
+### Añadido
+
+- **🗓️ Añadir al calendario** (pantalla del equipo): genera un archivo `.ics` con los entrenos semanales, voluntarios y tecnificaciones, partidos y eventos de las próximas 4/8/12 semanas. Se abre con el calendario del móvil (iPhone y Android). Incluye la zona horaria de Madrid, un UID fijo por evento (reimportar no duplica) y nunca nombres de jugadoras. Solo genera un archivo.
+- **📥 Bandeja de solicitudes**: "✋ Pedir un cambio" ahora tiene un botón **📨 Enviar al superadmin**, y WhatsApp/copiar quedan como alternativa. El superadmin ve "📥 N solicitudes pendientes" en Hoy y en Ajustes → Entrenadores, y aprueba o rechaza con un toque. Aprobar un "permiso para editar" se lo concede directamente, con confirmación. El entrenador ve el estado de sus solicitudes. Se guardan en `clubs/{club}/requests`, **fuera del motor de sincronización**, así que un fallo ahí no afecta a asistencia ni partidos.
+- **📡 Marcador para familias** (botón en el partido en directo): crea un enlace de solo lectura (`marcador.html?c=…&t=…`, con un token aleatorio de 96 bits) para enviarlo por WhatsApp. La página muestra equipos, marcador, cuarto, reloj y parciales, y se actualiza sola. **No publica nombres de jugadoras.** Solo escribe cuando cambia algo (el reloj corre en el móvil de la familia), así que el coste en Firestore es mínimo. "⏹ Dejar de compartir" borra el documento y el enlace deja de funcionar.
+
+### Reglas de Firestore
+
+- `requests`: solo la cuenta del club; se crean como pendientes con un detalle de 400 caracteres como máximo; solo pasan a aprobada o rechazada y nunca se borran.
+- `public`: **lectura sin cuenta de un documento concreto** (nunca listar), escritura solo de la cuenta del club y con campos fijos.
+
+### Probado
+
+- `calendar_requests_public.test.js` (nuevo, 27 aserciones): formato del .ics (CRLF, VTIMEZONE, escapes, UID únicos, horas), flujo de solicitudes (enviar, no duplicar, solo el superadmin aprueba, el permiso se concede, nada entra en el estado sincronizado) y marcador (token, cifras, sin nombres, solo campos permitidos por las reglas, en Modo ver no se puede compartir).
+- En Chromium: .ics validado con la librería `icalendar`; bandeja de punta a punta (Laura pide → Mario aprueba → Laura edita); `marcador.html` con un Firestore simulado: en directo, final (VICTORIA) y retirado.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.122`, `/test/` regenerado (incluye `marcador.html`).
+
+## [Sin publicar] · kortline-v3 · Informe mensual y "Pedir un cambio" (B-MONTH1 + B-REQ1, dev.121, 2026-11-13)
+
+Mario: *"informes mensuales de todo y compara con la posible competencia, cosas que se podrían añadir... como solicitar un entrenador un cambio, pero usable, simple, profesional"*. Comparativa en [`COMPETENCIA_2026-11-13.md`](COMPETENCIA_2026-11-13.md).
+
+### Añadido
+
+- **📆 Informe del mes** (Estadísticas → Tabla): elige el mes y saca un PDF o un texto para WhatsApp con entrenamientos y asistencia media, asistencia por jugadora (presentes, ausentes, tarde, justificadas, % y voluntarios), quién está por debajo del umbral FEB, voluntarios/tecnificaciones, partidos con resultado y máxima anotadora, máximas anotadoras del mes, lesiones, incidencias y MVP. Solo lee datos (`_monthReportData` / `_monthReportText` / `exportMonthReportPDF`).
+- **✋ Pedir un cambio** (en el aviso de Modo ver): prepara un mensaje para el superadmin -- permiso para editar el equipo, corregir un dato (con la fecha del pase de lista si se está viendo uno) u otra cosa, con detalle opcional -- y lo envía por WhatsApp o lo copia. No escribe nada en la base de datos.
+
+### Probado
+
+- `month_report_and_requests.test.js` (nuevo, 14 aserciones): cifras del informe (% por jugadora, media, umbral, marcador desde nuestro lado jugando fuera, máxima anotadora, MVP), texto sin roturas, que el informe y la petición no cambian ningún dato.
+- En Chromium: el PDF del informe se abrió y sus cifras se compararon a mano con los datos de prueba.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.121` / `kortline-v3.0.0-dev.121`, `/test/` regenerado.
+
+## [Sin publicar] · kortline-v3 · Revisión a fondo: partido en directo completo y exportaciones abiertas (B-COURT7/8 + B-PDF1, dev.120, 2026-11-13)
+
+Mario: *"haz pruebas tú reales... pruebas los partidos en directo, todo... partidos, estadísticas, exportar"*. Todo en local (Chromium a tamaño móvil, sin Firebase).
+
+### Corregido
+
+- **B-COURT7 · quedaban 6 jugadoras en pista.** Al elegir una jugadora del banquillo para tirar los tiros libres de una falta del rival, se AÑADÍA a la pista sin que saliera nadie (descuadra minutos, +/- y quintetos). Ahora, con 5 en pista, se pregunta "¿Quién sale?" y se hace el cambio completo con `subPlayer()`. Encontrado con la nueva prueba de partido completo.
+- **B-COURT8 · cambio del rival sin límite de 5** (el mismo hueco que B-COURT6 cerró en el lado propio).
+- **B-PDF1 · emojis convertidos en basura en TODOS los PDF** ("Ø<ßà Casa", "Ø=Þ‘ lesionado", una comilla en vez del ✓ de FEB): las fuentes de jsPDF no tienen emojis. `_safeJsPDF()` limpia el texto de todos los PDF (✓→OK, ⚠→!, →→->; el resto se quita).
+- **Exportaciones**: "—" en vez de "0%" cuando no hubo ningún intento (T2%/T3%/TL%/eFG%, y celda vacía en Excel); dorsales de dos cifras ya no se parten en dos líneas en el PDF de temporada.
+- **Botones del banquillo en el directo** ("↔ Sub" / "→ Pista") medían 22 px de alto -- se agrandan a 38 px (objetivo de toque cómodo en pleno partido).
+
+### Probado
+
+- **Nueva prueba de partido en directo completo** (`tests/e2e/live_game.e2e.js`): empieza el partido desde Hoy, ~120 jugadas al azar pulsando los botones reales (canastas, fallos, rebotes, asistencias, robos, tapones, pérdidas, faltas de todo tipo con sus tiros libres, rival, cambios, tiempos muertos, deshacer), resuelve cada ventana, pasa los 4 cuartos con el reloj y cierra el partido. Tras CADA jugada comprueba que el marcador = suma de puntos de las jugadoras, 5 en pista sin repetidas ni descalificadas, y ninguna estadística negativa. Varias semillas en Pixel 7 e iPhone SE: 0 descuadres, 0 errores de JavaScript.
+- Se descargaron y abrieron las 7 exportaciones (PDF con `pdftotext`, Excel con `openpyxl`): cifras coherentes con el partido (marcador por cuartos, totales, KPIs); 0 caracteres basura tras B-PDF1.
+- `dq_guards_tl_shooter.test.js` actualizado (la tiradora del banquillo sustituye a alguien).
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.120` / `kortline-v3.0.0-dev.120`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Permisos: lo que no se puede hacer ni se ofrece (B-PERM3, dev.119, 2026-11-13)
 
 Mario, probando roles en `/test/`: *"estaba probando con un entrenador a archivar la temporada y salta el mensaje por debajo, que casi no se ve, y te deja hasta darle al botón... tienes que revisar todo lo que no puede hacer en la app de permisos y avisarle antes y no dejarle"*.
