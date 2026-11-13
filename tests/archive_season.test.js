@@ -86,7 +86,34 @@ async function run() {
   assert(win.S.sessions[`t1_${d(-150)}`] && win.S.sessions[`t1_${d(-150)}`].p1 === "present",
     "deleteArchivedSeason(): borrar el registro archivado NUNCA toca los entrenamientos reales de esas fechas");
   assert(win.S.cfg.seasonStart === win._addDaysISO(end2, 1),
-    "deleteArchivedSeason(): no toca seasonStart -- sigue siendo el que dejó el último archivado");
+    "deleteArchivedSeason(): quitar una temporada MÁS ANTIGUA no toca seasonStart -- sigue siendo el que dejó el último archivado");
+
+  // ── v3.0.0-dev.117 · B-SEASON3: quitar la ÚLTIMA = deshacer de verdad ──
+  const last = win.S.cfg.seasons[win.S.cfg.seasons.length - 1];
+  const prevStartOfLast = last.startDate;
+  const pctBefore = JSON.stringify(win.S.cfg.seasonStart);
+  const rUndo = win.deleteArchivedSeason(last.id);
+  assert(rUndo && rUndo.restored === true, "B-SEASON3: quitar la última temporada archivada se reconoce como deshacer");
+  assert(win.S.cfg.seasonStart === prevStartOfLast, "B-SEASON3: la temporada actual vuelve a empezar donde empezaba antes de archivar (" + prevStartOfLast + "; antes se quedaba en " + pctBefore + ")");
+  assert(win.S.sessions[`t1_${d(-150)}`] && win.S.sessions[`t1_${d(-150)}`].p1 === "present", "B-SEASON3: deshacer tampoco toca ningún entrenamiento");
+
+  // Si la fecha de inicio se cambió a mano después de archivar, no se pisa
+  const r3 = win.archiveSeason("T3", d(0));
+  assert(r3.ok, "archivar de nuevo funciona");
+  win.S.cfg.seasonStart = d(-2); // cambiada a mano en Ajustes
+  const r4 = win.deleteArchivedSeason(win.S.cfg.seasons[win.S.cfg.seasons.length - 1].id);
+  assert(r4.restored === false && win.S.cfg.seasonStart === d(-2), "B-SEASON3: si la fecha de inicio se cambió a mano después, quitar la etiqueta no la pisa");
+
+  // Con roles activados, solo el superadmin
+  win.S.cfg.coaches = [{ id: "sa", name: "Super", role: "superadmin", teamsEdit: [], teamsView: [] }, { id: "e1", name: "Entrena", role: "entrenador", teamsEdit: ["t1"], teamsView: [] }];
+  win._setCurrentCoachId("e1");
+  const nBefore = win.S.cfg.seasons.length, startBefore = win.S.cfg.seasonStart;
+  const r5 = win.archiveSeason("No debería", d(-1));
+  assert(r5.ok === false && win.S.cfg.seasons.length === nBefore && win.S.cfg.seasonStart === startBefore, "con roles: un entrenador NO puede archivar la temporada (afecta a todos los equipos)");
+  win._setCurrentCoachId("sa");
+  const r6 = win.archiveSeason("Sí", d(-1));
+  assert(r6.ok === true, "con roles: el superadmin sí puede");
+  win.S.cfg.coaches = []; win._setCurrentCoachId("");
 
   return report.summary();
 }
