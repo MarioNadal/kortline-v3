@@ -2436,6 +2436,48 @@ function clearLiveLog(){
   if(!_requireEdit(S.teamId))return false;
   _confirm('¿Limpiar el historial de acciones?','🗑 Limpiar',()=>{const m=mById(S.teamId,S.matchId);if(m&&m.live)m.live.log=[];save();render();try{_refreshLiveLogPanels();}catch(e){}});
 }
+// v3.0.0-dev.121 · B-REQ1: Mario -- "cosas a nivel avanzado como solicitar
+// un entrenador un cambio [...] usable, simple, profesional". Desde el aviso
+// de Modo ver, "✋ Pedir un cambio" prepara un mensaje para el superadmin
+// (pedir permiso para editar el equipo, corregir un dato u otra cosa) y lo
+// envía por WhatsApp o lo copia. NO escribe nada en la base de datos.
+const _REQ_TYPES=[["perm","🔓 Permiso para editar este equipo"],["fix","✏️ Corregir un dato (asistencia, partido...)"],["other","💬 Otra cosa"]];
+function openChangeRequestModal(){
+  const t=S.teams.find(x=>x.id===S.teamId);
+  const me=_currentCoach();
+  const admins=(S.cfg.coaches||[]).filter(c=>c.role==="superadmin").map(c=>c.name);
+  document.getElementById("m-change-req")?.remove();
+  const el=document.createElement("div");el.id="m-change-req";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:10000;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div>
+    <div class="mtitle">✋ Pedir un cambio</div>
+    <div class="msub">Prepara un mensaje para ${admins.length?"<b>"+admins.map(esc).join(", ")+"</b> (superadmin)":"el superadmin del club"}. Se envía por WhatsApp o se copia; no cambia nada por sí solo.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">${_REQ_TYPES.map(([k,l],i)=>`<label style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2);cursor:pointer;font-weight:700;font-size:14px"><input type="radio" name="req-type" value="${k}" ${i===0?"checked":""} onchange="_refreshChangeReq()" style="width:18px;height:18px;accent-color:var(--orange)"/>${l}</label>`).join("")}</div>
+    <div class="fg"><label class="fl">Detalle <span style="color:var(--tm);font-weight:500;text-transform:none;letter-spacing:0">· opcional</span></label><textarea class="fi" id="req-detail" rows="3" maxlength="400" placeholder="Ej: el martes Ana sí vino, está marcada como ausente" oninput="_refreshChangeReq()"></textarea></div>
+    <div id="req-preview" class="share-preview" style="white-space:pre-wrap;margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-wa" style="flex:1;margin:0" onclick="shareText(document.getElementById('req-preview').innerText)">💬 Enviar por WhatsApp</button>
+      <button class="btn-copy" style="flex:1;margin:0" onclick="_copyToClipboard(document.getElementById('req-preview').innerText)">📋 Copiar</button>
+    </div>
+    <button class="btn-s" onclick="document.getElementById('m-change-req').remove()" style="margin-top:8px">Cancelar</button>
+  </div>`;
+  el._ctx={team:t?.name||"",me:me?.name||_getCoachName()||"",screen:S.screen,date:S.date};
+  document.body.appendChild(el);
+  _refreshChangeReq();
+}
+function _refreshChangeReq(){
+  const el=document.getElementById("m-change-req");if(!el)return;
+  const c=el._ctx||{};
+  const k=(el.querySelector('input[name="req-type"]:checked')||{}).value||"perm";
+  const det=(document.getElementById("req-detail")?.value||"").trim();
+  const where=c.screen==="att"&&c.date?` (pase de lista del ${fd(c.date,true)})`:"";
+  const ask=k==="perm"?`¿Podrías darme permiso para *editar* el equipo *${c.team}* en Kortline?`
+    :k==="fix"?`¿Podrías corregir un dato del equipo *${c.team}* en Kortline${where}?`
+    :`¿Podrías ayudarme con algo del equipo *${c.team}* en Kortline${where}?`;
+  const txt=`Hola 👋, soy ${c.me||"un entrenador del club"}. ${ask}${det?"\n\n"+det:""}`;
+  const pv=document.getElementById("req-preview");if(pv)pv.textContent=txt;
+}
 function _isReadOnlyTeam(tid){ return !!tid&&_permissionsActive()&&!_canEditTeam(tid); }
 function _requireEdit(tid){
   if(_canEditTeam(tid))return true;
@@ -2481,7 +2523,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.120";
+const APP_VERSION = "3.0.0-dev.121";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4384,6 +4426,140 @@ function _safeJsPDF(){
     return doc;
   };
 }
+/* ═══════════════════════════════════════
+   INFORME MENSUAL (v3.0.0-dev.121 · B-MONTH1)
+   Mario: "informes mensuales de todo" y comparar con la competencia
+   (TeamSnap, Spond, SportEasy... ofrecen resúmenes periódicos). Un resumen
+   del mes de un equipo -- entrenamientos, asistencia por jugadora, quién
+   está por debajo del umbral, voluntarios/tecnificaciones, partidos y
+   máximas anotadoras, lesiones, incidencias y MVP -- en PDF o en texto para
+   WhatsApp. Solo LEE datos: no escribe nada en ningún sitio.
+═══════════════════════════════════════ */
+function _monthReportData(tid,ym){
+  const t=S.teams.find(x=>x.id===tid);
+  const players=pl(tid).filter(p=>!p.matchOnly);
+  const thr=S.cfg.riskThreshold||75;
+  const all=_teamSessionEntries(tid,{includeOptional:true});
+  const allOff=all.filter(e=>!e.isOpt);
+  const sess=allOff.filter(e=>e.date.startsWith(ym)).sort((a,b)=>a.date.localeCompare(b.date));
+  const opt=all.filter(e=>e.isOpt&&e.date.startsWith(ym)&&_optSessionTouched(tid,e.date,e.data,e.optType));
+  const rows=players.map(p=>{
+    const mine=sess.filter(e=>p.attOnly?_attOnlyActiveOn(p,e.date,false):_isPlayerActiveOn(p,e.date,allOff));
+    let pr=0,ab=0,la=0,ex=0;
+    mine.forEach(e=>{const v=_effAttState(p,e.date,e.data[p.id]);if(v==="present")pr++;else if(v==="absent")ab++;else if(v==="late")la++;else ex++;});
+    const counted=pr+ab+la; // justificadas no penalizan
+    const pct=counted?Math.round(100*(pr+la)/counted):null;
+    const optC=opt.filter(e=>_optAttendedIn(p,tid,e)).length;
+    return{p,tot:mine.length,pr,ab,la,ex,pct,optC};
+  }).filter(r=>r.tot>0||r.optC>0);
+  const withPct=rows.filter(r=>r.pct!==null);
+  const avg=withPct.length?Math.round(withPct.reduce((a,r)=>a+r.pct,0)/withPct.length):null;
+  const matches=mlist(tid).filter(m=>m.date&&m.date.startsWith(ym)).sort((a,b)=>a.date.localeCompare(b.date)).map(m=>{
+    const sc=mScore(m);const ours=sc?(m.location==="away"?sc.a:sc.h):null,theirs=sc?(m.location==="away"?sc.h:sc.a):null;
+    const st=_matchPlayerStats(m)||{};
+    const scorers=Object.entries(st).map(([pid,x])=>({pid,pts:(x.p1m||0)+2*(x.p2m||0)+3*(x.p3m||0)})).filter(x=>x.pts>0).sort((a,b)=>b.pts-a.pts);
+    return{m,ours,theirs,res:sc?mResult(m):null,scorers};
+  });
+  const ptsBy={};matches.forEach(x=>x.scorers.forEach(s=>{ptsBy[s.pid]=(ptsBy[s.pid]||0)+s.pts;}));
+  const topScorers=Object.entries(ptsBy).map(([pid,pts])=>({p:pl(tid).find(x=>x.id===pid),pts})).filter(x=>x.p).sort((a,b)=>b.pts-a.pts).slice(0,3);
+  const monthEnd=ym+"-31";
+  const injuries=[];pl(tid).forEach(p=>{
+    const eps=[...(Array.isArray(p.injuryHistory)?p.injuryHistory:[]),...(p.injury&&p.injury.active?[{startDate:p.injury.startDate,endDate:null,active:true}]:[])];
+    eps.forEach(h=>{if(h&&h.startDate&&h.startDate<=monthEnd&&(!h.endDate||h.endDate>=ym+"-01"))injuries.push({p,h});});
+  });
+  const incidents=[];pl(tid).forEach(p=>playerIncidents(p).forEach(i=>{if((i.date||"").startsWith(ym))incidents.push({p,i});}));
+  const mvps=mvpHistory(t).filter(v=>(v.date||"").startsWith(ym)).map(v=>({v,p:pl(tid).find(x=>x.id===v.playerId)})).filter(x=>x.p);
+  const low=withPct.filter(r=>r.pct<thr).sort((a,b)=>a.pct-b.pct);
+  const best=withPct.filter(r=>r.pct===100&&r.tot>0);
+  return{t,ym,thr,sess,opt,rows,avg,matches,topScorers,injuries,incidents,mvps,low,best};
+}
+function _monthLabel(ym){try{const[y,m]=ym.split("-");const s=new Date(+y,+m-1,1).toLocaleDateString("es-ES",{month:"long",year:"numeric"});return s.charAt(0).toUpperCase()+s.slice(1);}catch(e){return ym;}}
+function _monthReportText(d){
+  const L=[];const nm=d.t?.name||"";
+  L.push(`📆 *Informe de ${_monthLabel(d.ym)}* — ${nm}`);
+  L.push("");
+  L.push(`🏋️ *Entrenamientos:* ${d.sess.length}${d.avg!==null?` · asistencia media ${d.avg}%`:""}`);
+  if(d.best.length)L.push(`⭐ Asistencia perfecta: ${d.best.map(r=>_shortName(r.p.name)).join(", ")}`);
+  if(d.low.length)L.push(`⚠️ Por debajo del ${d.thr}%: ${d.low.map(r=>_shortName(r.p.name)+" ("+r.pct+"%)").join(", ")}`);
+  if(d.opt.length){const v=d.opt.filter(e=>e.optType==="voluntario").length,tc=d.opt.length-v;L.push(`🙋 Voluntarios: ${v} · 🎯 Tecnificaciones: ${tc}`);}
+  if(d.matches.length){
+    const w=d.matches.filter(x=>x.res==="W").length,l=d.matches.filter(x=>x.res==="L").length;
+    L.push("");L.push(`🏀 *Partidos:* ${d.matches.length} (${w}V · ${l}D)`);
+    d.matches.forEach(x=>L.push(`• ${fdCompact(x.m.date)} vs ${x.m.rival||"Rival"}: ${x.ours!=null?x.ours+"-"+x.theirs:"sin resultado"}${x.res==="W"?" ✅":x.res==="L"?" ❌":""}`));
+    if(d.topScorers.length)L.push(`🔥 Máximas anotadoras: ${d.topScorers.map(x=>_shortName(x.p.name)+" "+x.pts).join(" · ")}`);
+  }
+  if(d.mvps.length){L.push("");L.push(`🏆 MVP: ${d.mvps.map(x=>_shortName(x.p.name)).join(", ")}`);}
+  return L.join("\n");
+}
+function openMonthReportModal(){
+  const tid=S.teamId;if(!tid)return;
+  const all=_teamSessionEntries(tid,{includeOptional:true}).map(e=>e.date.slice(0,7));
+  const ms=mlist(tid).map(m=>(m.date||"").slice(0,7)).filter(Boolean);
+  const months=[...new Set([td().slice(0,7),...all,...ms])].sort().reverse();
+  document.getElementById("m-month-report")?.remove();
+  const el=document.createElement("div");el.id="m-month-report";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div>
+    <div class="mtitle">📆 Informe del mes</div>
+    <div class="msub">Resumen de un mes del equipo: entrenamientos y asistencia, voluntarios, partidos, lesiones, incidencias y MVP.</div>
+    <div class="fg"><label class="fl">Mes</label><select class="fi" id="mr-month" onchange="_refreshMonthReportPreview()">${months.map(m=>`<option value="${m}">${_monthLabel(m)}</option>`).join("")}</select></div>
+    <div id="mr-preview" class="share-preview" style="white-space:pre-wrap;max-height:34vh;overflow:auto;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-xpdf" style="flex:1" onclick="exportMonthReportPDF(document.getElementById('mr-month').value)">📄 PDF</button>
+      <button class="btn-wa" style="flex:1;margin:0" onclick="shareText(document.getElementById('mr-preview').innerText)">💬 WhatsApp</button>
+    </div>
+    <button class="btn-s" onclick="document.getElementById('m-month-report').remove()" style="margin-top:8px">Cerrar</button>
+  </div>`;
+  document.body.appendChild(el);
+  _refreshMonthReportPreview();
+}
+function _refreshMonthReportPreview(){
+  const ym=document.getElementById("mr-month")?.value;const pv=document.getElementById("mr-preview");
+  if(!ym||!pv)return;
+  pv.textContent=_monthReportText(_monthReportData(S.teamId,ym));
+}
+function exportMonthReportPDF(ym){
+  if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
+  const d=_monthReportData(S.teamId,ym);
+  const jsPDF=_safeJsPDF();
+  const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+  const head=(title,y)=>{doc.setFont("helvetica","bold");doc.setFontSize(12);doc.setTextColor(13,34,68);doc.text(title,14,y);return y+3;};
+  doc.setFillColor(13,34,68);doc.rect(0,0,210,30,"F");
+  doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(18);doc.text(`Informe de ${_monthLabel(ym)}`,14,14);
+  doc.setFontSize(11);doc.setFont("helvetica","normal");doc.text(`${d.t?.name||""}${d.t?.category?" · "+d.t.category:""}`,14,22);
+  doc.setFontSize(9);doc.text("Generado: "+new Date().toLocaleDateString("es-ES"),196,22,{align:"right"});
+  let y=40;
+  const w=d.matches.filter(x=>x.res==="W").length,l=d.matches.filter(x=>x.res==="L").length;
+  const kpis=[["Entrenamientos",String(d.sess.length)],["Asistencia media",d.avg!==null?d.avg+"%":"—"],["Partidos",d.matches.length?`${d.matches.length} (${w}V-${l}D)`:"0"],["Voluntarios/tecnif.",String(d.opt.length)]];
+  kpis.forEach((k,i)=>{const x=14+i*46;doc.setDrawColor(220,226,236);doc.roundedRect(x,y-6,43,18,2,2);doc.setTextColor(240,99,24);doc.setFont("helvetica","bold");doc.setFontSize(14);doc.text(k[1],x+3,y+3);doc.setTextColor(100,116,139);doc.setFont("helvetica","normal");doc.setFontSize(8);doc.text(k[0],x+3,y+9);});
+  y+=22;
+  y=head("Asistencia por jugadora",y);
+  doc.autoTable({startY:y,head:[["#","Jugadora","Entrenos","Pres.","Aus.","Tarde","Just.","%","Volunt."]],
+    body:d.rows.map(r=>[r.p.number!=null?r.p.number:"—",r.p.name,r.tot,r.pr,r.ab,r.la,r.ex,r.pct!==null?r.pct+"%":"—",r.optC||"—"]),
+    styles:{fontSize:9,cellPadding:2},headStyles:{fillColor:[13,34,68]},columnStyles:{0:{cellWidth:12,halign:"center"},7:{fontStyle:"bold"}},
+    didParseCell:(c)=>{if(c.section==="body"&&c.column.index===7){const v=parseInt(c.cell.raw,10);if(!isNaN(v))c.cell.styles.textColor=v>=90?[22,163,74]:v>=d.thr?[217,119,6]:[220,38,38];}}});
+  y=doc.lastAutoTable.finalY+8;
+  if(d.low.length){doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(220,38,38);doc.text(`Por debajo del ${d.thr}%: `+d.low.map(r=>r.p.name+" ("+r.pct+"%)").join(", "),14,y,{maxWidth:182});y+=8;}
+  if(d.matches.length){
+    if(y>240){doc.addPage();y=20;}
+    y=head("Partidos",y);
+    doc.autoTable({startY:y,head:[["Fecha","Rival","Resultado","","Máx. anotadora"]],
+      body:d.matches.map(x=>{const top=x.scorers[0];const tp=top?pl(S.teamId).find(p=>p.id===top.pid):null;return[fdCompact(x.m.date),x.m.rival||"Rival",x.ours!=null?`${x.ours} - ${x.theirs}`:"—",x.res==="W"?"Victoria":x.res==="L"?"Derrota":x.res==="D"?"Empate":"",tp?`${tp.name} (${top.pts})`:"—"];}),
+      styles:{fontSize:9,cellPadding:2},headStyles:{fillColor:[13,34,68]}});
+    y=doc.lastAutoTable.finalY+6;
+    if(d.topScorers.length){doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(51,65,85);doc.text("Máximas anotadoras del mes: "+d.topScorers.map(x=>x.p.name+" "+x.pts).join(" · "),14,y);y+=8;}
+  }
+  const extra=[];
+  d.injuries.forEach(x=>extra.push(["Lesión",x.p.name,`${x.h.startDate?fdCompact(x.h.startDate):"?"} → ${x.h.endDate?fdCompact(x.h.endDate):"en curso"}`]));
+  d.incidents.forEach(x=>extra.push(["Incidencia",x.p.name,`${fdCompact(x.i.date)} · ${x.i.category||""}${x.i.note?" · "+x.i.note:""}`]));
+  d.mvps.forEach(x=>extra.push(["MVP",x.p.name,fdCompact(x.v.date)+(x.v.note?" · "+x.v.note:"")]));
+  if(extra.length){if(y>240){doc.addPage();y=20;}y=head("Lesiones, incidencias y MVP",y);doc.autoTable({startY:y,head:[["Tipo","Jugadora","Detalle"]],body:extra,styles:{fontSize:9,cellPadding:2},headStyles:{fillColor:[13,34,68]}});}
+  const pages=doc.getNumberOfPages();for(let i=1;i<=pages;i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(148,163,184);doc.text(`${S.clubName||"Kortline"} · Informe mensual · Pág. ${i}/${pages}`,14,290);}
+  const safe=(d.t?.name||"equipo").toLowerCase().replace(/[^a-z0-9]+/g,"_");
+  doc.save(`${safe}_informe_${ym}.pdf`);
+  toast("📄 Informe de "+_monthLabel(ym)+" descargado");
+}
 function exportPDF(){
   if(typeof window.jspdf==="undefined"){toast("⚠️ PDF no disponible (cargando...)");return;}
   const jsPDF=_safeJsPDF();
@@ -4896,7 +5072,7 @@ function render(){
       const cont=root&&root.querySelector(".content");
       if(cont&&!cont.querySelector(".ro-banner")){
         const b=document.createElement("div");b.className="ro-banner";
-        b.innerHTML='<span style="font-size:16px">👁</span><span>Modo ver · puedes consultarlo todo, pero no tienes permiso para editar este equipo.</span>';
+        b.innerHTML='<span style="font-size:16px">👁</span><span style="flex:1">Modo ver · puedes consultarlo todo, pero no tienes permiso para editar este equipo.</span><button type="button" class="ro-ask" onclick="openChangeRequestModal()" style="flex-shrink:0;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.45);color:#bfdbfe;border-radius:8px;padding:7px 10px;font-weight:800;font-size:12px;cursor:pointer;min-height:36px">✋ Pedir un cambio</button>';
         cont.insertBefore(b,cont.firstChild);
       }
       if(root)root.querySelectorAll("input,textarea,select").forEach(el=>{el.readOnly=true;if(el.tagName==="SELECT"||["checkbox","radio","file","date","time"].includes(el.type))el.disabled=true;});
@@ -6087,7 +6263,8 @@ function stats(){
     ${view==="table"?`<div class="export-bar">
       <button class="btn-xpdf" onclick="exportPDF()">📄 PDF</button>
       <button class="btn-xxls" onclick="exportExcel()">📊 Excel</button>
-    </div>`:view==="matches"?`<div class="export-bar">
+    </div>
+    <button class="btn-s" onclick="openMonthReportModal()" style="width:100%;margin:-4px 0 12px;font-weight:800">📆 Informe del mes</button>`:view==="matches"?`<div class="export-bar">
       <button class="btn-xpdf" onclick="exportMatchesPDF()">📄 PDF</button>
       <button class="btn-xxls" onclick="exportMatchesExcel()">📊 Excel</button>
     </div>`:view==="team"?`<div class="export-bar">

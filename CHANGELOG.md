@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Informe mensual y "Pedir un cambio" (B-MONTH1 + B-REQ1, dev.121, 2026-11-13)
+
+Mario: *"informes mensuales de todo y compara con la posible competencia, cosas que se podrían añadir... como solicitar un entrenador un cambio, pero usable, simple, profesional"*. Comparativa en [`COMPETENCIA_2026-11-13.md`](COMPETENCIA_2026-11-13.md).
+
+### Añadido
+
+- **📆 Informe del mes** (Estadísticas → Tabla): elige el mes y saca un PDF o un texto para WhatsApp con entrenamientos y asistencia media, asistencia por jugadora (presentes, ausentes, tarde, justificadas, % y voluntarios), quién está por debajo del umbral FEB, voluntarios/tecnificaciones, partidos con resultado y máxima anotadora, máximas anotadoras del mes, lesiones, incidencias y MVP. Solo lee datos (`_monthReportData` / `_monthReportText` / `exportMonthReportPDF`).
+- **✋ Pedir un cambio** (en el aviso de Modo ver): prepara un mensaje para el superadmin -- permiso para editar el equipo, corregir un dato (con la fecha del pase de lista si se está viendo uno) u otra cosa, con detalle opcional -- y lo envía por WhatsApp o lo copia. No escribe nada en la base de datos.
+
+### Probado
+
+- `month_report_and_requests.test.js` (nuevo, 14 aserciones): cifras del informe (% por jugadora, media, umbral, marcador desde nuestro lado jugando fuera, máxima anotadora, MVP), texto sin roturas, que el informe y la petición no cambian ningún dato.
+- En Chromium: el PDF del informe se abrió y sus cifras se compararon a mano con los datos de prueba.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.121` / `kortline-v3.0.0-dev.121`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Revisión a fondo: partido en directo completo y exportaciones abiertas (B-COURT7/8 + B-PDF1, dev.120, 2026-11-13)
 
 Mario: *"haz pruebas tú reales... pruebas los partidos en directo, todo... partidos, estadísticas, exportar"*. Todo en local (Chromium a tamaño móvil, sin Firebase).
