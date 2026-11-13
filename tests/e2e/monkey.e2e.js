@@ -76,7 +76,7 @@ function seed() {
 
 const ROLE = process.env.MONKEY_ROLE || "";
 const SCREENS_ROLE = [
-  ["hoy", {}], ["equipos", {}], ["team", { teamId: "t2" }], ["att", { teamId: "t2", date: "__TODAY__", attOpt: false }], ["att", { teamId: "t2", date: "__TODAY__", attOpt: "tecnificacion" }],
+  ["hoy", {}], ["equipos", {}], ["statsHome", {}], ["team", { teamId: "t1" }], ["att", { teamId: "t1", date: "__TODAY__", attOpt: false }], ["matchDetail", { teamId: "t1", matchId: "mq" }], ["hist", { teamId: "t1" }], ["team", { teamId: "t2" }], ["att", { teamId: "t2", date: "__TODAY__", attOpt: false }], ["att", { teamId: "t2", date: "__TODAY__", attOpt: "tecnificacion" }],
   ["hist", { teamId: "t2" }], ["matchList", { teamId: "t2" }], ["matchDetail", { teamId: "t2", matchId: "ms" }], ["eventos", { teamId: "t2" }], ["stats", { teamId: "t2", statsView: "table" }],
   ["liveGame", { teamId: "t2", matchId: "ms" }], ["matchSummary", { teamId: "t2", matchId: "ms" }], ["shotMap", { teamId: "t2", matchId: "ms" }],
   ["dlsLive", { teamId: "t2" }]
@@ -127,7 +127,7 @@ const SCREENS_ALL = [
     save(); _setCurrentCoachId("c2");
   });
   const SCREENS = ROLE ? SCREENS_ROLE : SCREENS_ALL;
-  const guardFn = () => JSON.stringify({ team: S.teams.find(t => t.id === "t2"), nTeams: S.teams.length, players: S.players.t2, matches: S.matches.t2, events: (S.events || {}).t2 || [], sess: Object.keys(S.sessions).filter(k => k.startsWith("t2_")).sort().map(k => [k, S.sessions[k]]), coaches: S.cfg.coaches });
+  const guardFn = () => JSON.stringify({ team: S.teams.find(t => t.id === "t2"), teamsIdsOrder: S.teams.map(t => t.id + ":" + t.order), nTeams: S.teams.length, players: S.players.t2, matches: S.matches.t2, events: (S.events || {}).t2 || [], sess: Object.keys(S.sessions).filter(k => k.startsWith("t2_")).sort().map(k => [k, S.sessions[k]]), coaches: S.cfg.coaches, seasons: S.cfg.seasons || [], seasonStart: S.cfg.seasonStart || null });
   const snapshot = await page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; });
 
   const goto = async (scr, opts) => page.evaluate(([scr, opts, snap]) => {
@@ -148,6 +148,8 @@ const SCREENS_ALL = [
     if (r.wide || r.scrollX) note("SE SALE DE PANTALLA", what + (r.scrollX ? " (scroll lateral)" : ""));
   };
 
+  if (ROLE) await page.evaluate(() => { const orig = window.toast; window.__locks = []; window.toast = function (m) { if (/🔒|Solo el superadmin|Solo el superadmin o|no puedes|No tienes/i.test(String(m))) window.__locks.push(String(m)); return orig.apply(this, arguments); }; });
+  const checkLate = async () => { if (!ROLE) return; const l = await page.evaluate(() => { const x = window.__locks || []; window.__locks = []; return x; }); l.forEach(m => note("AVISA TARDE", "un botón visible deja intentarlo y al final avisa: «" + m.slice(0, 90) + "»")); };
   const guard0 = ROLE ? await page.evaluate(guardFn) : null;
   // Dos comprobaciones distintas: (1) solo ABRIR una pantalla no debe cambiar
   // datos de un equipo que no se puede editar; (2) PULSAR un botón tampoco.
@@ -163,28 +165,31 @@ const SCREENS_ALL = [
     await check("pantalla"); await checkOpen();
     if (ROLE) {
       const ro = await page.evaluate(() => ({ banner: !!document.querySelector("#root .ro-banner"), pasar: /Pasar lista|Anotar partido|Empezar partido|Continuar en vivo/.test(document.getElementById("root").innerText) }));
-      if (/^(team|att|hist|matchList|matchDetail|liveGame|eventos|stats|shotMap|matchSummary|dlsLive)$/.test(scr) && !ro.banner) note("MODO VER", "falta el aviso de Modo ver");
-      if (ro.pasar && scr !== "hoy") note("MODO VER", "sigue ofreciendo Pasar lista / Anotar / Empezar en un equipo de solo ver");
+      const ownTeam = opts.teamId !== "t2";
+      if (!ownTeam && /^(team|att|hist|matchList|matchDetail|liveGame|eventos|stats|shotMap|matchSummary|dlsLive)$/.test(scr) && !ro.banner) note("MODO VER", "falta el aviso de Modo ver");
+      if (ownTeam && ro.banner) note("MODO VER", "sale el aviso de Modo ver en un equipo que SÍ puede editar");
+      if (!ownTeam && ro.pasar && scr !== "hoy") note("MODO VER", "sigue ofreciendo Pasar lista / Anotar / Empezar en un equipo de solo ver");
     }
-    const handlers = await page.evaluate(() => [...new Set([...document.querySelectorAll("#root [onclick]")].filter(e => e.offsetParent !== null).map(e => e.getAttribute("onclick")))]);
+    const handlers = await page.evaluate(() => [...new Set([...document.querySelectorAll("#root [onclick]")].filter(e => e.offsetParent !== null && getComputedStyle(e).pointerEvents !== "none").map(e => e.getAttribute("onclick")))]);
     for (const h of handlers) {
       if (/navRoot\(|navBack\(|^navTo\(|location\.|installPWA|startTour/.test(h)) continue; // navegación ya cubierta pantalla a pantalla; el tutorial tiene su propio test
       await goto(scr, opts);
-      const done = await page.evaluate((h) => { const el = [...document.querySelectorAll("#root [onclick]")].find(e => e.getAttribute("onclick") === h && e.offsetParent !== null); if (!el) return false; el.click(); return true; }, h);
+      const done = await page.evaluate((h) => { const el = [...document.querySelectorAll("#root [onclick]")].find(e => e.getAttribute("onclick") === h && e.offsetParent !== null && getComputedStyle(e).pointerEvents !== "none"); if (!el) return false; el.click(); return true; }, h);
       if (!done) continue;
       if (ROLE) { /* estado justo antes del clic = el de abrir la pantalla */ }
       clicks++; cur = scr + " " + JSON.stringify(rawOpts).replace(/"/g, "") + " → clic «" + h.slice(0, 90) + "»";
       await page.waitForTimeout(60);
-      await check("tras pulsar"); await checkGuard();
+      await check("tras pulsar"); await checkGuard(); await checkLate();
       // segundo nivel: dentro de la ventana que se haya abierto, pulsar también sus botones
-      const inner = await page.evaluate(() => [...new Set([...document.querySelectorAll("body > div[id^='m-'] [onclick]")].filter(e => e.offsetParent !== null).map(e => e.getAttribute("onclick")))].slice(0, 25));
+      const inner = await page.evaluate((lim) => [...new Set([...document.querySelectorAll("body > div[id^='m-'] [onclick]")].filter(e => e.offsetParent !== null && getComputedStyle(e).pointerEvents !== "none").map(e => e.getAttribute("onclick")))].slice(0, lim), ROLE ? 120 : 25);
       for (const h2 of inner) {
         if (/startTour/.test(h2)) continue;
         if (/\.remove\(\)$|_closeModal|navRoot|location\./.test(h2) && !/;.*\(/.test(h2.replace(/\.remove\(\)$/, ""))) continue;
-        const ok2 = await page.evaluate((h2) => { const el = [...document.querySelectorAll("body > div[id^='m-'] [onclick]")].find(e => e.getAttribute("onclick") === h2 && e.offsetParent !== null); if (!el) return false; el.click(); return true; }, h2);
+        const ok2 = await page.evaluate((h2) => { const el = [...document.querySelectorAll("body > div[id^='m-'] [onclick]")].find(e => e.getAttribute("onclick") === h2 && e.offsetParent !== null && getComputedStyle(e).pointerEvents !== "none"); if (!el) return false; el.click(); return true; }, h2);
         if (!ok2) continue;
         clicks++; const prev = cur; cur = prev + " → «" + h2.slice(0, 70) + "»";
-        await page.waitForTimeout(40); await check("ventana"); await checkGuard(); cur = prev;
+        if (ROLE) { await page.evaluate(() => { const c = document.querySelector("#m-confirm button"); if (c) c.click(); }); }
+        await page.waitForTimeout(40); await check("ventana"); await checkGuard(); await checkLate(); cur = prev;
       }
       cur = scr + " " + JSON.stringify(rawOpts).replace(/"/g, "");
     }
