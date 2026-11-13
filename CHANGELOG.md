@@ -3,6 +3,24 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Permisos: lo que no se puede hacer ni se ofrece (B-PERM3, dev.119, 2026-11-13)
+
+Mario, probando roles en `/test/`: *"estaba probando con un entrenador a archivar la temporada y salta el mensaje por debajo, que casi no se ve, y te deja hasta darle al botón... tienes que revisar todo lo que no puede hacer en la app de permisos y avisarle antes y no dejarle"*.
+
+### Corregido
+
+- **Los avisos salían por debajo de las ventanas** (misma capa que los modales): `.toast` pasa a `z-index:100001`, por encima de cualquier ventana o confirmación.
+- **Temporadas** (Ajustes): un entrenador ya no ve "Archivar temporada" ni los botones de deshacer/quitar, el campo de inicio de temporada sale desactivado (y `saveClubSettings` tampoco lo cambia aunque se fuerce), y se le explica antes: "🔒 Solo el superadmin o el director deportivo pueden cambiar el inicio de temporada, archivarla o deshacerla".
+- **Eliminar equipo**: el botón solo aparece al superadmin (antes lo veía cualquiera con permiso de edición y al final le decía que no).
+- **"Limpiar historial de acciones"** en las estadísticas del directo: era un `_confirm` escrito en el propio botón, sin comprobar permiso -- alguien de solo lectura podía borrar el registro de jugadas. Ahora `clearLiveLog()`, protegido y oculto en modo ver.
+- **＋ de Hoy**: no aparece si el entrenador no puede editar ningún equipo.
+
+### Probado
+
+- Prueba "mono" de solo lectura ampliada: ahora detecta cualquier botón visible que termine en un aviso "🔒" ("AVISA TARDE"), recorre también Hoy, Equipos, Estadísticas y las pantallas de su propio equipo, confirma los diálogos hasta el final y solo pulsa lo que un dedo puede tocar. Antes de los arreglos: 33 hallazgos (parte eran falsos positivos de la propia prueba, que pulsaba por código botones que en modo ver ya no se pueden tocar -- corregido en la prueba); después: **0** (545 botones).
+- `permissions_readonly_guards.test.js` (+19): Ajustes y "Eliminar equipo" por rol (entrenador / director deportivo / superadmin), ＋ de Hoy y capa de los avisos.
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.119` / `kortline-v3.0.0-dev.119`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Selector de temporada en Historial (B-SEASON4, dev.118, 2026-11-13)
 
 Mario: *"en historial debería de haber un botón de temporadas archivadas con un selector, porque cuando se junten más temporadas cómo se distingue las archivadas de la actual"*.

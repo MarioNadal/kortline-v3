@@ -115,6 +115,50 @@ async function run() {
     r.assert(!/Anotar partido|Empezar partido/.test(win.document.getElementById("root").textContent), "modo ver: la lista de partidos no ofrece Anotar/Empezar");
   }
 
+  // ═══ 4) v3.0.0-dev.119 · B-PERM3: lo que un rol no puede hacer NI SE LE
+  // OFRECE (antes llegaba hasta el final y un aviso, tapado por la ventana,
+  // le decía que no). ═══
+  {
+    const roles = { entrenador: "e1", director_deportivo: "dd", superadmin: "sa" };
+    for (const [role, id] of Object.entries(roles)) {
+      const win = await loadApp();
+      const today = win.td(), ti = win._weekdayIdxForDate(today);
+      win.S.teams = [{ id: "t1", name: "UNO", schedule: { [ti]: "17:00" } }, { id: "t2", name: "DOS" }];
+      win.S.players = { t1: [{ id: "p1", name: "Ana", number: 1 }], t2: [] };
+      win.S.cfg.seasonStart = "2026-09-01";
+      win.S.cfg.seasons = [{ id: "s1", label: "2025-2026", startDate: "2025-09-01", endDate: "2026-08-31" }];
+      win.S.cfg.coaches = [{ id: "sa", name: "Super", role: "superadmin", teamsEdit: [], teamsView: [] }, { id: "dd", name: "Dire", role: "director_deportivo", teamsEdit: ["t1"], teamsView: [] }, { id: "e1", name: "Entre", role: "entrenador", teamsEdit: ["t1"], teamsView: ["t2"] }];
+      win._setCurrentCoachId(id);
+      win.openClubSettings();
+      const st = win.document.getElementById("m-club-settings");
+      const html = st.innerHTML;
+      const canSeasons = role !== "entrenador";
+      r.assert(html.includes("openArchiveSeasonModal()") === canSeasons, `${role}: el botón Archivar temporada ${canSeasons ? "aparece" : "NO aparece"}`);
+      r.assert(html.includes("confirmDeleteArchivedSeason(") === canSeasons, `${role}: deshacer/quitar temporada ${canSeasons ? "aparece" : "NO aparece"}`);
+      r.assert(st.querySelector("#cfg-season-start").disabled === !canSeasons, `${role}: la fecha de inicio de temporada ${canSeasons ? "se puede" : "NO se puede"} cambiar`);
+      if (!canSeasons) {
+        r.assert(/Solo el superadmin o el director deportivo/.test(st.textContent), "entrenador: se le explica ANTES por qué no puede gestionar temporadas");
+        st.querySelector("#cfg-season-start").value = "2026-11-01";
+        win.saveClubSettings();
+        r.assert(win.S.cfg.seasonStart === "2026-09-01", "entrenador: guardar Ajustes no cambia el inicio de temporada aunque se fuerce el campo");
+      }
+      r.assert(html.includes("openCoachEditModal(null)") === (role === "superadmin"), `${role}: añadir entrenador ${role === "superadmin" ? "aparece" : "NO aparece"}`);
+      win.document.getElementById("m-club-settings")?.remove();
+      win.navTo("team", { teamId: "t1" });
+      r.assert(win.document.getElementById("root").innerHTML.includes("delTeam()") === (role === "superadmin"), `${role}: Eliminar equipo ${role === "superadmin" ? "aparece" : "NO aparece"} en un equipo que puede editar`);
+    }
+    // Sin ningún equipo editable, el ＋ de Hoy no se ofrece
+    const win = await loadApp();
+    win.S.teams = [{ id: "t2", name: "DOS" }];
+    win.S.cfg.coaches = [{ id: "sa", name: "Super", role: "superadmin", teamsEdit: [], teamsView: [] }, { id: "v", name: "Ve", role: "entrenador", teamsEdit: [], teamsView: ["t2"] }];
+    win._setCurrentCoachId("v");
+    win.navRoot("hoy");
+    r.assert(!win.document.querySelector("#root .fab-add"), "sin equipos editables, Hoy no ofrece el ＋ de añadir actividad");
+    // Los avisos salen por ENCIMA de cualquier ventana
+    const z = parseInt(win.getComputedStyle((() => { win.toast("x"); return win.document.querySelector(".toast"); })()).zIndex, 10);
+    r.assert(z > 99999, "los avisos (toast) salen por encima de cualquier ventana abierta (z-index " + z + ")");
+  }
+
   return r.summary();
 }
 
