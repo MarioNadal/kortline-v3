@@ -2469,7 +2469,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.117";
+const APP_VERSION = "3.0.0-dev.118";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4874,7 +4874,7 @@ function navTo(screen,opts={}){
     if(S.screen==="trainingNote")_tnFlushDraft(); // v3 · B-TNOTES1: idem para notas de entrenamiento
     S.navStack=[...(S.navStack||[]).slice(-20),{
       screen:S.screen,teamId:S.teamId,matchId:S.matchId,
-      date:S.date,eventId:S.eventId,histMonth:S.histMonth,
+      date:S.date,eventId:S.eventId,histMonth:S.histMonth,histSeason:S.histSeason,
       statsView:S.statsView,sf:S.sf,hoyDate:S.hoyDate,attOpt:S.attOpt
     }];
     // Filtro de asistencia es efímero: solo vive mientras estás en "att"
@@ -4902,7 +4902,7 @@ function navBack(){
     const prev=stack[stack.length-1];
     S.navStack=stack.slice(0,-1);
     S.screen=prev.screen;S.teamId=prev.teamId;S.matchId=prev.matchId;
-    S.date=prev.date;S.eventId=prev.eventId;S.histMonth=prev.histMonth;
+    S.date=prev.date;S.eventId=prev.eventId;S.histMonth=prev.histMonth;S.histSeason=prev.histSeason;
     S.statsView=prev.statsView;S.sf=prev.sf;S.hoyDate=prev.hoyDate;S.attOpt=prev.attOpt||false;
     render();
   });
@@ -6074,6 +6074,40 @@ function stats(){
 /* ═══════════════════════════════════════
    HISTORY
 ═══════════════════════════════════════ */
+// v3.0.0-dev.118 · B-SEASON4: Mario -- "en historial debería haber un
+// botón de temporadas archivadas con un selector, porque cuando se junten
+// más temporadas ¿cómo se distinguen las archivadas de la actual?".
+// S.histSeason: "current" (por defecto) | id de una temporada archivada |
+// "all". Sin temporadas archivadas no hay nada que elegir: se ve todo, como
+// siempre, y el selector no aparece.
+function _histSeasonRange(){
+  const seasons=S.cfg.seasons||[];
+  if(!seasons.length)return{kind:"none",from:null,to:null,label:""};
+  const sel=S.histSeason||"current";
+  if(sel==="all")return{kind:"all",from:null,to:null,label:"Todo el historial"};
+  const s=seasons.find(x=>x.id===sel);
+  if(s)return{kind:"archived",from:s.startDate||null,to:s.endDate||null,label:s.label||"Temporada archivada"};
+  return{kind:"current",from:S.cfg.seasonStart||null,to:null,label:"Temporada actual"};
+}
+function _inDateRange(d,r){ return (!r.from||d>=r.from)&&(!r.to||d<=r.to); }
+function _histSetSeason(v){ S.histSeason=v||"current"; S.histMonth=null; render(); }
+function _histSeasonSelectorHtml(count){
+  const seasons=S.cfg.seasons||[];
+  if(!seasons.length)return"";
+  const sel=S.histSeason&&(S.histSeason==="all"||seasons.some(x=>x.id===S.histSeason))?S.histSeason:"current";
+  // Fechas cortas (mes y año) para que el nombre de la temporada quepa en
+  // el desplegable en móviles estrechos.
+  const fdc=d=>{try{const x=new Date(d+"T12:00:00");return x.toLocaleDateString("es-ES",{month:"short"}).replace(".","")+" "+d.slice(2,4);}catch(e){return d;}};
+  const rng=x=>x.startDate?`${fdc(x.startDate)} – ${fdc(x.endDate)}`:`hasta ${fdc(x.endDate)}`;
+  const opts=[`<option value="current" ${sel==="current"?"selected":""}>🟢 Temporada actual${S.cfg.seasonStart?" (desde "+fdc(S.cfg.seasonStart)+")":""}</option>`]
+    .concat([...seasons].reverse().map(x=>`<option value="${esc(x.id)}" ${sel===x.id?"selected":""}>📦 ${esc(x.label||"Temporada archivada")} (${rng(x)})</option>`))
+    .concat([`<option value="all" ${sel==="all"?"selected":""}>🗂 Todo el historial</option>`]).join("");
+  const archived=sel!=="current"&&sel!=="all";
+  return`<div style="margin-bottom:10px">
+    <select class="fi" aria-label="Temporada" onchange="_histSetSeason(this.value)" style="font-weight:800${archived?";border-color:rgba(245,158,11,.6);background:rgba(245,158,11,.08)":""}">${opts}</select>
+    ${archived?`<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;font-weight:700;color:#f59e0b">📦 Temporada archivada · sus entrenamientos no cuentan en las estadísticas de la temporada actual</div>`:""}
+  </div>`;
+}
 function hist(){
   const t=S.teams.find(x=>x.id===S.teamId);
   const players=pl(S.teamId);
@@ -6083,10 +6117,18 @@ function hist(){
   // pero el LISTADO de filas de abajo (rows) sí debe poder mostrarlos
   // (marcados aparte), así que se guarda también optEntries con todo.
   const allEntries=_teamSessionEntries(S.teamId).sort((a,b)=>b.date.localeCompare(a.date));
-  const optEntries=_teamSessionEntries(S.teamId,{includeOptional:true}).filter(e=>e.isOpt).sort((a,b)=>b.date.localeCompare(a.date));
-  const months=[...new Set(allEntries.map(e=>e.date.slice(0,7)))].sort().reverse();
-  const entries=S.histMonth?allEntries.filter(e=>e.date.startsWith(S.histMonth)):allEntries;
-  const monthSel=months.length>0?`<div class="month-row"><select class="fi" style="flex:1" onchange="S.histMonth=this.value||null;render()"><option value="" ${!S.histMonth?"selected":""}>📅 Todos los meses (${allEntries.length})</option>${months.map(m=>`<option value="${m}" ${S.histMonth===m?"selected":""}>${cap(fMonth(m))} — ${allEntries.filter(e=>e.date.startsWith(m)).length} ses.</option>`).join("")}</select></div>`:"";
+  // v3.0.0-dev.118 · B-SEASON4: selector de temporada (ver _histSeasonRange).
+  // allEntries sigue siendo TODO el historial (lo necesita _isPlayerActiveOn
+  // para saber desde cuándo está cada jugador); lo que se lista y se promedia
+  // es solo lo de la temporada elegida.
+  const _hr=_histSeasonRange();
+  const seasonEntries=allEntries.filter(e=>_inDateRange(e.date,_hr));
+  const optEntries=_teamSessionEntries(S.teamId,{includeOptional:true}).filter(e=>e.isOpt&&_inDateRange(e.date,_hr)).sort((a,b)=>b.date.localeCompare(a.date));
+  const months=[...new Set(seasonEntries.map(e=>e.date.slice(0,7)))].sort().reverse();
+  if(S.histMonth&&!months.includes(S.histMonth))S.histMonth=null;
+  const entries=S.histMonth?seasonEntries.filter(e=>e.date.startsWith(S.histMonth)):seasonEntries;
+  const seasonSel=_histSeasonSelectorHtml(seasonEntries.length);
+  const monthSel=months.length>0?`<div class="month-row"><select class="fi" style="flex:1" onchange="S.histMonth=this.value||null;render()"><option value="" ${!S.histMonth?"selected":""}>📅 Todos los meses (${seasonEntries.length})</option>${months.map(m=>`<option value="${m}" ${S.histMonth===m?"selected":""}>${cap(fMonth(m))} — ${allEntries.filter(e=>e.date.startsWith(m)).length} ses.</option>`).join("")}</select></div>`:"";
   let mStats="";
   if(entries.length>0&&players.length>0){
     const mTot=entries.length;
@@ -6098,7 +6140,9 @@ function hist(){
     let sumPr=0,sumPs=0;
     entries.forEach(e=>{
       players.forEach(p=>{
-        if(!_isDateInSeason(e.date)||!_isPlayerActiveOn(p,e.date,allEntries))return;
+        // B-SEASON4: viendo una temporada ARCHIVADA (o "Todo"), cuentan sus
+        // propias fechas -- _isDateInSeason() solo sabe de la temporada actual.
+        if(!((_hr.kind==="archived"||_hr.kind==="all")?true:_isDateInSeason(e.date))||!_isPlayerActiveOn(p,e.date,allEntries))return;
         sumPs++;
         // v3.0.0-dev.60 · B-INJ2: _effAttState() en vez de "||\"present\"" --
         // si no hay marca explícita y el jugador ya estaba lesionado ese día,
@@ -6116,7 +6160,7 @@ function hist(){
       ${mAvgScore?`<div class="sbox" style="flex:1;padding:10px 12px"><div style="font-family:var(--font-d);font-weight:900;font-size:24px;color:#f59e0b">${mAvgScore}★</div><div style="font-size:10px;color:var(--td);font-weight:700;text-transform:uppercase">Val. media</div></div>`:""}
     </div>`;
   }
-  const rows=entries.length===0?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📅</div><div style="font-size:14px;color:var(--tm)">Sin entrenamientos ${S.histMonth?"este mes":""}</div></div>`:
+  const rows=entries.length===0?`<div class="empty"><div style="font-size:48px;margin-bottom:12px;opacity:.4">📅</div><div style="font-size:14px;color:var(--tm)">Sin entrenamientos ${S.histMonth?"este mes":_hr.kind==="archived"?"en esta temporada":""}</div></div>`:
     `<div class="card">${entries.map((e,i)=>{
       // Solo cuenta jugadores de alta en la fecha de la sesión
       const activeP=players.filter(p=>_isPlayerActiveOn(p,e.date,allEntries));
@@ -6173,10 +6217,10 @@ function hist(){
     }).join("")}</div>`;
   return`<header class="header"><div class="hrow">
     <button class="bbtn" onclick="navBack()">←</button>
-    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📋 Historial</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")} · ${allEntries.length} sesiones</div></div>
+    <div style="flex:1"><div style="font-family:var(--font-d);font-weight:900;font-size:18px">📋 Historial</div><div style="font-size:11px;color:var(--orange)">${esc(t?.name||"")} · ${seasonEntries.length} sesiones${_hr.kind!=="none"?" · "+esc(_hr.label):""}</div></div>
     <button class="bbtn" onclick="navTo('share',{date:td(),attOpt:false})">📤</button>
   </div></header>
-  <div class="content">${monthSel}${mStats}${rows}${optRowsHtml}</div>
+  <div class="content">${seasonSel}${monthSel}${mStats}${rows}${optRowsHtml}</div>
   ${navBar()}`;
 }
 /* ═══════════════════════════════════════

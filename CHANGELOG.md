@@ -3,6 +3,21 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Selector de temporada en Historial (B-SEASON4, dev.118, 2026-11-13)
+
+Mario: *"en historial debería de haber un botón de temporadas archivadas con un selector, porque cuando se junten más temporadas cómo se distingue las archivadas de la actual"*.
+
+### Añadido
+
+- **Selector de temporada arriba del Historial** (solo si hay alguna temporada archivada): "🟢 Temporada actual (desde …)", cada temporada archivada con su nombre y fechas ("📦 2025-2026 (jun 26 – oct 26)", la más reciente primero) y "🗂 Todo el historial". Por defecto, la temporada actual.
+- Filtra el listado de entrenamientos, los voluntarios/tecnificaciones, el selector de meses, el número de sesiones y el % medio. Viendo una temporada archivada, el % medio es el de ESA temporada (antes, cualquier fecha fuera de la temporada actual contaba como 0). Aviso naranja "📦 Temporada archivada · sus entrenamientos no cuentan en las estadísticas de la temporada actual".
+- Sin temporadas archivadas no aparece nada y se ve todo, como siempre. Si se deshace la temporada que se estaba viendo, vuelve sola a la actual.
+
+### Probado
+
+- `hist_season_selector.test.js` (nuevo, 10 aserciones) + captura en Chromium (iPhone 13).
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.118` / `kortline-v3.0.0-dev.118`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · Deshacer el archivado de temporada de verdad (B-SEASON3, dev.117, 2026-11-13)
 
 Encontrado al preparar la lista de pruebas de "Archivar temporada" para Mario en `/test/`: quitar una temporada archivada solo quitaba su etiqueta y dejaba la fecha de inicio de temporada adelantada, así que los % de asistencia seguían empezando de cero aunque se "deshiciera" el archivado. Había que corregir la fecha a mano en Ajustes.
