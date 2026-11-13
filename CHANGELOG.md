@@ -3,6 +3,20 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Deshacer el archivado de temporada de verdad (B-SEASON3, dev.117, 2026-11-13)
+
+Encontrado al preparar la lista de pruebas de "Archivar temporada" para Mario en `/test/`: quitar una temporada archivada solo quitaba su etiqueta y dejaba la fecha de inicio de temporada adelantada, así que los % de asistencia seguían empezando de cero aunque se "deshiciera" el archivado. Había que corregir la fecha a mano en Ajustes.
+
+### Corregido
+
+- **`deleteArchivedSeason`**: si se quita la ÚLTIMA temporada archivada y la temporada actual empezó justo al día siguiente de su fin, se recupera su fecha de inicio (deshacer de verdad). Quitar una temporada más antigua, o una cuya fecha de inicio se cambió a mano después, sigue quitando solo la etiqueta. El diálogo explica en cada caso qué va a pasar ("↩️ Deshacer archivado" / "🗑 Quitar").
+- **Archivar y deshacer temporadas, solo superadmin o director deportivo** cuando hay roles activados (afecta a los % de todos los equipos); un entrenador no puede. Sin roles, como siempre.
+
+### Probado
+
+- `archive_season.test.js` (+7).
+- `APP_VERSION`/`CACHE_VERSION`: `3.0.0-dev.117` / `kortline-v3.0.0-dev.117`, `/test/` regenerado.
+
 ## [Sin publicar] · kortline-v3 · "Modo ver" para equipos sin permiso de edición (B-ROVIEW1, dev.116, 2026-11-12)
 
 Mario: *"cuando alguien no tiene permiso para editar una asistencia o lo que sea le debería aparecer, en vez de pasar lista, todo modo ver... y así con toda la aplicación"*.

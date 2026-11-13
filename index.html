@@ -2471,7 +2471,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.116";
+const APP_VERSION = "3.0.0-dev.117";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3582,6 +3582,9 @@ function _isDateInSeason(date){
 // para que %/riesgo FEB/gráficas/exports empiecen limpios desde ahí sin
 // tener que tocar ni un solo sitio más. endDate por defecto: hoy.
 function archiveSeason(label,endDate){
+  // v3.0.0-dev.117: cambiar de temporada afecta a los % de TODOS los
+  // equipos -- con roles activados, solo superadmin o director deportivo.
+  if(!_canManageSeasons())return{ok:false,error:"Solo el superadmin o el director deportivo pueden archivar la temporada."};
   const end=endDate||td();
   const prevStart=S.cfg.seasonStart||null;
   if(prevStart&&end<prevStart)return{ok:false,error:"La fecha de fin no puede ser anterior al inicio de la temporada actual."};
@@ -3594,9 +3597,30 @@ function archiveSeason(label,endDate){
 // Quita un registro de temporada archivada (solo la "foto"/etiqueta -- los
 // entrenamientos y partidos de esas fechas NUNCA se tocan ni se borran).
 // Pensado para corregir un archivado hecho por error (fecha/label mal).
+// v3.0.0-dev.117 · B-SEASON3: antes solo quitaba la etiqueta, y la fecha de
+// inicio de temporada seguía adelantada -- los % de asistencia seguían
+// empezando de cero aunque se "deshiciera" el archivado. Ahora, si se quita
+// la ÚLTIMA temporada archivada y la temporada actual empezó justo al día
+// siguiente de su fin (no se ha cambiado a mano después), se recupera su
+// fecha de inicio: deshacer es deshacer de verdad. Quitar una temporada más
+// antigua sigue quitando solo su etiqueta.
+// Archivar/deshacer temporadas: superadmin o director deportivo (afecta a
+// los % de todos los equipos); nunca un entrenador. Sin roles, todos.
+function _canManageSeasons(){ return !_permissionsActive()||["superadmin","director_deportivo"].includes(_myRole()); }
+function _archivedSeasonUndoable(id){
+  const list=S.cfg.seasons||[];
+  const last=list[list.length-1];
+  return !!last&&last.id===id&&!!last.endDate&&S.cfg.seasonStart===_addDaysISO(last.endDate,1);
+}
 function deleteArchivedSeason(id){
-  S.cfg.seasons=(S.cfg.seasons||[]).filter(s=>s.id!==id);
+  if(!_canManageSeasons()){toast("🔒 Solo el superadmin o el director deportivo gestionan las temporadas");return false;}
+  const list=S.cfg.seasons||[];
+  const sea=list.find(x=>x.id===id);
+  const restore=_archivedSeasonUndoable(id);
+  S.cfg.seasons=list.filter(s=>s.id!==id);
+  if(restore)S.cfg.seasonStart=sea.startDate||null;
   save();
+  return{ok:true,restored:restore};
 }
 // v3.0.0-dev.100 · B-VOLTECH1: construye la lista de sesiones de un equipo a
 // partir de S.sessions. Mario, entrenamientos voluntarios/tecnificaciones:
@@ -9548,10 +9572,16 @@ function confirmArchiveSeason(){
   });
 }
 function confirmDeleteArchivedSeason(id){
-  _confirm("¿Quitar este registro de temporada archivada?<br><span style=\"font-size:12px;color:var(--td)\">Solo se quita la etiqueta -- los entrenamientos y partidos de esas fechas no se tocan ni se borran.</span>","🗑 Quitar",()=>{
-    deleteArchivedSeason(id);
+  const undo=_archivedSeasonUndoable(id);
+  const sea=(S.cfg.seasons||[]).find(x=>x.id===id);
+  const msg=undo
+    ?`¿Deshacer el archivado de <b>${esc(sea?.label||"")}</b>?<br><span style="font-size:12px;color:var(--td)">La temporada actual vuelve a empezar ${sea?.startDate?"el "+esc(fd(sea.startDate,true)):"sin fecha de inicio"}, como antes de archivar. No se borra ningún entrenamiento ni partido.</span>`
+    :`¿Quitar el registro de <b>${esc(sea?.label||"")}</b>?<br><span style="font-size:12px;color:var(--td)">Solo se quita la etiqueta (no es la última temporada archivada, o la fecha de inicio se cambió después). Los entrenamientos y partidos no se tocan.</span>`;
+  _confirm(msg,undo?"↩️ Deshacer archivado":"🗑 Quitar",()=>{
+    const r=deleteArchivedSeason(id);
+    if(!r)return;
     openClubSettings();
-    toast("🗑 Registro de temporada eliminado");
+    toast(r.restored?"↩️ Archivado deshecho -- la temporada vuelve a empezar "+(S.cfg.seasonStart?fd(S.cfg.seasonStart,true):"sin fecha de inicio"):"🗑 Registro de temporada eliminado");
   });
 }
 /* ═══════════════════════════════════════
