@@ -2582,7 +2582,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.129";
+const APP_VERSION = "3.0.0-dev.130";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -4522,14 +4522,61 @@ function _safeJsPDF(){
 ═══════════════════════════════════════ */
 const _pubErr={};
 let _pubLastSig={};
+// v3.0.0-dev.130 · B-PUBLIC3: Mario -- "muy pocos datos y muy cutres...
+// empezando por las jugadas y tener varios apartados". Además del marcador:
+// jugadas (las últimas 40, con dorsal y nombre corto de NUESTRAS jugadoras
+// -- decisión de Mario: "dorsal y nombre"; del rival solo el dorsal),
+// faltas y tiempos muertos de la mitad, estadísticas de equipo de los dos
+// lados y la lista de nuestras jugadoras que han jugado. Se escribe en el
+// MISMO documento y con la misma frecuencia que antes: no hay más
+// escrituras, solo más datos en cada una.
 function _publicPayload(tid,m){
   const t=S.teams.find(x=>x.id===tid);const L=m.live||{};
   const qs=(L.qScores||[]).map(q=>q||[0,0]);
   const nQ=Math.max(m.quarters||4,L.maxQ||1);
   const per=[];for(let i=0;i<Math.max(nQ,qs.length);i++){const q=qs[i]||[0,0];if(i<nQ||q[0]||q[1])per.push({o:q[0]||0,r:q[1]||0});}
+  const ours=per.reduce((a,x)=>a+x.o,0),theirs=per.reduce((a,x)=>a+x.r,0);
+  const our=pl(tid),riv=m.rivalPlayers||[];
+  const ourById=Object.fromEntries(our.map(p=>[p.id,p])),rivById=Object.fromEntries(riv.map(p=>[p.id,p]));
+  const pname=p=>`#${p.number!=null?p.number:"?"} ${_shortName(p.name||"")}`.trim();
+  const sideOf=pid=>ourById[pid]||pid==="team"?"o":(rivById[pid]||String(pid||"").startsWith("rival"))?"r":"";
+  const qLbl=q=>{const n=m.quarters||4;return q<=n?(n===4?"Q":"P")+q:"OT"+(q-n>1?q-n:"");};
+  // Jugadas con el marcador tras cada una (solo si cuadra con el total real)
+  let so=0,sr=0;const all=[];
+  (L.log||[]).forEach(e=>{
+    const side=sideOf(e.pid);const pts=(e.action==="sub"||e.action==="timeout")?0:(e.pts||0);
+    if(pts>0){ if(side==="o")so+=pts; else if(side==="r")sr+=pts; }
+    let who="";
+    if(ourById[e.pid])who=pname(ourById[e.pid]);
+    else if(rivById[e.pid])who=`#${rivById[e.pid].number!=null?rivById[e.pid].number:"?"} ${m.rival||"Rival"}`;
+    else if(e.pid==="team")who=(t&&t.name)||"";
+    else if(side==="r")who=m.rival||"Rival";
+    let what=_ACTLABELS[e.action]||"";
+    if(e.total&&(e.action==="p1m"||e.action==="p1"))what=`Tiros libres ${e.made||0}/${e.total}`;
+    if(e.action==="sub")what=side==="o"?String(e.desc||"Cambio"):"Cambio";
+    if(e.action==="timeout")what="Tiempo muerto";
+    if(e.action==="rival"||(!what&&pts>0))what=`+${pts}`;
+    if(!what)what=String(e.desc||"").slice(0,60);
+    all.push({q:qLbl(e.q||1),c:typeof e.clockAt==="number"?_fmtClock(e.clockAt):"",w:who.slice(0,40),a:what.slice(0,60),k:side,p:pts,s:so+"-"+sr});
+  });
+  const scoreOk=so===ours&&sr===theirs;
+  const plays=all.slice(-40).reverse().map(x=>{if(!scoreOk)delete x.s;return x;});
+  // Estadísticas de equipo (jugadoras + acciones de equipo)
+  const K=["p1m","p1a","p2m","p2a","p3m","p3a","ro","rd","ast","stl","blk","to"];
+  const sum=(objs)=>{const o={};K.forEach(k=>o[k]=0);o.f=0;objs.forEach(st=>{if(!st)return;K.forEach(k=>o[k]+=st[k]||0);o.f+=_totalFouls(st);});return o;};
+  const stO=sum([...Object.values(L.stats||{}),L.teamAgg]);
+  const stR=sum([...Object.values(L.rivalStats||{}),L.rivalTeamAgg]);
+  // Nuestras jugadoras que han jugado (minutos o alguna estadística)
+  const onC=L.onCourt||[];
+  const players=our.filter(p=>(m.convocados||[]).includes(p.id)).map(p=>{const st=(L.stats||{})[p.id]||{};const played=onC.includes(p.id)||_getMinSec(m,p.id)>0||Object.values(st).some(v=>typeof v==="number"&&v>0);
+    return played?{n:pname(p).slice(0,40),pt:(st.p1m||0)+2*(st.p2m||0)+3*(st.p3m||0),rb:(st.ro||0)+(st.rd||0),as:st.ast||0,fl:_totalFouls(st),on:onC.includes(p.id)}:null;}).filter(Boolean)
+    .sort((a,b)=>b.pt-a.pt).slice(0,15);
+  let tm=null;try{const c=_tmCounts(L,m.quarters);tm={o:c.ourUsed,r:c.rivUsed,max:c.limit};}catch(e){}
+  const cq=(L.q||1)-1;
   return{team:(t&&t.name)||"",club:S.clubName&&S.clubName!=="Kortline"?S.clubName:"",rival:m.rival||"Rival",location:m.location||"home",
-    quarters:m.quarters||4,q:L.q||1,periods:per,ours:per.reduce((a,x)=>a+x.o,0),theirs:per.reduce((a,x)=>a+x.r,0),
-    clockSec:typeof L.clockSec==="number"?L.clockSec:null,clockRunning:!!L.clockRunning,started:!!m.live,finished:!!m.finished,date:m.date||"",time:m.time||""};
+    quarters:m.quarters||4,q:L.q||1,periods:per,ours,theirs,
+    clockSec:typeof L.clockSec==="number"?L.clockSec:null,clockRunning:!!L.clockRunning,started:!!m.live,finished:!!m.finished,date:m.date||"",time:m.time||"",
+    plays,fouls:{o:(L.teamFouls||[])[cq]||0,r:(L.rivalFouls||[])[cq]||0},tm,stats:{o:stO,r:stR},players};
 }
 // v3.0.0-dev.128 · B-PUBLIC2: Mario -- "cuando pasas el enlace la gente no
 // lo ve". La página de las familias SÍ lee bien de Firestore (comprobado
@@ -4599,7 +4646,7 @@ function openPublicScoreModal(){
   const msg=on?`🏀 Sigue en directo ${t?.name||""} vs ${m.rival||"Rival"}: ${url}`:"";
   el.innerHTML=`<div class="modal"><div class="mhandle"></div>
     <div class="mtitle">📡 Marcador para familias</div>
-    <div class="msub">Un enlace para que las familias vean el marcador en directo desde su móvil, sin instalar nada. Solo muestra equipos, marcador por cuartos y reloj -- <b>nunca nombres de jugadoras</b>.</div>
+    <div class="msub">Un enlace para que las familias sigan el partido en directo desde su móvil, sin instalar nada: marcador, jugadas, estadísticas y jugadoras (<b>dorsal y nombre corto</b>, p.ej. «#7 Unai P.»). Quien tenga el enlace lo puede ver.</div>
     ${on?`<div class="share-preview" style="word-break:break-all;margin-bottom:10px">${esc(url)}</div>
       ${_pubStatusHtml(m)}${!_reqCloud()?`<div style="font-size:12px;color:#f59e0b;margin-bottom:8px">⚠️ Sin conexión con la nube: el marcador se publicará cuando vuelva la conexión.</div>`:""}
       <div style="display:flex;gap:8px;margin-bottom:8px">

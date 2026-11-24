@@ -47,7 +47,9 @@ async function run() {
       const pay = win._publicPayload("t1", m);
       const pSum = pay.periods.reduce((t, x) => [t[0] + x.o, t[1] + x.r], [0, 0]);
       if (pay.ours !== e.ours || pay.theirs !== e.theirs || pSum[0] !== e.ours || pSum[1] !== e.theirs) pubMismatch++;
-      if (/Jug \d/.test(JSON.stringify(pay))) pubNames++;
+      // B-PUBLIC3: del RIVAL nunca nombres (solo dorsal); las nuestras con dorsal y nombre corto.
+      if (pay.plays.some(x => x.k === "r" && /Jug/.test(x.w))) pubNames++;
+      if (pay.plays.length && pay.plays[0].s && pay.plays[0].s !== e.ours + "-" + e.theirs) pubMismatch++;
     }
     win.finishMatch("t1", mid);
     doc.querySelectorAll("body > div[id^='m-']").forEach(x => x.remove());
@@ -73,7 +75,7 @@ async function run() {
   win.save();
   r.assert(liveInv === 0, `Directo: marcador = suma de puntos de las jugadoras = lo anotado, y 5 en pista, tras cada jugada (${liveInv} fallos)`);
   r.assert(pubMismatch === 0, `Marcador para familias: igual que el directo tras cada jugada, parciales que suman el total y 'Final' al terminar (${pubMismatch} fallos)`);
-  r.assert(pubNames === 0, "Marcador para familias: nunca lleva nombres de jugadoras");
+  r.assert(pubNames === 0, "Marcador para familias: la última jugada lleva el marcador correcto y nunca nombres del rival");
 
   const sumExp = mids => { const o = {}; let pj = {}; mids.forEach(mid => Object.entries(exp[mid].players).forEach(([pid, s]) => { const t = o[pid] = o[pid] || blank(); Object.keys(s).forEach(k => t[k] += s[k]); pj[pid] = (pj[pid] || 0) + 1; })); return { o, pj }; };
   const checkAgg = (mids, label) => {

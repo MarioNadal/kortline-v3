@@ -75,13 +75,14 @@ service cloud.firestore {
       // (marcador.html). Se puede LEER un documento concreto SIN cuenta (las
       // familias no tienen el código del club) -- pero no LISTAR la
       // colección: solo quien tiene el enlace, con su token aleatorio, llega
-      // a un marcador. Solo la cuenta del club escribe, con campos fijos y
-      // sin nombres de jugadoras.
+      // a un marcador. Solo la cuenta del club escribe, con campos fijos.
+      // v3.0.0-dev.130 · B-PUBLIC3: + jugadas, faltas, tiempos muertos,
+      // estadísticas y jugadoras (dorsal y nombre corto, decisión de Mario).
       match /public/{token} {
         allow get: if knownClub(clubId);
         allow list: if false;
         allow create, update: if ok(clubId)
-          && request.resource.data.keys().hasOnly(["team", "club", "rival", "location", "quarters", "q", "periods", "ours", "theirs", "clockSec", "clockRunning", "started", "finished", "date", "time", "updatedAt"]);
+          && request.resource.data.keys().hasOnly(["team", "club", "rival", "location", "quarters", "q", "periods", "ours", "theirs", "clockSec", "clockRunning", "started", "finished", "date", "time", "updatedAt", "plays", "fouls", "tm", "stats", "players"]);
         allow delete: if ok(clubId);
       }
 
