@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#070f1e">
 <title>Marcador en directo · Kortline</title>
 <!--
-  v3.0.0-dev.122 · B-PUBLIC1 · Marcador en directo para familias.
+  v3.0.0-dev.122 · B-PUBLIC1 · Marcador en directo para familias (dev.128 · B-PUBLIC2: mensajes de espera).
   Página de SOLO LECTURA: lee un único documento público
   (clubs/{club}/public/{token}) que publica la app del entrenador. No usa
   ninguna cuenta ni el código del club, no puede escribir nada y no muestra
@@ -55,7 +55,7 @@ body{background:var(--bg);color:var(--tx);font-family:"DM Sans",system-ui,sans-s
   var club=(qs.get("c")||"").replace(/[^A-Za-z0-9_-]/g,"");
   var token=(qs.get("t")||"").replace(/[^A-Za-z0-9_-]/g,"");
   var app=document.getElementById("app");
-  var data=null,ticker=null;
+  var data=null,ticker=null,everHad=false,gotSnap=false;
   function esc(t){return String(t==null?"":t).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
   function msg(t){app.innerHTML='<div class="msg">'+t+'</div>';}
   if(!club||!token){msg("Este enlace no es válido.<br>Pide al entrenador que te lo vuelva a enviar.");return;}
@@ -68,7 +68,11 @@ body{background:var(--bg);color:var(--tx);font-family:"DM Sans",system-ui,sans-s
   }
   function pname(i,n){return n===4?(i<4?"Q"+(i+1):"P"+(i-3)):(i<n?(i+1)+"ª":"P"+(i-n+1));}
   function render(){
-    if(!data){msg("Este marcador ya no está disponible.<br>Puede que el entrenador haya dejado de compartirlo.");return;}
+    // v3.0.0-dev.128 · B-PUBLIC2: si todavía no ha llegado nada, no decir
+    // "ya no está disponible" (la gente cerraba la página): se espera, y en
+    // cuanto el entrenador lo publica aparece solo.
+    if(!data){msg(everHad?"El entrenador ha dejado de compartir este marcador.":"⏳ Esperando al marcador…<br>Aparecerá aquí solo en cuanto el entrenador empiece a anotar.<br><span style='font-size:12px'>No hace falta recargar la página.</span>");return;}
+    everHad=true;
     var home=data.location!=="away";
     var left=home?{n:data.team,s:data.ours,side:"Local"}:{n:data.rival,s:data.theirs,side:"Local"};
     var right=home?{n:data.rival,s:data.theirs,side:"Visitante"}:{n:data.team,s:data.ours,side:"Visitante"};
@@ -94,8 +98,9 @@ body{background:var(--bg);color:var(--tx);font-family:"DM Sans",system-ui,sans-s
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
     firebase.firestore().collection("clubs").doc(club).collection("public").doc(token).onSnapshot(function(snap){
-      data=snap.exists?snap.data():null;render();
-    },function(){msg("No se ha podido abrir este marcador.<br>Puede que el enlace haya caducado.");});
+      gotSnap=true;data=snap.exists?snap.data():null;render();
+    },function(e){msg("No se ha podido abrir este marcador.<br>Comprueba el enlace y tu conexión.<br><span style='font-size:11px;color:#3a5a80'>("+esc((e&&e.code)||"error")+")</span>");});
+    setTimeout(function(){ if(!gotSnap)msg("Está tardando en conectar…<br>Comprueba que tienes internet. La página sigue intentándolo sola."); },12000);
   }catch(e){msg("No se ha podido abrir este marcador.");}
   ticker=setInterval(function(){if(data&&data.clockRunning&&!data.finished){var c=document.getElementById("clk");var v=clockNow();if(c&&v)c.textContent=v;}},1000);
 })();

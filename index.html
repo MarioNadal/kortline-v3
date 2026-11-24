@@ -1183,7 +1183,11 @@ function _tryProcessDQSubs(){
   if(!window._pendingDQSubs||!window._pendingDQSubs.length)return;
   // Esperar a que no haya modales bloqueantes (TL, shot chart, picker, cadenas)
   const blockers=['m-foultl','m-teamtl','m-tlshoot','m-teamtlshoot','m-ourtl','m-ourtlshoot','m-ourtl-team','m-ourtlshoot-team','m-shotchart','m-shotchange','m-actpicker','m-chainast','m-chainreb'];
-  const hasBlocker=blockers.some(id=>document.getElementById(id));
+  // v3.0.0-dev.128 · B-TLDQ1: un tiro libre EN PAUSA (oculto, ver
+  // _pauseTLModal) ya no bloquea: si mientras está en pausa se descalifica
+  // a alguien (p.ej. técnica a quien iba a tirar), el cambio se hace YA, y
+  // _tlShooterReplaced() pasa los tiros libres a quien entra.
+  const hasBlocker=blockers.some(id=>{const e=document.getElementById(id);return e&&e.style.display!=="none";});
   if(hasBlocker){
     setTimeout(_tryProcessDQSubs,500);
     return;
@@ -1286,9 +1290,11 @@ window._doDQSub=function(inId,outId,isRival){
       const desc="↔ "+_shortName(pIn?.name||"?")+" ← "+_shortName(pOut?.name||"?")+" (DQ)";
       live.log=[...(live.log||[]),{pid:inId,action:"sub",pts:0,q:live.q,clockAt:live.clockSec,desc}];
       toast("⛔↔ "+desc);
+      setTimeout(()=>{try{_tlShooterReplaced(outId,inId,"dq");}catch(e){}},0);
     } else {
       live.onCourt=(live.onCourt||[]).filter(id=>id!==outId);
       toast("⛔ Sin sustituto · 4 jugadores en pista");
+      setTimeout(()=>{try{_tlShooterReplaced(outId,null,"dq");}catch(e){}},0);
     }
   }
   save();render();
@@ -2526,7 +2532,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.127";
+const APP_VERSION = "3.0.0-dev.128";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -3027,29 +3033,13 @@ async function _runCloudSync(){
     _scheduleCloudSync();
   }
 }
-/* v3.0.0-dev.124 · B-SYNCCHIP1: aviso discreto de "sin subir". Con internet
-   todo sube al instante, así que NO se ve nunca en el uso normal: solo
-   aparece si hay cambios de este móvil que llevan más de 8 s sin llegar a la
-   nube (sin cobertura en el pabellón, por ejemplo) y desaparece solo en
-   cuanto suben. Es solo un indicador: no cambia nada de la sincronización. */
+/* v3.0.0-dev.128 · B-SYNCCHIP2: Mario -- "cambios pendientes de subir con
+   una nube, eso no quiero que le salga al usuario, que se suban y ya está".
+   Se quita el aviso. Solo quedan los contadores internos (por si hacen
+   falta para diagnosticar); la sincronización no ha cambiado nunca. */
 let _syncInFlight=0,_syncUnsentSince=0,_syncFailed=false;
-function _updateSyncChip(){
-  const pending=_cloudEnabled&&_syncUnsentSince&&(Date.now()-_syncUnsentSince>8000);
-  let el=document.getElementById("sync-chip");
-  if(!pending){ if(el)el.remove(); return; }
-  if(!el){ el=document.createElement("div"); el.id="sync-chip"; el.setAttribute("role","status");
-    el.style.cssText="position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:9000;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.5);color:#f59e0b;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;pointer-events:auto;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);white-space:nowrap";
-    el.onclick=()=>toast(navigator.onLine===false?"📵 Sin conexión: los cambios están guardados en este móvil y se subirán solos al volver la cobertura. No cierres sesión ni borres datos del navegador.":"☁️ Subiendo cambios... están guardados en este móvil y se subirán solos.");
-    document.body.appendChild(el); }
-  el.textContent=navigator.onLine===false?"📵 Sin conexión · cambios guardados en el móvil":"☁️ Cambios pendientes de subir";
-}
-// Solo hay temporizador mientras haya algo pendiente (nada en el uso normal).
-let _syncChipTimer=null;
-function _armSyncChip(){
-  if(_syncChipTimer)return;
-  _syncChipTimer=setInterval(()=>{ try{_updateSyncChip();}catch(e){} if(!_syncUnsentSince){clearInterval(_syncChipTimer);_syncChipTimer=null;} },2000);
-}
-window.addEventListener("offline",()=>{try{_updateSyncChip();}catch(e){}});
+function _armSyncChip(){}
+function _updateSyncChip(){ document.getElementById("sync-chip")?.remove(); }
 // v3.0.0-dev.75 · B-SYNC3: además del reintento automático de arriba, dos
 // momentos en los que vale la pena comprobar activamente si hay algo
 // pendiente de subir: en cuanto el dispositivo recupera conexión (evento
@@ -4492,19 +4482,62 @@ function _publicPayload(tid,m){
     quarters:m.quarters||4,q:L.q||1,periods:per,ours:per.reduce((a,x)=>a+x.o,0),theirs:per.reduce((a,x)=>a+x.r,0),
     clockSec:typeof L.clockSec==="number"?L.clockSec:null,clockRunning:!!L.clockRunning,started:!!m.live,finished:!!m.finished,date:m.date||"",time:m.time||""};
 }
+// v3.0.0-dev.128 · B-PUBLIC2: Mario -- "cuando pasas el enlace la gente no
+// lo ve". La página de las familias SÍ lee bien de Firestore (comprobado
+// contra la base de datos real); lo que no se sabía era si el marcador
+// llegaba a escribirse: un fallo solo dejaba un aviso en la consola. Ahora
+// se guarda el estado de cada envío, se comprueba leyendo del servidor que
+// el documento existe de verdad ("✅ Las familias ya lo pueden ver"), se
+// avisa al entrenador si falla (con el código de error), se apunta en el
+// registro de errores y se reintenta solo.
+const _pubState={}; // token -> {st:"pending"|"ok"|"error", code, at, verified}
+let _pubRetryT=null;
+function _pubSet(tok,o){ _pubState[tok]={...(_pubState[tok]||{}),...o}; try{ if(document.getElementById("m-public-score"))openPublicScoreModal(); }catch(e){} }
 function _publishLiveScore(tid,m,force){
   if(!m||!m.publicToken||!_canEditTeam(tid))return;
   const pay=_publicPayload(tid,m);
   const sig=JSON.stringify({...pay,clockSec:pay.clockRunning?null:pay.clockSec});
   if(!force&&_pubLastSig[m.publicToken]===sig)return;
   if(!_reqCloud())return; // sin nube: no se marca como publicado, se reintenta en el siguiente cambio
-  _pubLastSig[m.publicToken]=sig;
+  const tok=m.publicToken;
+  _pubLastSig[tok]=sig;
   pay.updatedAt=Date.now();
-  try{ _clubDocRef().collection("public").doc(m.publicToken).set(pay).then(()=>{_pubErr[m.publicToken]=false;}).catch(e=>{_pubErr[m.publicToken]=true;delete _pubLastSig[m.publicToken];try{if(document.getElementById("m-public-score"))openPublicScoreModal();}catch(_){}console.warn("[Kortline] marcador público no publicado",e&&e.code);}); }catch(e){}
+  if(!_pubState[tok]||_pubState[tok].st!=="ok")_pubSet(tok,{st:"pending"});
+  try{
+    _clubDocRef().collection("public").doc(tok).set(pay).then(()=>{
+      _pubErr[tok]=false;
+      const first=!(_pubState[tok]&&_pubState[tok].verified);
+      _pubSet(tok,{st:"ok",code:"",at:Date.now()});
+      // Comprobación real, una vez: leer del SERVIDOR lo que verá la familia.
+      if(first)_clubDocRef().collection("public").doc(tok).get({source:"server"})
+        .then(d=>_pubSet(tok,{verified:!!(d&&d.exists),code:d&&d.exists?"":"no-aparece"}))
+        .catch(e=>_pubSet(tok,{verified:false,code:(e&&e.code)||"lectura"}));
+    }).catch(e=>{
+      const code=(e&&e.code)||"desconocido";
+      _pubErr[tok]=true;delete _pubLastSig[tok];
+      const was=_pubState[tok]&&_pubState[tok].st;
+      _pubSet(tok,{st:"error",code});
+      if(was!=="error"){
+        toast("⚠️ El marcador para familias no se ha podido publicar ("+code+"). Se reintenta solo.");
+        try{ _logClientError({message:"Marcador público no publicado: "+code,stack:""},"B-PUBLIC2"); }catch(_){}
+      }
+      clearTimeout(_pubRetryT);
+      _pubRetryT=setTimeout(()=>{ try{ const mm=mById(tid,m.id); if(mm&&mm.publicToken===tok)_publishLiveScore(tid,mm,true); }catch(_){} },15000);
+    });
+  }catch(e){ _pubSet(tok,{st:"error",code:(e&&e.message||"error").slice(0,60)}); }
 }
 function _publicScoreUrl(m){
   const base=location.href.split("#")[0].split("?")[0].replace(/[^/]*$/,"");
   return `${base}marcador.html?c=${encodeURIComponent(CLUB_ID)}&t=${encodeURIComponent(m.publicToken)}`;
+}
+function _pubStatusHtml(m){
+  const st=_pubState[m.publicToken]||{};
+  const box=(c,t)=>`<div style="font-size:12.5px;font-weight:700;color:${c};background:${c}14;border:1px solid ${c}55;border-radius:9px;padding:8px 10px;margin-bottom:8px">${t}</div>`;
+  if(!_reqCloud())return "";
+  if(st.st==="error")return box("#f59e0b",`⚠️ Todavía no ha llegado a la nube (${esc(st.code||"error")}). Se reintenta solo; las familias lo verán en cuanto llegue.`);
+  if(st.st==="ok"&&st.verified)return box("#22c55e","✅ Las familias ya lo pueden ver (comprobado en la nube).");
+  if(st.st==="ok"&&st.code)return box("#f59e0b",`⚠️ Enviado, pero no se ha podido comprobar (${esc(st.code)}).`);
+  return box("#7a9cc8","⏳ Enviando a la nube…");
 }
 function openPublicScoreModal(){
   const m=mById(S.teamId,S.matchId);if(!m)return;
@@ -4519,11 +4552,12 @@ function openPublicScoreModal(){
     <div class="mtitle">📡 Marcador para familias</div>
     <div class="msub">Un enlace para que las familias vean el marcador en directo desde su móvil, sin instalar nada. Solo muestra equipos, marcador por cuartos y reloj -- <b>nunca nombres de jugadoras</b>.</div>
     ${on?`<div class="share-preview" style="word-break:break-all;margin-bottom:10px">${esc(url)}</div>
-      ${_pubErr[m.publicToken]?`<div style="font-size:12px;color:#f59e0b;margin-bottom:8px">⚠️ No se pudo publicar en la nube todavía. Revisa que las reglas de Firestore estén publicadas.</div>`:!_reqCloud()?`<div style="font-size:12px;color:#f59e0b;margin-bottom:8px">⚠️ Sin conexión con la nube: el marcador se publicará cuando vuelva la conexión.</div>`:""}
+      ${_pubStatusHtml(m)}${!_reqCloud()?`<div style="font-size:12px;color:#f59e0b;margin-bottom:8px">⚠️ Sin conexión con la nube: el marcador se publicará cuando vuelva la conexión.</div>`:""}
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <button class="btn-wa" style="flex:1;margin:0" onclick="shareText(${esc(JSON.stringify(msg))})">💬 WhatsApp</button>
         <button class="btn-copy" style="flex:1;margin:0" onclick="_copyToClipboard(${esc(JSON.stringify(url))})">📋 Copiar enlace</button>
       </div>
+      <a class="btn-s" href="${esc(url)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px">👀 Verlo como las familias</a>
       <button class="btn-s" onclick="stopPublicScore()" style="color:#ef4444">⏹ Dejar de compartir</button>`
     :`${_canEditTeam(S.teamId)?`<button class="btn-p" onclick="startPublicScore()">📡 Crear enlace</button>`:`<div style="font-size:13px;color:var(--td)">El entrenador que lleva el partido aún no ha compartido el marcador.</div>`}`}
     <button class="btn-s" onclick="document.getElementById('m-public-score').remove()" style="margin-top:6px">Cerrar</button>
@@ -7026,7 +7060,7 @@ function team(){
       <button class="qb" onclick="navTo('hist')"><div style="font-size:22px">📋</div><div style="font-size:10px;font-weight:700;margin-top:4px;color:var(--td)">HISTORIAL</div><div style="font-family:var(--font-d);font-size:14px;color:var(--tm);margin-top:2px">${ts}</div></button>
     </div>
     <button class="qb" onclick="navTo('eventos')" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">📅</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">EVENTOS Y CONVOCATORIAS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.events[S.teamId]||[]).length} evento${(S.events[S.teamId]||[]).length!==1?"s":""} · Compartir por WhatsApp</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
-    <button class="qb" onclick="openCalendarExportModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗓️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--td)">AÑADIR AL CALENDARIO</div><div style="font-size:11px;color:var(--tm)">Entrenos, partidos y eventos en el móvil</div></div></button>
+    <button class="qb" onclick="openCalendarExportModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗓️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">AÑADIR AL CALENDARIO</div><div style="font-size:11px;color:var(--tm);margin-top:1px">Entrenos, partidos y eventos en el móvil</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     <button class="qb" onclick="openDrillLibraryModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px"><div style="font-size:20px">🗂️</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--td)">CATÁLOGO DE EJERCICIOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${(S.drills[S.teamId]||[]).length} ejercicio${(S.drills[S.teamId]||[]).length!==1?"s":""} guardado${(S.drills[S.teamId]||[]).length!==1?"s":""}</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>
     ${_findDuplicateGuestGroups(S.teamId).length?`<button class="qb" onclick="openGuestDuplicatesModal()" style="width:100%;border-radius:10px;margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35)"><div style="font-size:20px">🔍</div><div style="text-align:left"><div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#f59e0b">PUNTUALES DUPLICADOS</div><div style="font-size:11px;color:var(--tm);margin-top:1px">${_findDuplicateGuestGroups(S.teamId).length} grupo${_findDuplicateGuestGroups(S.teamId).length!==1?"s":""} para fusionar</div></div><div style="margin-left:auto;color:var(--td);font-size:18px">›</div></button>`:""}
     ${mvpCard(t)}
@@ -17092,6 +17126,7 @@ window.setOurTLResult=function(i,v){
 };
 function confirmOurTLShoot(pid,total){if(!_requireEdit(S.teamId))return false; /* B-PERM2 */
   const el=document.getElementById("m-ourtlshoot");if(!el)return;
+  if(el._pid)pid=el._pid; // B-TLDQ1: la tiradora puede haber cambiado (lesión / descalificación)
   const made=(el._state||[]).filter(v=>v===true).length;
   const missed=total-made;
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
@@ -17368,6 +17403,52 @@ function subPlayer(inId,outId){if(!_requireEdit(S.teamId))return false; /* B-PER
   const pIn=_shortName(pl(S.teamId).find(p=>p.id===inId)?.name||"?");
   const pOut=outId?_shortName(pl(S.teamId).find(p=>p.id===outId)?.name||"?"):"";
   toast(pOut?`↔ ${pIn} entra · ${pOut} sale`:`▶ ${pIn} entra a pista`);
+  if(outId){try{_tlShooterReplaced(outId,inId,"sub");}catch(e){}}
+}
+/* v3.0.0-dev.128 · B-TLDQ1: Mario -- "Unai tenía que tirar tiros libres
+   pero es expulsado por técnica: debe ser cambiado primero y el que entra
+   tira los tiros libres; y eso puede pasar también si se ha lesionado en
+   esa acción". Regla FIBA: si quien tiene que tirar los TL se lesiona o es
+   descalificado, los tira quien le sustituye. Se llama al sacar a una
+   jugadora de pista (cambio normal con el TL en pausa, o cambio forzoso
+   por descalificación): si era la tiradora de un TL NUESTRO pendiente, los
+   TL pasan a quien entra. Si no entra nadie (banquillo agotado), se pide
+   elegir quién tira entre las que siguen en pista. */
+function _tlShooterReplaced(outId,inId,why){
+  const name=id=>_shortName(pl(S.teamId).find(p=>p.id===id)?.name||"?");
+  const sel=document.getElementById("m-ourtl");
+  if(sel&&sel._pid===outId){
+    if(inId){ window.selectOurTLShooter(inId); toast(`🎯 ${name(inId)} tirará los tiros libres (sustituye a ${name(outId)})`); }
+    else { sel._pid=null; const cb=document.getElementById("ourtl-confirm"); if(cb){cb.disabled=true;cb.style.opacity=".4";cb.textContent="Elige quién tira";} toast(`⚠️ ${name(outId)} ya no puede tirar: elige otra tiradora`); }
+  }
+  if(sel&&why==="dq"){ const b=sel.querySelector(`button[data-pid="${outId}"]`); if(b){ b.setAttribute("onclick","toast('⛔ Jugador descalificado, no puede tirar')"); b.style.opacity=".45"; } }
+  const sh=document.getElementById("m-ourtlshoot");
+  if(sh&&sh._pid===outId){
+    if(inId){
+      sh._pid=inId;
+      const nb=sh.querySelector(".msub b"); if(nb)nb.textContent=name(inId);
+      toast(`🎯 ${name(inId)} tirará los tiros libres (sustituye a ${name(outId)})`);
+    } else _ourTLChooseShooter(outId);
+  }
+}
+function _ourTLChooseShooter(outId){
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  document.getElementById("m-ourtl-pick")?.remove();
+  const court=(m.live.onCourt||[]).map(id=>pl(S.teamId).find(p=>p.id===id)).filter(Boolean);
+  const el=document.createElement("div");el.id="m-ourtl-pick";
+  el.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:99999;display:flex;align-items:flex-end;justify-content:center;";
+  el.innerHTML=`<div class="modal"><div class="mhandle"></div>
+    <div class="mtitle">🎯 ¿Quién tira los tiros libres?</div>
+    <div class="msub">${esc(_shortName(pl(S.teamId).find(p=>p.id===outId)?.name||"?"))} ya no puede tirarlos y no queda nadie en el banquillo. Elige a una de las que están en pista.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">${court.map(p=>`<button onclick="_ourTLSetShooter('${p.id}')" style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--s2);color:var(--tx);cursor:pointer;font-size:14px;font-weight:700"><span style="font-family:var(--font-d);font-weight:900;color:var(--orange);min-width:26px">${p.number!=null?esc(String(p.number)):"?"}</span>${esc(p.name)}</button>`).join("")}</div>
+  </div>`;
+  document.body.appendChild(el);
+}
+function _ourTLSetShooter(pid){
+  document.getElementById("m-ourtl-pick")?.remove();
+  const sh=document.getElementById("m-ourtlshoot");if(!sh)return;
+  sh._pid=pid;
+  const nb=sh.querySelector(".msub b"); if(nb)nb.textContent=_shortName(pl(S.teamId).find(p=>p.id===pid)?.name||"?");
 }
 function openRivalPlayerModal(init){
   const mid=init?"m-edit-rp-"+init.id:"m-add-rp";

@@ -3,6 +3,30 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Tiros libres tras descalificación/lesión, marcador para familias y retoques (B-TLDQ1 + B-PUBLIC2 + B-SYNCCHIP2, dev.128, 2026-11-24)
+
+Mario, tras usarla en partidos reales: *"Unai tenía que tirar tiros libres pero es expulsado por técnica: debe ser cambiado primero y el que entra tira los tiros libres; y eso puede pasar también si se ha lesionado"*, *"el enlace del marcador, cuando lo pasas la gente no lo ve"*, *"cambios pendientes de subir con una nube, eso no quiero que le salga al usuario"*, *"añadir al calendario está centrado y los demás alineados a la izquierda"*.
+
+### Corregido
+
+- **B-TLDQ1 · tiradora descalificada o lesionada.** Regla FIBA: si quien tiene que tirar los tiros libres es descalificado o se lesiona, los tira quien entra por él. Antes, con los tiros libres en pausa para anotar la técnica, el cambio forzoso esperaba a que se cerraran los tiros libres: tiraba el descalificado y el cambio salía después. Ahora:
+  - un tiro libre **en pausa** ya no retrasa el cambio por descalificación: sale al momento;
+  - si la tiradora sale de pista (descalificada, o la cambias por lesión con los tiros libres en pausa), **los tiros libres pasan a quien entra**, con aviso ("🎯 Iker tirará los tiros libres (sustituye a Unai)"), y los puntos se le apuntan a ella;
+  - si no queda nadie en el banquillo, se pregunta quién tira entre las que siguen en pista;
+  - una ventana de tiros libres **abierta** (sin pausa) sigue funcionando como antes.
+- **B-PUBLIC2 · marcador para familias.** Comprobado contra la base de datos real: la página de las familias **sí** puede leer el marcador (las reglas lo permiten) y los campos que envía la app coinciden exactamente con los que permiten las reglas. Lo que fallaba era que nadie sabía si el marcador había llegado a la nube, y la familia que entraba antes de tiempo leía "Este marcador ya no está disponible" y cerraba. Ahora:
+  - la ventana del entrenador dice **"✅ Las familias ya lo pueden ver"** después de **comprobarlo leyendo de la nube**, o "⚠️ Todavía no ha llegado (motivo)" si falla; en ese caso avisa una vez, lo apunta en el registro de errores y lo reintenta solo;
+  - botón **"👀 Verlo como las familias"**;
+  - la página de las familias dice **"⏳ Esperando al marcador… aparecerá aquí solo"** en vez de "ya no está disponible" mientras no haya llegado nada, y avisa si tarda en conectar.
+- **B-SYNCCHIP2:** fuera el aviso "☁️ Cambios pendientes de subir". La sincronización es la misma de siempre.
+- **Equipo:** el botón "Añadir al calendario" ya tiene el mismo estilo que los de al lado (texto a la izquierda y flecha ›).
+
+### Probado
+
+- `tl_shooter_dq_injury.test.js` (nuevo, 21 aserciones): descalificación con los tiros libres en pausa, lesión, descalificación antes de elegir tiradora, banquillo agotado, un cambio que no afecta a la tiradora, ventana sin pausa como antes y el caso real completo (2ª técnica anotada con el botón del directo).
+- `public_publish_status.test.js` (nuevo, 7 aserciones, con una nube simulada): éxito comprobado, fallo con el motivo y registro de errores, y recuperación sola.
+- La página `marcador.html` se ha cargado contra el **Firestore real** (solo lectura, con un marcador que no existe): conecta sin errores de permisos y muestra "Esperando al marcador…".
+
 ## [Sin publicar] · kortline-v3 · Puntuales en voluntarios y tecnificaciones (B-GUEST11 + B-GUEST12, dev.127, 2026-11-13)
 
 Mario: *"las puntuales en la tecnificación, fuera del entrenamiento, en el Hoy, en el resumen no salen, por lo menos no las cuenta como presentes, y debería. Puede haber muchos errores de eso, haz muchas pruebas y arréglalo"*.

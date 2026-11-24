@@ -40,14 +40,10 @@ async function run() {
   r.assert(heads.length >= 2, "B-HISTMONTH1: 'Todos los meses' separa el listado por mes");
   r.assert(heads.every(h => /\d+ entrenos?/.test(h) && /%/.test(h) && !/ De /.test(h)), "B-HISTMONTH1: cada mes con nº de entrenos y % ('de' en minúscula)");
   r.assert((doc.getElementById("root").innerHTML.match(/openDeleteConfirm\(/g) || []).length === doc.querySelectorAll(".he").length && doc.querySelectorAll(".he").length >= 2, "B-HISTMONTH1: la papelera de cada día se mantiene");
-  // Aviso de sincronización
-  win.eval("_cloudEnabled=true;_syncUnsentSince=Date.now()-1000"); win._updateSyncChip();
-  r.assert(!doc.getElementById("sync-chip"), "B-SYNCCHIP1: con un envío reciente (<8 s) no se ve nada");
-  win.eval("_syncUnsentSince=Date.now()-20000"); win._updateSyncChip();
-  r.assert(!!doc.getElementById("sync-chip"), "B-SYNCCHIP1: cambios sin subir más de 8 s → aviso");
-  win.eval("_syncUnsentSince=0"); win._updateSyncChip();
-  r.assert(!doc.getElementById("sync-chip"), "B-SYNCCHIP1: en cuanto suben, desaparece");
-  win.eval("_cloudEnabled=false");
+  // Aviso de sincronización: retirado en dev.128 (B-SYNCCHIP2, Mario no lo quiere)
+  win.eval("_cloudEnabled=true;_syncUnsentSince=Date.now()-60000"); win._updateSyncChip();
+  r.assert(!doc.getElementById("sync-chip"), "B-SYNCCHIP2: nunca se enseña el aviso de 'cambios pendientes de subir'");
+  win.eval("_cloudEnabled=false;_syncUnsentSince=0");
   // Invitar
   win.openInviteCoach();
   r.assert(/instalar\.html/.test(doc.getElementById("m-invite").textContent) && !/PIN|código del club:/.test(doc.querySelector("#m-invite .share-preview").textContent.replace("código del club que te daré", "")), "B-INSTALL1: invitar manda el enlace a la guía y no incluye el código del club");
