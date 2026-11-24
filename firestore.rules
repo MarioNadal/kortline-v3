@@ -82,7 +82,11 @@ service cloud.firestore {
         allow get: if knownClub(clubId);
         allow list: if false;
         allow create, update: if ok(clubId)
-          && request.resource.data.keys().hasOnly(["team", "club", "rival", "location", "quarters", "q", "periods", "ours", "theirs", "clockSec", "clockRunning", "started", "finished", "date", "time", "updatedAt", "plays", "fouls", "tm", "stats", "players"]);
+          && request.resource.data.keys().hasOnly(["team", "club", "rival", "location", "quarters", "q", "periods", "ours", "theirs", "clockSec", "clockRunning", "started", "finished", "date", "time", "updatedAt", "plays", "fouls", "tm", "stats", "players", "logo"])
+          // Escudo del club: solo una imagen pequeña (o nada).
+          && (!("logo" in request.resource.data) || request.resource.data.logo == null
+              || (request.resource.data.logo is string && request.resource.data.logo.size() < 20000
+                  && request.resource.data.logo.matches("data:image/(jpeg|png|webp);base64,.*")));
         allow delete: if ok(clubId);
       }
 

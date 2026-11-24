@@ -39,6 +39,9 @@ async function run() {
   const pay2 = win._publicPayload("t1", m);
   r.assert(pay2.plays.every(x => x.s === undefined), "Si las jugadas no cuadran con el marcador real, no se muestra el marcador por jugada");
   r.assert(JSON.stringify(pay).length < 20000, "Tamaño pequeño (menos de 20 KB por envío)");
+  r.assert("logo" in pay && pay.logo === null, "Sin escudo en Ajustes: el campo del escudo va vacío");
+  const page = require("fs").readFileSync(require("path").join(__dirname, "..", "marcador.html"), "utf8");
+  r.assert(/data:image\\\/\(jpeg\|png\|webp\);base64/.test(page), "La página solo pinta el escudo si es una imagen válida (data:image/jpeg|png|webp)");
   return r.summary();
 }
 module.exports = { run };
