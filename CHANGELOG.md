@@ -3,6 +3,33 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Directo en horizontal: mesa de anotación con los dos equipos (B-LIVELS1, dev.129, 2026-11-24)
+
+Mario, tras ver un vídeo de una app de mesa de anotación: *"creo que me equivoqué intentándolo hacer en vertical... hay que hacerlo en horizontal"*. Eligió la **opción A** (los dos equipos, uno a cada lado), que salga **en horizontal por defecto en móvil y tablet** sin quitar el vertical, y para el rival: *"un cuadrado grande para el equipo, o los jugadores si se puede, pero el equipo siempre"*.
+
+### Añadido
+
+- **Mesa de anotación en horizontal** (al girar el móvil o la tablet en el directo):
+  - **Izquierda, tu equipo**: cabecera con nombre, faltas del cuarto (aviso a la 4.ª y BONUS a la 5.ª) y marcador; **banquillo en fila** (tocar un dorsal = hacer un cambio) y **los 5 en pista grandes**, con dorsal, nombre, puntos y faltas. ⇄ en cada una para cambiarla.
+  - **Derecha, el rival**: si se lleva su plantilla (5 o más), sus 5, su banquillo **y siempre un cuadrado de equipo**; si no, **un cuadrado grande de equipo**, que ahora permite anotarle de todo (puntos, fallos, rebotes, faltas…) y no solo +/−.
+  - **Centro**: periodo, reloj (tocar para corregir), ▶/⏸, T.M., ajustar reloj, 📊 estadísticas, 📡 marcador para familias, 🏁 terminar; y **todas las acciones a la vista**: +1/+2/+3, fallos, rebotes, asistencia, robo, tapón, pérdida y las faltas (con el reglamento FIBA 2026-27 si el partido lo usa). Abajo, la última jugada con **↶ Deshacer**.
+  - Se toca la jugadora (o el equipo) y luego la acción. Sin nadie elegido, la acción pregunta "¿Quién?" como siempre.
+  - Jugando **fuera**, el rival (local) va a la izquierda.
+  - **Modo ver**: se ve el partido, sin poder anotar.
+- **En vertical** el directo pide **"Gira el móvil"**, con **"Seguir en vertical"** para quien no quiera (se recuerda en ese móvil). La pantalla vertical de siempre sigue igual.
+
+### Por dentro (para no romper nada)
+
+- No hay lógica nueva de partido: cada toque llama a las mismas funciones que ya existían (`_pickActionFor`, `liveAction`, `liveTeamAction`, cambios, tiempos muertos, reloj). Faltas, tiros libres, descalificaciones y su cambio obligatorio, cadenas de asistencia y rebote, mapa de tiro, bonus, cuartos y prórrogas funcionan igual.
+- Arreglado por el camino: con el mapa de tiro activo, el tiro del **rival** se guarda en el rival aunque la pantalla se repinte mientras se elige la zona.
+- Al girar ya no se abre sola la tabla de estadísticas a pantalla completa (📊 sigue a mano).
+
+### Probado
+
+- `live_landscape.test.js` (nuevo, 31 aserciones): estructura, jugadora → acción (con la pregunta de asistencia), acción sin jugadora (pregunta "¿quién?"), cuadrado del rival (puntos, falta → nuestros tiros libres), nuestra antideportiva → tiros libres del rival, rival con plantilla (5 + banquillo + cuadrado de equipo), jugando fuera, reglamento 2026-27, modo solo equipo, mapa de tiro del rival, modo ver, y el aviso "Gira el móvil" / "Seguir en vertical".
+- `e2e/live_landscape.e2e.js` (nuevo): partido completo de 4 cuartos **pulsando los botones reales de la mesa horizontal** en iPhone, Android y iPad, con todas las comprobaciones tras cada jugada (marcador = puntos de las jugadoras, 5 en pista, nada negativo, sin desplazar la pantalla), resumen y las 7 exportaciones.
+- Las pruebas de siempre (vertical) simulan ahora un móvil en vertical, como cuando se escribieron, y en Chromium eligen "Seguir en vertical".
+
 ## [Sin publicar] · kortline-v3 · Tiros libres tras descalificación/lesión, marcador para familias y retoques (B-TLDQ1 + B-PUBLIC2 + B-SYNCCHIP2, dev.128, 2026-11-24)
 
 Mario, tras usarla en partidos reales: *"Unai tenía que tirar tiros libres pero es expulsado por técnica: debe ser cambiado primero y el que entra tira los tiros libres; y eso puede pasar también si se ha lesionado"*, *"el enlace del marcador, cuando lo pasas la gente no lo ve"*, *"cambios pendientes de subir con una nube, eso no quiero que le salga al usuario"*, *"añadir al calendario está centrado y los demás alineados a la izquierda"*.

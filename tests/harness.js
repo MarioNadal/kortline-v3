@@ -140,6 +140,12 @@ function loadApp(opts) {
       window.matchMedia = window.matchMedia || function () {
         return { matches: false, addListener() {}, removeListener() {} };
       };
+      // v3.0.0-dev.129: un móvil en VERTICAL (390×844), que es donde se
+      // escribieron estas pruebas. Sin esto jsdom mide 1024×768 (horizontal)
+      // y el directo saldría con la mesa horizontal (B-LIVELS1). Las pruebas
+      // del modo horizontal cambian el tamaño con setViewport (abajo).
+      Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
+      Object.defineProperty(window, "innerHeight", { configurable: true, writable: true, value: 844 });
       window.requestAnimationFrame = window.requestAnimationFrame || (cb => setTimeout(cb, 0));
       window.cancelAnimationFrame = window.cancelAnimationFrame || clearTimeout;
       // Opcional: inyectar un "firebase" falso ANTES de que se ejecute el

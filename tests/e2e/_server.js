@@ -28,6 +28,10 @@ async function openApp(device, opts) {
   await page.goto(`http://localhost:${srv.address().port}/${index}`);
   await page.evaluate(() => { localStorage.clear(); ["cbj-ios-never", "cbj-android-never"].forEach(k => localStorage.setItem(k, "1")); localStorage.setItem("cbj:tour_seen", "true"); localStorage.setItem("cbj:coachname_skipped", "true"); });
   await page.reload(); await page.waitForTimeout(500);
+  // v3.0.0-dev.129: el directo pide girar el móvil (horizontal por defecto).
+  // Estas pruebas recorren la pantalla vertical, así que eligen "seguir en
+  // vertical" como haría un entrenador (opts.liveLandscapePrompt lo deja).
+  if (!opts.liveLandscapePrompt) await page.evaluate(() => { try { lsSet("cbj:liveVertical", true, true); } catch (e) {} });
   const close = async () => { await browser.close(); srv.close(); };
   return { page, errors, close };
 }

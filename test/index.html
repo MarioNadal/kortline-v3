@@ -537,18 +537,21 @@ label{-webkit-tap-highlight-color:transparent;}
    (B-NEW-4) — ahí no tiene sentido el modo horizontal.
    Comportamiento heredado de v1.8.0; reintroducido en v1.8.24 tras el
    intento fallido de "live game horizontal operativo" en v1.8.23. */
+/* v3.0.0-dev.129 · B-LIVELS1: el antiguo "horizontal = tabla de stats a
+   pantalla completa" queda sustituido por la mesa de anotación horizontal
+   (.lsg). Se deja el bloque desactivado con una clase que nunca se pone. */
 @media (orientation:landscape){
-  body.in-live{overflow:hidden;}
-  body.in-live #root{max-width:100%;height:100dvh;}
-  body.in-live .header,
-  body.in-live .nav,
-  body.in-live .live-scoreboard-wrap,
-  body.in-live .live-col-r,
-  body.in-live .live-float-bar{display:none!important;}
-  body.in-live .live-game-content{padding:0!important;max-width:none!important;}
+  body.in-live.ls-legacy{overflow:hidden;}
+  body.in-live.ls-legacy #root{max-width:100%;height:100dvh;}
+  body.in-live.ls-legacy .header,
+  body.in-live.ls-legacy .nav,
+  body.in-live.ls-legacy .live-scoreboard-wrap,
+  body.in-live.ls-legacy .live-col-r,
+  body.in-live.ls-legacy .live-float-bar{display:none!important;}
+  body.in-live.ls-legacy .live-game-content{padding:0!important;max-width:none!important;}
   /* La tabla de stats inline (.live-stats-wrap) está marcada display:none
      en portrait. En landscape la promovemos a overlay fullscreen. */
-  body.in-live .live-stats-wrap{
+  body.in-live.ls-legacy .live-stats-wrap{
     display:block!important;
     position:fixed;inset:0;z-index:500;
     background:var(--bg);overflow-y:auto;overflow-x:auto;
@@ -556,11 +559,11 @@ label{-webkit-tap-highlight-color:transparent;}
     padding-top:calc(14px + env(safe-area-inset-top));
     padding-bottom:calc(14px + env(safe-area-inset-bottom));
   }
-  body.in-live .live-rotate-hint{display:none;}
+  body.in-live.ls-legacy .live-rotate-hint{display:none;}
   /* Tabla compacta para que quepan más columnas */
-  body.in-live .live-stats-wrap .stats-table{font-size:11px;}
-  body.in-live .live-stats-wrap .stats-table th{font-size:9px;padding:5px 4px;}
-  body.in-live .live-stats-wrap .stats-table td{padding:5px 4px;}
+  body.in-live.ls-legacy .live-stats-wrap .stats-table{font-size:11px;}
+  body.in-live.ls-legacy .live-stats-wrap .stats-table th{font-size:9px;padding:5px 4px;}
+  body.in-live.ls-legacy .live-stats-wrap .stats-table td{padding:5px 4px;}
 }
 /* v1.8.24: bloques @media (min-width: 768/1024) eliminados a propósito.
    Ver decisión arquitectónica arriba. La gestión vive en mobile-first;
@@ -569,6 +572,52 @@ label{-webkit-tap-highlight-color:transparent;}
    eliminado a propósito. Era para Fase 3 tablet landscape live game con
    marcador 54px, court cards más grandes, etc. — pero el live game ya
    no se reorganiza en landscape (ver bloque body.in-live arriba). */
+/* v3.0.0-dev.129 · B-LIVELS1: directo en horizontal (mesa de anotación) */
+body.in-live:has(.lsg){overflow:hidden}
+body.in-live:has(.lsg) #root{max-width:100%!important}
+.lsg{display:grid;grid-template-columns:1fr minmax(250px,.85fr) 1fr;gap:8px;height:100dvh;padding:6px max(6px,env(safe-area-inset-right)) 6px max(6px,env(safe-area-inset-left));box-sizing:border-box}
+.ls-side,.ls-mid{display:flex;flex-direction:column;gap:6px;min-width:0;min-height:0}
+.ls-head{display:flex;align-items:center;gap:6px;border-radius:10px;padding:5px 10px;min-height:38px}
+.ls-head.riv{background:linear-gradient(90deg,#b91c1c,#7f1d1d)}
+.ls-hname{flex:1;font-weight:900;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff}
+.ls-score{font-family:var(--font-d);font-weight:900;font-size:30px;line-height:1;color:#fff}
+.ls-chip{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.15);border-radius:7px;font-size:11px;font-weight:800;padding:3px 7px;color:#eef2ff;white-space:nowrap}
+.ls-bench{display:flex;gap:4px;flex-wrap:wrap}
+.ls-bench button{min-width:32px;height:30px;border-radius:8px;background:var(--s2);border:1px solid var(--border);color:var(--td);font-weight:900;font-size:12px}
+.ls-bench button.dq{opacity:.35;text-decoration:line-through}
+.ls-court{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:6px}
+.ls-court.one{grid-template-columns:1fr}
+.ls-tile{position:relative;background:var(--s);border:1.5px solid var(--border);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;min-height:0;padding:2px}
+.ls-tile.wide{grid-column:span 2}
+.ls-tile.sel{border:2.5px solid var(--orange);background:rgba(240,99,24,.18)}
+.ls-tile.dq{opacity:.45}
+.ls-tile.team{background:rgba(239,68,68,.07);border-style:dashed}
+.ls-tile.team.big{border-style:solid}
+.ls-tile.team.sel{background:rgba(240,99,24,.18);border-style:solid}
+.ls-num{font-family:var(--font-d);font-weight:900;font-size:clamp(18px,4.2vh,34px);line-height:1}
+.ls-nm{font-size:11px;font-weight:700;color:#cfe0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:95%}
+.ls-meta{font-size:10px;color:var(--td);display:flex;align-items:center;gap:4px}
+.ls-tname{font-family:var(--font-d);font-weight:900;font-size:clamp(14px,4vh,26px);text-align:center;padding:0 6px}
+.ls-dots{display:inline-flex;gap:2px}.ls-dots i{width:5px;height:5px;border-radius:50%;border:1px solid #ef4444}.ls-dots i.f{background:#ef4444}
+.ls-swap{position:absolute;top:3px;right:3px;width:24px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--td);font-size:12px;line-height:1;padding:0}
+.ls-bar{display:flex;align-items:center;justify-content:center;gap:6px}
+.ls-bar.small{gap:5px}
+.ls-clock{font-family:var(--font-d);font-weight:900;font-size:clamp(22px,6vh,40px);font-variant-numeric:tabular-nums;cursor:pointer}
+.ls-ib{min-width:36px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--tx);font-weight:800;font-size:13px;padding:0 8px}
+.ls-ib.play{background:rgba(34,197,94,.2);border-color:rgba(34,197,94,.5);color:#22c55e;min-width:44px}
+.ls-ib.tm{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.45);color:#f59e0b}
+.ls-hint{font-size:11px;color:var(--td);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ls-hint b{color:var(--orange)}
+.ls-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:5px}
+.ls-act{border-radius:9px;font-weight:900;font-size:clamp(11px,3.2vh,16px);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05;padding:0 2px;min-height:0}
+.ls-act small{font-size:9px;font-weight:700;opacity:.8}
+.ls-act.g{background:rgba(34,197,94,.14);border:1.5px solid rgba(34,197,94,.5);color:#22c55e}
+.ls-act.r{background:rgba(239,68,68,.11);border:1.5px solid rgba(239,68,68,.45);color:#f87171}
+.ls-act.b{background:rgba(59,130,246,.12);border:1.5px solid rgba(59,130,246,.45);color:#60a5fa}
+.ls-act.p{background:rgba(168,85,247,.12);border:1.5px solid rgba(168,85,247,.45);color:#c084fc}
+.ls-act.y{background:rgba(245,158,11,.12);border:1.5px solid rgba(245,158,11,.5);color:#f59e0b}
+.ls-last{display:flex;align-items:center;gap:6px;background:var(--s);border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:11px;min-height:30px}
+.ls-last span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-last button{border:1px solid rgba(59,130,246,.45);background:rgba(59,130,246,.12);color:#60a5fa;border-radius:7px;font-size:11px;font-weight:800;padding:4px 8px;white-space:nowrap}
 /* ── Crop Photo Modal ──────────────────────────── */
 #cropModal{display:none;position:fixed;inset:0;z-index:100000;background:rgba(7,15,30,.97);flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px}
 #cropModal.active{display:flex}
@@ -621,7 +670,7 @@ label{-webkit-tap-highlight-color:transparent;}
    los que enseñan un estado (asistencia, convocado, titular, capitán) se
    ven pero no se pueden pulsar. */
 .ro-banner{display:flex;align-items:center;gap:8px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.35);color:#93c5fd;border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:12.5px;font-weight:700;line-height:1.35}
-body.ro-mode button:is([onclick*="clearLiveLog("],[onclick*="openPlayerSheet("],[onclick*="stopPublicScore("],[onclick*="startPublicScore("],[onclick*="dlsAssist("],[onclick*="dlsBlock("],[onclick*="dlsRebound("],[onclick*="dlsShot("],[onclick*="dlsSteal("],[onclick*="dlsTurnover("],[onclick*="_dlsConfirmDeleteSession("],[onclick*="_dlsConfirmRemovePlayer("],[onclick*="_dlsMatchAssign("],[onclick*="_dlsAddTemp("],[onclick*="_dlsMatchAddTemp("],[onclick*="_dlsPickerConfirm("],[onclick*="_dlsCancelChain("],[onclick="startLiveGameConfirm()"],[onclick*="_applyClockRewind("],[onclick*="_confirmMergeAllGuestDuplicates("],[onclick*="_convClearAll("],[onclick*="_convSelectAll("],[onclick*="_endPeriodAction("],[onclick*="_finishAndShowSummary("],[onclick*="_guestPickerCommit("],[onclick*="_guestPlayerCommit("],[onclick*="_msAddOT("],[onclick*="_qInlineEdit("],[onclick*="_qStep("],[onclick*="_rivAdd("],[onclick*="_rivDel("],[onclick*="_tnHandlePhoto("],[onclick*="_tnRemovePhoto("],[onclick*="activateOT("],[onclick*="addDlsMinutes("],[onclick*="addManualOT("],[onclick*="addTimeout("],[onclick*="applyEditClock("],[onclick*="clearJust("],[onclick*="clearPlayerNote("],[onclick*="confirmEndDls("],[onclick*="confirmFinishMatch("],[onclick*="confirmInjuryRecovery("],[onclick*="confirmOurTL("],[onclick*="confirmOurTLShoot("],[onclick*="confirmOurTeamOnlyTLShoot("],[onclick*="confirmResetAtt("],[onclick*="confirmSession("],[onclick*="confirmTeamTLShoot("],[onclick*="delEvento("],[onclick*="delPlayer("],[onclick*="delTeam("],[onclick*="deleteDrill("],[onclick*="deleteIncident("],[onclick*="deleteLogEntry("],[onclick*="deleteMatchConfirm("],[onclick*="deleteMvp("],[onclick*="dlsMatchScore("],[onclick*="editClock("],[onclick*="evtConvAll("],[onclick*="evtConvNone("],[onclick*="execDelete("],[onclick*="finishMatch("],[onclick*="handlePhoto("],[onclick*="liveAction("],[onclick*="liveTeamAction("],[onclick*="reassignLogEntry("],[onclick*="removeGuestFromSession("],[onclick*="removeLastOT("],[onclick*="removePhoto("],[onclick*="resetClock("],[onclick*="revertTeamScoreAuto("],[onclick*="rivalFoulLive("],[onclick*="rivalScoreLive("],[onclick*="saveAttAndShare("],[onclick*="saveDrill("],[onclick*="saveEvento("],[onclick*="saveIncident("],[onclick*="saveInjury("],[onclick*="saveJust("],[onclick*="saveManualStatsQuarter("],[onclick*="saveMatchMeta("],[onclick*="saveMatchNotes("],[onclick*="saveMvp("],[onclick*="savePlayer("],[onclick*="savePlayerNote("],[onclick*="savePlusMinus("],[onclick*="saveRivalPlayer("],[onclick*="saveTLResults("],[onclick*="saveTeam("],[onclick*="setLiveQ("],[onclick*="setPlayType("],[onclick*="startDls("],[onclick*="startDlsMatch("],[onclick*="stepPlayerScore("],[onclick*="stepTeamScore("],[onclick*="subPlayer("],[onclick*="subRivalPlayer("],[onclick*="toggleClock("],[onclick*="toggleDlsClock("],[onclick*="toggleReducedMinutesDismiss("],[onclick*="toggleSessionDrill("],[onclick*="undoDlsLast("],[onclick*="undoLiveAction("],[onclick*="setAll("],[onclick*="openActionPicker("],[onclick*="openClockRewindModal("],[onclick*="openConvSetup("],[onclick*="openCourtRivalSubModal("],[onclick*="openCourtSubModal("],[onclick*="openDeleteConfirm("],[onclick*="openDrillModal("],[onclick*="openDrillPickerModal("],[onclick*="openEditQModal("],[onclick*="openEventoModal("],[onclick*="openGuestDuplicatesModal("],[onclick*="openGuestPlayerModal("],[onclick*="openIncidentEditModal("],[onclick*="openIncidentNewModal("],[onclick*="openInjuryEditModal("],[onclick*="openInjuryModal("],[onclick*="openJustModal("],[onclick*="openManualStatsModal("],[onclick*="openMatchModal("],[onclick*="openMvpNewModal("],[onclick*="openPlayerModal("],[onclick*="openPlayerNoteModal("],[onclick*="openReassignLogModal("],[onclick*="openSubModal("],[onclick*="openTeamModal("],[onclick*="openTimeoutModal("],[onclick*="openEventoConvModal("],[onclick*="openDlsResumeOrLive("]){display:none!important}
+body.ro-mode button:is([onclick*="_lsAct("],[onclick*="clearLiveLog("],[onclick*="openPlayerSheet("],[onclick*="stopPublicScore("],[onclick*="startPublicScore("],[onclick*="dlsAssist("],[onclick*="dlsBlock("],[onclick*="dlsRebound("],[onclick*="dlsShot("],[onclick*="dlsSteal("],[onclick*="dlsTurnover("],[onclick*="_dlsConfirmDeleteSession("],[onclick*="_dlsConfirmRemovePlayer("],[onclick*="_dlsMatchAssign("],[onclick*="_dlsAddTemp("],[onclick*="_dlsMatchAddTemp("],[onclick*="_dlsPickerConfirm("],[onclick*="_dlsCancelChain("],[onclick="startLiveGameConfirm()"],[onclick*="_applyClockRewind("],[onclick*="_confirmMergeAllGuestDuplicates("],[onclick*="_convClearAll("],[onclick*="_convSelectAll("],[onclick*="_endPeriodAction("],[onclick*="_finishAndShowSummary("],[onclick*="_guestPickerCommit("],[onclick*="_guestPlayerCommit("],[onclick*="_msAddOT("],[onclick*="_qInlineEdit("],[onclick*="_qStep("],[onclick*="_rivAdd("],[onclick*="_rivDel("],[onclick*="_tnHandlePhoto("],[onclick*="_tnRemovePhoto("],[onclick*="activateOT("],[onclick*="addDlsMinutes("],[onclick*="addManualOT("],[onclick*="addTimeout("],[onclick*="applyEditClock("],[onclick*="clearJust("],[onclick*="clearPlayerNote("],[onclick*="confirmEndDls("],[onclick*="confirmFinishMatch("],[onclick*="confirmInjuryRecovery("],[onclick*="confirmOurTL("],[onclick*="confirmOurTLShoot("],[onclick*="confirmOurTeamOnlyTLShoot("],[onclick*="confirmResetAtt("],[onclick*="confirmSession("],[onclick*="confirmTeamTLShoot("],[onclick*="delEvento("],[onclick*="delPlayer("],[onclick*="delTeam("],[onclick*="deleteDrill("],[onclick*="deleteIncident("],[onclick*="deleteLogEntry("],[onclick*="deleteMatchConfirm("],[onclick*="deleteMvp("],[onclick*="dlsMatchScore("],[onclick*="editClock("],[onclick*="evtConvAll("],[onclick*="evtConvNone("],[onclick*="execDelete("],[onclick*="finishMatch("],[onclick*="handlePhoto("],[onclick*="liveAction("],[onclick*="liveTeamAction("],[onclick*="reassignLogEntry("],[onclick*="removeGuestFromSession("],[onclick*="removeLastOT("],[onclick*="removePhoto("],[onclick*="resetClock("],[onclick*="revertTeamScoreAuto("],[onclick*="rivalFoulLive("],[onclick*="rivalScoreLive("],[onclick*="saveAttAndShare("],[onclick*="saveDrill("],[onclick*="saveEvento("],[onclick*="saveIncident("],[onclick*="saveInjury("],[onclick*="saveJust("],[onclick*="saveManualStatsQuarter("],[onclick*="saveMatchMeta("],[onclick*="saveMatchNotes("],[onclick*="saveMvp("],[onclick*="savePlayer("],[onclick*="savePlayerNote("],[onclick*="savePlusMinus("],[onclick*="saveRivalPlayer("],[onclick*="saveTLResults("],[onclick*="saveTeam("],[onclick*="setLiveQ("],[onclick*="setPlayType("],[onclick*="startDls("],[onclick*="startDlsMatch("],[onclick*="stepPlayerScore("],[onclick*="stepTeamScore("],[onclick*="subPlayer("],[onclick*="subRivalPlayer("],[onclick*="toggleClock("],[onclick*="toggleDlsClock("],[onclick*="toggleReducedMinutesDismiss("],[onclick*="toggleSessionDrill("],[onclick*="undoDlsLast("],[onclick*="undoLiveAction("],[onclick*="setAll("],[onclick*="openActionPicker("],[onclick*="openClockRewindModal("],[onclick*="openConvSetup("],[onclick*="openCourtRivalSubModal("],[onclick*="openCourtSubModal("],[onclick*="openDeleteConfirm("],[onclick*="openDrillModal("],[onclick*="openDrillPickerModal("],[onclick*="openEditQModal("],[onclick*="openEventoModal("],[onclick*="openGuestDuplicatesModal("],[onclick*="openGuestPlayerModal("],[onclick*="openIncidentEditModal("],[onclick*="openIncidentNewModal("],[onclick*="openInjuryEditModal("],[onclick*="openInjuryModal("],[onclick*="openJustModal("],[onclick*="openManualStatsModal("],[onclick*="openMatchModal("],[onclick*="openMvpNewModal("],[onclick*="openPlayerModal("],[onclick*="openPlayerNoteModal("],[onclick*="openReassignLogModal("],[onclick*="openSubModal("],[onclick*="openTeamModal("],[onclick*="openTimeoutModal("],[onclick*="openEventoConvModal("],[onclick*="openDlsResumeOrLive("]){display:none!important}
 body.ro-mode :is([onclick*="dlsAssist("],[onclick*="dlsBlock("],[onclick*="dlsRebound("],[onclick*="dlsShot("],[onclick*="dlsSteal("],[onclick*="dlsTurnover("],[onclick*="_dlsConfirmDeleteSession("],[onclick*="_dlsConfirmRemovePlayer("],[onclick*="_dlsMatchAssign("],[onclick*="_dlsAddTemp("],[onclick*="_dlsMatchAddTemp("],[onclick*="_dlsPickerConfirm("],[onclick*="_dlsCancelChain("],[onclick="startLiveGameConfirm()"],[onclick*="_applyClockRewind("],[onclick*="_confirmMergeAllGuestDuplicates("],[onclick*="_convClearAll("],[onclick*="_convSelectAll("],[onclick*="_endPeriodAction("],[onclick*="_finishAndShowSummary("],[onclick*="_guestPickerCommit("],[onclick*="_guestPlayerCommit("],[onclick*="_msAddOT("],[onclick*="_qInlineEdit("],[onclick*="_qStep("],[onclick*="_rivAdd("],[onclick*="_rivDel("],[onclick*="_tnHandlePhoto("],[onclick*="_tnRemovePhoto("],[onclick*="activateOT("],[onclick*="addDlsMinutes("],[onclick*="addManualOT("],[onclick*="addTimeout("],[onclick*="applyEditClock("],[onclick*="clearJust("],[onclick*="clearPlayerNote("],[onclick*="confirmEndDls("],[onclick*="confirmFinishMatch("],[onclick*="confirmInjuryRecovery("],[onclick*="confirmOurTL("],[onclick*="confirmOurTLShoot("],[onclick*="confirmOurTeamOnlyTLShoot("],[onclick*="confirmResetAtt("],[onclick*="confirmSession("],[onclick*="confirmTeamTLShoot("],[onclick*="delEvento("],[onclick*="delPlayer("],[onclick*="delTeam("],[onclick*="deleteDrill("],[onclick*="deleteIncident("],[onclick*="deleteLogEntry("],[onclick*="deleteMatchConfirm("],[onclick*="deleteMvp("],[onclick*="dlsMatchScore("],[onclick*="editClock("],[onclick*="evtConvAll("],[onclick*="evtConvNone("],[onclick*="execDelete("],[onclick*="finishMatch("],[onclick*="handlePhoto("],[onclick*="liveAction("],[onclick*="liveTeamAction("],[onclick*="reassignLogEntry("],[onclick*="removeGuestFromSession("],[onclick*="removeLastOT("],[onclick*="removePhoto("],[onclick*="resetClock("],[onclick*="revertTeamScoreAuto("],[onclick*="rivalFoulLive("],[onclick*="rivalScoreLive("],[onclick*="saveAttAndShare("],[onclick*="saveDrill("],[onclick*="saveEvento("],[onclick*="saveIncident("],[onclick*="saveInjury("],[onclick*="saveJust("],[onclick*="saveManualStatsQuarter("],[onclick*="saveMatchMeta("],[onclick*="saveMatchNotes("],[onclick*="saveMvp("],[onclick*="savePlayer("],[onclick*="savePlayerNote("],[onclick*="savePlusMinus("],[onclick*="saveRivalPlayer("],[onclick*="saveTLResults("],[onclick*="saveTeam("],[onclick*="setLiveQ("],[onclick*="setPlayType("],[onclick*="startDls("],[onclick*="startDlsMatch("],[onclick*="stepPlayerScore("],[onclick*="stepTeamScore("],[onclick*="subPlayer("],[onclick*="subRivalPlayer("],[onclick*="toggleClock("],[onclick*="toggleDlsClock("],[onclick*="toggleReducedMinutesDismiss("],[onclick*="toggleSessionDrill("],[onclick*="undoDlsLast("],[onclick*="undoLiveAction("],[onclick*="setAll("],[onclick*="openActionPicker("],[onclick*="openClockRewindModal("],[onclick*="openConvSetup("],[onclick*="openCourtRivalSubModal("],[onclick*="openCourtSubModal("],[onclick*="openDeleteConfirm("],[onclick*="openDrillModal("],[onclick*="openDrillPickerModal("],[onclick*="openEditQModal("],[onclick*="openEventoModal("],[onclick*="openGuestDuplicatesModal("],[onclick*="openGuestPlayerModal("],[onclick*="openIncidentEditModal("],[onclick*="openIncidentNewModal("],[onclick*="openInjuryEditModal("],[onclick*="openInjuryModal("],[onclick*="openJustModal("],[onclick*="openManualStatsModal("],[onclick*="openMatchModal("],[onclick*="openMvpNewModal("],[onclick*="openPlayerModal("],[onclick*="openPlayerNoteModal("],[onclick*="openReassignLogModal("],[onclick*="openSubModal("],[onclick*="openTeamModal("],[onclick*="openTimeoutModal("],[onclick*="openEventoConvModal("],[onclick*="openDlsResumeOrLive("]):not(button){pointer-events:none!important}
 body.ro-mode :is([onclick*="cycleAtt("],[onclick*="_mdCycleAtt("],[onclick*="_convCycleAtt("],[onclick*="toggleConvocado("],[onclick*="toggleTitular("],[onclick*="setCapitan("],[onclick*="_convToggle("],[onclick*="_convTitular("],[onclick*="_convCapitan("],[onclick*="evtTogglePlayer("]){pointer-events:none!important}
 </style>
@@ -1671,6 +1720,9 @@ function _confirmShot(pid,action,pts,xNorm,yNorm){
   const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
   // Marcar como "directo" para que liveAction/liveTeamAction NO vuelvan a abrir el modal
   window._scSkipCapture=true;
+  // B-LIVELS1: el lado lo dice el propio pid (en horizontal se anota a los
+  // dos equipos sin cambiar de pestaña).
+  if(pid==="rival-team"&&m.live)m.live.activeTeam="rival"; else if(pid==="team"&&m.live)m.live.activeTeam="our";
   if(pid==="team"||pid==="rival-team")liveTeamAction(action,pts);
   else liveAction(pid,action,pts);
   window._scSkipCapture=false;
@@ -2530,7 +2582,7 @@ const CLUB_AUTH_EMAIL = "club-cbjaca@kortline.app";
 // pesar de decenas de cambios reales -- ahora vive en UNA sola constante que
 // hay que bumpear junto con CACHE_VERSION (sw.js) en cada release, para que
 // no se vuelvan a desincronizar.
-const APP_VERSION = "3.0.0-dev.128";
+const APP_VERSION = "3.0.0-dev.129";
 
 let _cloudEnabled = false;   // true solo si FIREBASE_CONFIG está rellenado
 let _fbReady = false;        // true tras resolver el estado de auth inicial
@@ -14275,6 +14327,9 @@ function liveGame(){
   const onCourt=live.onCourt||[];
   const benchP=convP.filter(p=>!onCourt.includes(p.id));
   const courtP=onCourt.map(id=>convP.find(p=>p.id===id)).filter(Boolean);
+  // v3.0.0-dev.129 · B-LIVELS1: con el móvil/tablet en horizontal, mesa de
+  // anotación con los dos equipos (ver _liveLandscapeHtml).
+  if(_lsIsLandscape())return _liveLandscapeHtml({m,t,live,convP,benchP,courtP,rivalPlayers,rivalEnabled,teamOnly,ourTotal,theirTotal,teamFouls,rivalFoulsQ,curQ,qlabels});
   // Quarter tabs (v1.7.9 · R1: tabs > maxQ deshabilitados)
   const _maxQ=live.maxQ||1;
   const qTabs=qlabels.map((ql,qi)=>{
@@ -14934,7 +14989,12 @@ function liveGame(){
       +'<div style="background:'+grp.col+'12;padding:6px 12px;font-size:10px;font-weight:800;letter-spacing:1.5px;color:'+grp.col+';text-transform:uppercase">'+grp.lbl+'</div>'
       +'<div style="display:grid;grid-template-columns:repeat('+cols+',1fr);gap:4px;padding:8px">'+btns+'</div></div>';
   });
-  return`<header class="header live-header" style="padding-bottom:10px">
+  return`${_lsVerticalChosen()?"":`<div id="live-rotate-prompt" style="position:fixed;inset:0;z-index:600;background:rgba(7,15,30,.97);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px">
+    <div style="font-size:72px;animation:rotateHint 2.4s ease-in-out infinite">📱</div>
+    <div style="font-family:var(--font-d);font-weight:900;font-size:22px;color:var(--orange);margin:14px 0 8px">Gira el móvil</div>
+    <div style="font-size:14px;color:var(--td);max-width:300px;line-height:1.5;margin-bottom:22px">El partido en directo se anota en horizontal: los dos equipos a la vista y todas las acciones sin bajar la pantalla.</div>
+    <button class="btn-s" style="max-width:260px" onclick="_lsChooseVertical()">Seguir en vertical</button>
+  </div>`}<header class="header live-header" style="padding-bottom:10px">
   <div class="hrow" style="margin-bottom:8px">
     <button class="bbtn" onclick="exitLiveGame()">←</button>
     <div style="flex:1">
@@ -15051,6 +15111,126 @@ function liveGame(){
     <button onclick="openTimeoutModal()" style="min-width:48px;height:42px;border-radius:11px;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.14);color:#f59e0b;cursor:pointer;font-size:13px;font-weight:900;padding:0 10px">T.M</button>
   </div>
   ${navBar()}`;
+}
+/* ═══════════════════════════════════════
+   DIRECTO EN HORIZONTAL · v3.0.0-dev.129 · B-LIVELS1
+   Mario (vídeo de Scored): "hay que hacerlo en horizontal ... opción A ...
+   que salga predeterminado en horizontal, en el móvil y la tablet, dejando
+   el vertical ... el rival, de forma predeterminada, un cuadrado grande para
+   el equipo en vez de los jugadores, o los jugadores si se puede ... pero
+   el equipo siempre".
+   · Izquierda: nuestro equipo (cabecera con marcador y faltas, banquillo en
+     fila, los 5 en pista grandes). Derecha: el rival, igual si se lleva su
+     plantilla (5+ jugadores); si no, un cuadrado grande de EQUIPO. Siempre
+     hay cuadrado de equipo rival.
+   · Centro: periodo, reloj, T.M., y TODAS las acciones a la vista.
+   · Se toca la jugadora (o el equipo) y luego la acción. Si no hay nadie
+     elegido, la acción pregunta "¿quién?" como siempre.
+   · NO hay lógica nueva de partido: cada acción llama exactamente a lo de
+     siempre (_pickActionFor / liveAction / liveTeamAction, cambios,
+     tiempos muertos, reloj...), así que faltas, tiros libres, descalifica-
+     ciones, cadenas de asistencia/rebote, mapa de tiro, etc. son idénticos.
+   · En vertical se pide girar el móvil; "Seguir en vertical" se recuerda en
+     este dispositivo.
+═══════════════════════════════════════ */
+let _lsSel=null; // {side:"our"|"rival", id: pid | "team"}
+function _lsIsLandscape(){ try{ return window.innerWidth>window.innerHeight; }catch(e){ return false; } }
+function _lsVerticalChosen(){ return !!lsGet("cbj:liveVertical"); }
+function _lsChooseVertical(){ lsSet("cbj:liveVertical",true,true); document.getElementById("live-rotate-prompt")?.remove(); }
+function _lsSelect(side,id){
+  if(!_canEditTeam(S.teamId))return;
+  _lsSel=(_lsSel&&_lsSel.side===side&&_lsSel.id===id)?null:{side,id};
+  render();
+}
+function _lsAct(action,pts){
+  if(!_requireEdit(S.teamId))return false;
+  const m=mById(S.teamId,S.matchId);if(!m||!m.live)return;
+  const sel=_lsSel;_lsSel=null;
+  if(!sel){ m.live.activeTeam="our"; openActionPicker(action,pts); return; }
+  if(sel.side==="rival"){
+    m.live.activeTeam="rival";
+    if(sel.id==="team")liveTeamAction(action,pts);
+    else liveAction(sel.id,action,pts); // sin cadenas de asistencia/rebote (son de nuestro equipo)
+  } else {
+    m.live.activeTeam="our";
+    if(sel.id==="team")liveTeamAction(action,pts);
+    else _pickActionFor(sel.id,action,pts);
+  }
+  // Si no quedó ninguna ventana esperando (mapa de tiro, TL...), se vuelve
+  // al lado propio, que es el que usa la pantalla vertical por defecto.
+  const mm=mById(S.teamId,S.matchId);
+  if(mm&&mm.live&&!document.querySelector("body > div[id^='m-']"))mm.live.activeTeam="our";
+  save();render();
+}
+function _liveLandscapeHtml(o){
+  const {m,t,live,benchP,courtP,rivalPlayers,rivalEnabled,teamOnly,ourTotal,theirTotal,teamFouls,rivalFoulsQ,curQ,qlabels}=o;
+  const ro=!_canEditTeam(S.teamId);
+  const tc=t.color||"#F06318";
+  const isSel=(side,id)=>_lsSel&&_lsSel.side===side&&_lsSel.id===id;
+  const foulDots=(n)=>`<span class="ls-dots">${[0,1,2,3,4].map(i=>`<i class="${i<n?"f":""}"></i>`).join("")}</span>`;
+  const tile=(side,p,st,big)=>{
+    const pts=(st.p1m||0)+(st.p2m||0)*2+(st.p3m||0)*3, f=_totalFouls(st), dq=_isDQ(st);
+    const sub=side==="our"?`openCourtSubModal('${p.id}')`:`openCourtRivalSubModal('${p.id}')`;
+    return `<div class="ls-tile ${isSel(side,p.id)?"sel":""} ${dq?"dq":""} ${big?"wide":""}" ${ro?"":`onclick="_lsSelect('${side}','${p.id}')"`}>
+      <div class="ls-num" style="color:${side==="our"?"var(--tx)":"#fca5a5"}">${p.number!=null?esc(String(p.number)):"?"}</div>
+      <div class="ls-nm">${esc(_shortName(p.name||""))}</div>
+      <div class="ls-meta">${pts} pts ${foulDots(Math.min(f,5))}</div>
+      ${ro?"":`<button class="ls-swap" title="Cambio" onclick="event.stopPropagation();${sub}">⇄</button>`}
+    </div>`;
+  };
+  const teamTile=(side,name,extra)=>`<div class="ls-tile team ${isSel(side,"team")?"sel":""} ${extra||""}" ${ro?"":`onclick="_lsSelect('${side}','team')"`}>
+      <div class="ls-tname">${esc(name)}</div><div class="ls-meta">Equipo</div></div>`;
+  const fChip=(n)=>`<span class="ls-chip" style="${n>=5?"background:rgba(239,68,68,.25);color:#fca5a5":n===4?"background:rgba(245,158,11,.25);color:#fcd34d":""}">F ${n}${n>=5?" · BONUS":""}</span>`;
+  const bench=(side,list,stats)=>`<div class="ls-bench">${list.map(p=>{const dq=_isDQ(stats[p.id]||{});return `<button class="${dq?"dq":""}" ${ro||dq?"disabled":""} onclick="${side==="our"?`openSubModal('${p.id}')`:`openRivalSubModal('${p.id}')`}" title="${esc(p.name||"")} — entrar">${p.number!=null?esc(String(p.number)):"?"}</button>`;}).join("")}</div>`;
+  // Nuestro lado
+  const ourSide=teamOnly
+    ?`<div class="ls-court one">${teamTile("our",t.name,"big")}</div>`
+    :`${bench("our",benchP,live.stats||{})}<div class="ls-court">${courtP.map((p,i)=>tile("our",p,live.stats[p.id]||{},i===4)).join("")}</div>`;
+  // Rival: jugadores si se lleva su plantilla (5+), y siempre su cuadrado de equipo
+  const rivalTracked=rivalEnabled&&rivalPlayers.length>=5;
+  const rOn=(live.rivalOnCourt||[]).map(id=>rivalPlayers.find(p=>p.id===id)).filter(Boolean);
+  const rBench=rivalPlayers.filter(p=>!(live.rivalOnCourt||[]).includes(p.id));
+  const rivalSide=rivalTracked
+    ?`${bench("rival",rBench,live.rivalStats||{})}<div class="ls-court">${rOn.map(p=>tile("rival",p,(live.rivalStats||{})[p.id]||{},false)).join("")}${teamTile("rival",m.rival||"Rival")}</div>`
+    :`<div class="ls-court one">${teamTile("rival",m.rival||"Rival","big")}</div>`;
+  const fr=!!m.fibaRules2026;
+  const A=(id,l,cls,pts,sub)=>`<button class="ls-act ${cls}" onclick="_lsAct('${id}',${pts||0})">${l}${sub?`<small>${sub}</small>`:""}</button>`;
+  const fouls=fr
+    ?[A("foul","FALTA","y"),A("ftech1","TÉC-1","r",0,"grave"),A("ftech2","TÉC-2","y",0,"admin."),A("fdisr","DISR","p"),A("fflag","FLAGR.","r"),A("fdq","DESC","r")]
+    :[A("foul","FALTA","y"),A("ftech","TÉC","r"),A("funsport","ANTID.","r"),A("fdq","DESC","r")];
+  const selName=!_lsSel?"":_lsSel.id==="team"?(_lsSel.side==="our"?t.name:(m.rival||"Rival")):_shortName(((_lsSel.side==="our"?pl(S.teamId):rivalPlayers).find(p=>p.id===_lsSel.id)||{}).name||"");
+  const last=(live.log||[]).slice(-1)[0];
+  const isAway=m.location==="away";
+  const ourHead=`<div class="ls-head" style="background:linear-gradient(90deg,${tc},${tc}aa)"><span class="ls-hname">${esc(t.name)}</span>${fChip(teamFouls)}<span class="ls-score">${ourTotal}</span></div>`;
+  const rivHead=`<div class="ls-head riv"><span class="ls-score">${theirTotal}</span>${fChip(rivalFoulsQ)}<span class="ls-hname" style="text-align:right">${esc(m.rival||"Rival")}</span></div>`;
+  const left=`<div class="ls-side">${ourHead}${ourSide}</div>`;
+  const right=`<div class="ls-side">${rivHead}${rivalSide}</div>`;
+  return `<div class="lsg">
+    ${isAway?right:left}
+    <div class="ls-mid">
+      <div class="ls-bar">
+        <button class="ls-ib" onclick="exitLiveGame()" title="Salir">←</button>
+        <button class="ls-chip" onclick="openEditQModal()" style="cursor:pointer">${qlabels[curQ-1]||"Q"+curQ}</button>
+        <div id="live-clock" class="ls-clock" onclick="editClock()" style="color:${live.clockSec===0?"#ef4444":live.clockSec<60?"#f59e0b":"var(--tx)"}">${_fmtClock(live.clockSec)}</div>
+        ${ro?"":`<button id="live-clock-btn" class="ls-ib play" onclick="toggleClock()">${live.clockRunning?"⏸":"▶"}</button>`}
+      </div>
+      <div class="ls-bar small">
+        ${ro?"":`<button class="ls-ib tm" onclick="openTimeoutModal()">T.M.</button><button class="ls-ib" onclick="openClockRewindModal()" title="Ajustar reloj">↺</button>`}
+        <button class="ls-ib" onclick="openLiveStatsModal()" title="Estadísticas">📊</button>
+        <button class="ls-ib" onclick="openPublicScoreModal()" title="Marcador para familias">📡</button>
+        ${ro?"":`<button class="ls-ib" onclick="_finishAndShowSummary('${S.teamId}','${S.matchId}')" title="Terminar partido">🏁</button>`}
+      </div>
+      ${ro?`<div class="ls-hint">👁 Modo ver</div>`:`<div class="ls-hint">${_lsSel?`<b>${esc(selName)}</b> · elige la acción`:"Toca jugadora o equipo → acción"}</div>
+      <div class="ls-grid">
+        ${A("p1m","+1","g",1,"TL")}${A("p2m","+2","g",2)}${A("p3m","+3","g",3)}${A("ast","AST","b")}
+        ${A("p1a","✗ TL","r")}${A("p2a","✗ 2","r")}${A("p3a","✗ 3","r")}${A("stl","ROB","b")}
+        ${A("ro","REB OF","p")}${A("rd","REB DEF","p")}${A("blk","TAP","b")}${A("to","PÉR","r")}
+        ${fouls.join("")}
+      </div>`}
+      <div class="ls-last">${last?`<span>${esc(last.desc||"")}</span>`:`<span style="color:var(--tm)">Sin jugadas todavía</span>`}${ro||!last?"":`<button onclick="undoLiveAction()">↶ Deshacer</button>`}</div>
+    </div>
+    ${isAway?left:right}
+  </div>`;
 }
 /* ═══════════════════════════════════════
    LIVE STATS MODAL (v1.8.20)
@@ -17855,9 +18035,8 @@ function closeLandscapeStats(){
 window.addEventListener('orientationchange',()=>{
   setTimeout(()=>{
     const isLand=window.innerWidth>window.innerHeight;
-    if(isLand&&S.screen==='liveGame'&&!document.getElementById('ls-overlay')){
-      openLandscapeStats();
-    }
+    // v3.0.0-dev.129 · B-LIVELS1: ya no se abre la tabla de estadísticas al
+    // girar: en horizontal está la mesa de anotación (📊 sigue a mano).
     if(!isLand&&document.getElementById('ls-overlay')){
       document.getElementById('ls-overlay')?.remove();
     }
