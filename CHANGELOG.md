@@ -3,6 +3,32 @@
 Todos los cambios notables del proyecto se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) · Versionado según [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar] · kortline-v3 · Marcador para familias con apartados: jugadas, estadísticas y jugadoras (B-PUBLIC3, dev.130, 2026-11-24)
+
+Mario, al verlo funcionar: *"muy pocos datos y muy cutres... podrían salir muchas cosas mejor, empezando por las jugadas, y tener varios apartados"*. Sobre las jugadoras eligió **"dorsal y nombre"**.
+
+> ⚠️ **Antes de fusionar: publicar `firestore.rules`** (el marcador admite ahora los campos `plays`, `fouls`, `tm`, `stats`, `players` y `logo`). Si la app nueva llega antes que las reglas, el marcador para familias deja de actualizarse (la ventana 📡 lo avisa con "permission-denied"). El resto de la app no se ve afectado.
+
+### Cambiado
+
+- **`marcador.html` rediseñado**:
+  - **Cabecera fija** con el marcador grande, el cuarto y el reloj, que corre solo en el móvil de la familia. El nombre del equipo ya no se parte por la mitad: la letra se ajusta para que quepa.
+  - **Partido**: parciales por cuarto con el total, faltas del cuarto de cada equipo (con BONUS), tiempos muertos de la mitad y las últimas 4 jugadas.
+  - **Jugadas**: las últimas 40, la más reciente arriba, con cuarto y minuto, quién («#7 Unai»), qué («+2 Canasta», «Tiros libres 1/2», «Tiempo muerto», cambios…) y cómo queda el marcador. Las canastas van resaltadas.
+  - **Estadísticas**: los dos equipos frente a frente (tiros de 2, triples y libres con %, rebotes ofensivos y defensivos, asistencias, robos, tapones, pérdidas y faltas), con barras.
+  - **Jugadoras**: las nuestras que han jugado, con puntos, rebotes, asistencias y faltas, ordenadas por puntos y con un punto verde en las que están en pista.
+- **Escudo del club** en la esquina superior izquierda (Mario: *"el logo del club en una esquina"*). Es el que se sube en Ajustes, reducido una sola vez a 96×96 (unos 5 KB) para no cargar cada actualización. Las reglas solo aceptan una imagen pequeña (menos de 20 KB) y la página solo muestra imágenes válidas. Sin escudo en Ajustes, no sale nada.
+- **Lo que se publica**: de **nuestras jugadoras, dorsal y nombre corto** (el mismo de la app, por ejemplo «#4 Unai» o «#4 Unai P.»; nunca el apellido completo). **Del rival, solo el dorsal y el nombre del club.** El marcador de cada jugada solo se muestra si cuadra con el marcador real; si se corrigió algo a mano, no se inventa.
+- **Mismo número de escrituras que antes**: es el mismo documento, que se actualiza en los mismos momentos, solo con más datos (unos 4 KB).
+- Si el marcador lo publica una app sin actualizar, la página enseña solo lo que tiene (marcador y parciales).
+
+### Probado
+
+- `public_payload_rich.test.js` (nuevo, 13 aserciones): orden de las jugadas, dorsal y nombre corto, marcador tras cada jugada, nada de nombres del rival ni apellidos completos, cuartos, estadísticas de los dos equipos, jugadoras y si están en pista, faltas y tiempos muertos, que no se invente el marcador si no cuadra, y tamaño.
+- `season_match_stats.test.js`: en 460 jugadas en directo, el marcador de la última jugada publicada coincide siempre con el real.
+- `calendar_requests_public.test.js`: los campos publicados se comparan ahora con los que permite **el propio `firestore.rules`**, para que nunca se desincronicen.
+- En Chromium (iPhone 13), con los datos de un partido jugado en la app: las 4 pestañas sin desplazamiento lateral ni errores.
+
 ## [Sin publicar] · kortline-v3 · Directo en horizontal: mesa de anotación con los dos equipos (B-LIVELS1, dev.129, 2026-11-24)
 
 Mario, tras ver un vídeo de una app de mesa de anotación: *"creo que me equivoqué intentándolo hacer en vertical... hay que hacerlo en horizontal"*. Eligió la **opción A** (los dos equipos, uno a cada lado), que salga **en horizontal por defecto en móvil y tablet** sin quitar el vertical, y para el rival: *"un cuadrado grande para el equipo, o los jugadores si se puede, pero el equipo siempre"*.

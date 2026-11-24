@@ -72,9 +72,11 @@ async function run() {
   r.assert(/^pb[0-9a-f]{24}$/.test(m.publicToken || ""), "B-PUBLIC1: crea un token aleatorio largo");
   const pay = win._publicPayload("t1", m);
   r.assert(pay.ours === 2 && pay.theirs === 0 && pay.rival === "CB Huesca" && pay.started === true, "B-PUBLIC1: publica el marcador correcto");
-  r.assert(!/Secreta|Carla|Dana|Eva/.test(JSON.stringify(pay)), "B-PUBLIC1: nunca publica nombres de jugadoras");
-  const allowed = ["team", "club", "rival", "location", "quarters", "q", "periods", "ours", "theirs", "clockSec", "clockRunning", "started", "finished", "date", "time", "updatedAt"];
-  r.assert(Object.keys(pay).every(k => allowed.includes(k)), "B-PUBLIC1: solo campos permitidos por las reglas de Firestore");
+  // B-PUBLIC3 (decisión de Mario: "dorsal y nombre"): solo nombre CORTO, nunca el apellido completo.
+  r.assert(!/Secreta/.test(JSON.stringify(pay)) && /#4 Ana/.test(JSON.stringify(pay)), "B-PUBLIC3: publica dorsal y nombre corto (nunca el apellido completo)");
+  const rulesTxt = require("fs").readFileSync(require("path").join(__dirname, "..", "firestore.rules"), "utf8");
+  const allowed = JSON.parse(rulesTxt.slice(rulesTxt.indexOf("hasOnly(", rulesTxt.indexOf("match /public/")) + 8, rulesTxt.indexOf(")", rulesTxt.indexOf("hasOnly(", rulesTxt.indexOf("match /public/")))));
+  r.assert(Object.keys(pay).every(k => allowed.includes(k)), "B-PUBLIC1: solo campos permitidos por las reglas de Firestore (leídos de firestore.rules)");
   r.assert(/marcador\.html\?c=[^&]+&t=pb/.test(win._publicScoreUrl(m)), "B-PUBLIC1: enlace a marcador.html con club y token");
   r.assert(/Marcador para familias/.test(win.document.body.textContent), "B-PUBLIC1: abre la ventana con el enlace");
   win.document.querySelectorAll("body > div[id^='m-']").forEach(x => x.remove());
